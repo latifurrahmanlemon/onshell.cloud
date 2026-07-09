@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-onshell_cloud}
+      POSTGRES_USER: ${POSTGRES_USER:-onshell}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-onshell}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  guacd:
+    image: guacamole/guacd:1.5.5
+    ports:
+      - "4822:4822"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://onshell:onshell@postgres:5432/onshell_cloud?schema=public
+      REDIS_URL: redis://redis:6379
+      GATEWAY_BASE_URL: http://gateway:4100
+      CORS_ORIGINS: http://localhost:3000
+      JWT_SECRET: change-me-in-development
+      MASTER_ENCRYPTION_KEY: replace-with-32-byte-base64-key
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 4100
+      REDIS_URL: redis://redis:6379
+      GATEWAY_BASE_URL: http://localhost:4100
+      CORS_ORIGINS: http://localhost:3000
+      GUACD_HOST: guacd
+      GUACD_PORT: 4822
+    ports:
+      - "4100:4100"
+    depends_on:
+      redis:
+        condition: service_healthy
+      guacd:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+      NEXT_PUBLIC_GATEWAY_BASE_URL: http://localhost:4100
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+      - gateway
+
+volumes:
+  postgres_data:
+

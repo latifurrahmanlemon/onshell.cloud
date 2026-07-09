@@ -1,0 +1,437 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  DEVOPS
+  DEVELOPER
+  AUDITOR
+}
+
+enum HostType {
+  SSH
+  RDP
+  VNC
+}
+
+enum Environment {
+  PRODUCTION
+  STAGING
+  DEVELOPMENT
+}
+
+enum CredentialKind {
+  PASSWORD
+  SSH_KEY
+  RDP_PASSWORD
+}
+
+enum SessionProtocol {
+  SSH
+  SFTP
+  RDP
+  VNC
+  TUNNEL
+}
+
+enum SessionStatus {
+  PENDING
+  ACTIVE
+  CLOSED
+  FAILED
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  STRIPE
+  PADDLE
+  SSL_COMMERZ
+  MANUAL
+}
+
+enum AuthProvider {
+  GOOGLE
+}
+
+model User {
+  id                 String               @id @default(cuid())
+  email              String               @unique
+  name               String
+  passwordHash       String?
+  isPlatformAdmin    Boolean              @default(false)
+  emailVerifiedAt    DateTime?
+  twoFactorEnabled   Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  memberships        OrganizationMember[]
+  sessions           Session[]
+  snippets           Snippet[]
+  refreshTokens      RefreshToken[]
+  twoFactorSecret    TwoFactorSecret?
+  passwordResetToken PasswordResetToken[]
+  auditLogs          AuditLog[]           @relation("AuditActor")
+  updatedSettings    AppSetting[]         @relation("SettingUpdatedBy")
+  updatedSmtpSettings SmtpSetting[]       @relation("SmtpUpdatedBy")
+  oauthAccounts      OAuthAccount[]
+}
+
+model Organization {
+  id          String               @id @default(cuid())
+  name        String
+  slug        String               @unique
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  members     OrganizationMember[]
+  invitations Invitation[]
+  hosts       Host[]
+  credentials Credential[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+  snippets    Snippet[]
+  subscriptions Subscription[]
+  usageRecords UsageRecord[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           Role
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model Invitation {
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String
+  role           Role
+  tokenHash      String
+  acceptedAt     DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Host {
+  id             String          @id @default(cuid())
+  organizationId String
+  groupId        String?
+  name           String
+  type           HostType
+  address        String
+  port           Int
+  username       String?
+  environment    Environment
+  notes          String?
+  health         String          @default("unknown")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group          HostGroup?      @relation(fields: [groupId], references: [id])
+  tags           HostTag[]
+  credentials    Credential[]
+  sessions       Session[]
+  snippets       Snippet[]
+  sftpOperations SftpOperation[]
+  rdpConnection  RdpConnection?
+  tunnelRules    TunnelRule[]
+}
+
+model HostGroup {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  hosts          Host[]
+}
+
+model HostTag {
+  id     String @id @default(cuid())
+  name   String
+  hostId String
+  host   Host   @relation(fields: [hostId], references: [id], onDelete: Cascade)
+}
+
+model Credential {
+  id               String         @id @default(cuid())
+  organizationId   String
+  name             String
+  kind             CredentialKind
+  encryptedPayload String
+  nonce            String
+  authTag          String
+  rotatedAt        DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  hosts            Host[]
+  sshKey           SSHKey?
+}
+
+model SSHKey {
+  id             String     @id @default(cuid())
+  credentialId   String     @unique
+  fingerprint    String
+  passphraseHint String?
+  createdAt      DateTime   @default(now())
+  credential     Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id               String          @id @default(cuid())
+  organizationId   String
+  hostId           String
+  userId           String
+  protocol         SessionProtocol
+  status           SessionStatus   @default(PENDING)
+  gatewaySessionId String?
+  startedAt        DateTime        @default(now())
+  endedAt          DateTime?
+  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host             Host            @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sftpOperations   SftpOperation[]
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorId        String
+  action         String
+  targetType     String
+  targetId       String?
+  ipAddress      String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User         @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+}
+
+model Snippet {
+  id             String       @id @default(cuid())
+  organizationId String
+  ownerId        String
+  hostId         String?
+  name           String
+  command        String
+  scope          String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  host           Host?        @relation(fields: [hostId], references: [id])
+}
+
+model SftpOperation {
+  id        String   @id @default(cuid())
+  sessionId String
+  hostId    String
+  operation String
+  path      String
+  status    String
+  createdAt DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+}
+
+model RdpConnection {
+  id        String   @id @default(cuid())
+  hostId    String   @unique
+  width     Int?
+  height    Int?
+  colorDepth Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+}
+
+model TunnelRule {
+  id        String   @id @default(cuid())
+  hostId    String
+  name      String
+  localPath String
+  targetUrl String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  revokedAt DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TwoFactorSecret {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  encryptedSecret String
+  nonce           String
+  authTag         String
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OAuthAccount {
+  id                String       @id @default(cuid())
+  userId            String
+  provider          AuthProvider
+  providerAccountId String
+  email             String
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([email])
+}
+
+model Plan {
+  id                    String         @id @default(cuid())
+  code                  String         @unique
+  name                  String
+  description           String
+  priceMonthlyCents     Int
+  priceYearlyCents      Int
+  currency              String         @default("USD")
+  maxUsers              Int?
+  maxHosts              Int?
+  maxConcurrentSessions Int?
+  auditRetentionDays    Int
+  features              Json
+  isActive              Boolean        @default(true)
+  displayOrder          Int            @default(0)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  subscriptions         Subscription[]
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  organizationId         String
+  planId                 String
+  status                 SubscriptionStatus @default(TRIALING)
+  billingInterval        BillingInterval    @default(MONTHLY)
+  currentPeriodStart     DateTime
+  currentPeriodEnd       DateTime
+  trialEndsAt            DateTime?
+  cancelAt               DateTime?
+  providerCustomerId     String?
+  providerSubscriptionId String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  organization           Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                   Plan               @relation(fields: [planId], references: [id])
+  invoices               Invoice[]
+}
+
+model Invoice {
+  id                String       @id @default(cuid())
+  subscriptionId    String
+  amountCents       Int
+  currency          String       @default("USD")
+  status            String       @default("draft")
+  providerInvoiceId String?      @unique
+  hostedInvoiceUrl  String?
+  paidAt            DateTime?
+  dueAt             DateTime?
+  createdAt         DateTime     @default(now())
+  subscription      Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+}
+
+model UsageRecord {
+  id             String       @id @default(cuid())
+  organizationId String
+  metric         String
+  quantity       Int
+  periodStart    DateTime
+  periodEnd      DateTime
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model SmtpSetting {
+  id                String   @id @default("global")
+  host              String
+  port              Int
+  secure            Boolean  @default(true)
+  username          String?
+  encryptedPassword String?
+  passwordNonce     String?
+  passwordAuthTag   String?
+  fromEmail         String
+  fromName          String
+  enabled           Boolean  @default(false)
+  testRecipient     String?
+  updatedById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  updatedBy         User?    @relation("SmtpUpdatedBy", fields: [updatedById], references: [id])
+}
+
+model AppSetting {
+  key         String   @id
+  category    String
+  value       Json
+  isSecret    Boolean  @default(false)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   User?    @relation("SettingUpdatedBy", fields: [updatedById], references: [id])
+}
+
+model PaymentSetting {
+  id                 String          @id @default(cuid())
+  provider           PaymentProvider
+  mode               String          @default("test")
+  publicKey          String?
+  encryptedSecretKey String?
+  secretKeyNonce     String?
+  secretKeyAuthTag   String?
+  encryptedWebhookSecret String?
+  webhookSecretNonce String?
+  webhookSecretAuthTag String?
+  enabled            Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@unique([provider, mode])
+}

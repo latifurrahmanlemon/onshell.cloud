@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: onshell_cloud
+          POSTGRES_USER: onshell
+          POSTGRES_PASSWORD: onshell
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U onshell -d onshell_cloud"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://onshell:onshell@localhost:5432/onshell_cloud?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-jwt-secret
+      MASTER_ENCRYPTION_KEY: ci-master-key
+      PUBLIC_BASE_URL: http://localhost:3000
+      API_BASE_URL: http://localhost:4000
+      GATEWAY_BASE_URL: http://localhost:4100
+      CORS_ORIGINS: http://localhost:3000
+      ADMIN_EMAIL: latifur.tech@gmial.com
+      ADMIN_PASSWORD: "Lemon553&"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn db:generate
+      - run: yarn db:deploy
+      - run: yarn db:seed
+      - run: yarn typecheck
+      - run: yarn test
+      - run: yarn build
