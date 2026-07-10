@@ -24,6 +24,7 @@ import { canManageHosts, canManageUsers, canOpenSession, roles } from "@onshell/
 import { cx } from "@onshell/ui";
 import type { PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
+import type { ThemeMode } from "../theme";
 
 /* ---------- shared bits ---------- */
 
@@ -829,26 +830,23 @@ export function AuditView({ logs, loading, memberNames }: { logs: AuditLog[]; lo
 
 /* ---------- Settings ---------- */
 
-export type ThemeName = "forest" | "slate" | "carbon";
-
-const themeSwatches: Record<ThemeName, string[]> = {
-  forest: ["#111312", "#1c271c", "#65c466"],
-  slate: ["#0f172a", "#1d2a47", "#65c466"],
-  carbon: ["#101010", "#202020", "#65c466"]
+const modeSwatches: Record<ThemeMode, string[]> = {
+  dark: ["#111312", "#1c271c", "#65c466"],
+  light: ["#f4f7f1", "#e2efe0", "#1e7d3c"]
 };
 
 export function SettingsView({
   user,
   organizationName,
-  theme,
-  onTheme,
+  mode,
+  onMode,
   onLogout,
   notify
 }: {
   user: User;
   organizationName: string;
-  theme: ThemeName;
-  onTheme: (theme: ThemeName) => void;
+  mode: ThemeMode;
+  onMode: (mode: ThemeMode) => void;
   onLogout: () => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
@@ -938,19 +936,19 @@ export function SettingsView({
           </div>
         </div>
         <div className="theme-options">
-          {(Object.keys(themeSwatches) as ThemeName[]).map((name) => (
+          {(Object.keys(modeSwatches) as ThemeMode[]).map((name) => (
             <button
-              className={cx("theme-option", theme === name && "is-active")}
+              className={cx("theme-option", mode === name && "is-active")}
               key={name}
-              onClick={() => onTheme(name)}
+              onClick={() => onMode(name)}
               type="button"
             >
-              <span className="theme-swatch" style={{ background: themeSwatches[name][0] }}>
-                {themeSwatches[name].map((color) => (
+              <span className="theme-swatch" style={{ background: modeSwatches[name][0] }}>
+                {modeSwatches[name].map((color) => (
                   <i key={color} style={{ background: color }} />
                 ))}
               </span>
-              {name.charAt(0).toUpperCase() + name.slice(1)}
+              {name === "dark" ? "Dark" : "Light"}
             </button>
           ))}
         </div>

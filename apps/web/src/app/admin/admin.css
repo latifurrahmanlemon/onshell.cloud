@@ -20,7 +20,7 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #151815;
+  background: var(--surface-2);
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
@@ -79,7 +79,7 @@
   border: 1px solid rgba(225, 108, 114, 0.4);
   border-radius: 8px;
   background: rgba(225, 108, 114, 0.08);
-  color: #f2ced0;
+  color: var(--rose);
   font-size: 13px;
 }
 
@@ -113,7 +113,7 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(240, 242, 237, 0.07), transparent);
+  background: linear-gradient(90deg, transparent, var(--skeleton-hi), transparent);
   animation: adm-shimmer 1.4s ease infinite;
 }
 
@@ -218,7 +218,7 @@
   width: fit-content;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #222821;
+  background: var(--surface-2);
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
@@ -296,7 +296,7 @@
 }
 
 .adm-link-button:hover {
-  color: #8ad98b;
+  color: var(--green);
 }
 
 /* Overview status rows */
@@ -454,7 +454,7 @@
 }
 
 .adm-provider-row:hover {
-  background: #1b2119;
+  background: var(--elevated);
 }
 
 .adm-provider-row:last-child {
@@ -523,7 +523,7 @@
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #121511;
+  background: var(--field);
   color: var(--text);
   transition: border-color 0.2s ease;
 }
@@ -576,7 +576,7 @@
 }
 
 .admin-shell .primary-button:hover:not(:disabled) {
-  background: #2b4f2c;
+  background: var(--accent-hover);
 }
 
 .admin-shell .secondary-button:hover:not(:disabled),
@@ -661,4 +661,133 @@
   .adm-error-banner .secondary-button {
     margin-left: 0;
   }
+}
+
+
+/* ---- Admin sign-in gate ---- */
+.admin-gate {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.admin-gate-toggle {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 5;
+}
+.admin-gate-card {
+  width: min(100%, 420px);
+  padding: 0 0 20px;
+}
+.admin-gate-head {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 28px 24px 18px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.admin-gate-badge {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 6px;
+  border: 1px solid var(--accent-weak-border);
+  border-radius: 12px;
+  background: var(--brand-tint);
+  color: var(--green);
+}
+.admin-gate-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-family: var(--font-display), inherit;
+}
+.admin-gate-head p {
+  margin: 0;
+  max-width: 300px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.admin-gate-body {
+  display: grid;
+  gap: 12px;
+  padding: 20px 24px 4px;
+}
+.admin-gate-body label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.admin-gate-body input {
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  transition: border-color 0.2s ease;
+}
+.admin-gate-body input:focus {
+  outline: none;
+  border-color: var(--accent-line);
+}
+.admin-gate-body .primary-button,
+.admin-gate-body .secondary-button {
+  min-height: 42px;
+  margin-top: 4px;
+  text-decoration: none;
+}
+.admin-gate-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.admin-gate-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.admin-gate-note svg {
+  flex-shrink: 0;
+  color: var(--green);
+}
+.admin-gate-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--rose);
+  font-size: 13px;
+}
+.admin-gate-resend {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.admin-gate-resend:disabled {
+  color: var(--soft);
+  cursor: not-allowed;
 }

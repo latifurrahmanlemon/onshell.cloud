@@ -27,8 +27,8 @@ import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, gatewayBaseUrl, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
 import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
-import type { ThemeName } from "./panels";
 import type { TerminalStatus } from "./terminal";
+import { ThemeToggle, useThemeMode } from "../theme";
 import "./console.css";
 
 const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
@@ -71,7 +71,7 @@ export default function ConsolePage() {
   const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [view, setView] = useState<ViewKey>("overview");
-  const [theme, setTheme] = useState<ThemeName>("forest");
+  const { mode, setMode } = useThemeMode();
   const [toast, setToast] = useState<Toast | null>(null);
 
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -107,21 +107,6 @@ export default function ConsolePage() {
     const timer = window.setTimeout(() => setToast(null), 4000);
     return () => window.clearTimeout(timer);
   }, [toast]);
-
-  /* theme */
-  useEffect(() => {
-    const saved = window.localStorage.getItem("onshell-theme") as ThemeName | null;
-    if (saved === "slate" || saved === "carbon") setTheme(saved);
-  }, []);
-
-  useEffect(() => {
-    if (theme === "forest") {
-      document.documentElement.removeAttribute("data-theme");
-    } else {
-      document.documentElement.setAttribute("data-theme", theme);
-    }
-    window.localStorage.setItem("onshell-theme", theme);
-  }, [theme]);
 
   /* auth + data */
   const refreshAll = useCallback(async () => {
@@ -336,6 +321,7 @@ export default function ConsolePage() {
             <p className="brand-name">Onshell.cloud</p>
             <p className="brand-domain">{identity.organization?.name ?? "Workspace"}</p>
           </div>
+          <ThemeToggle className="sidebar-theme-toggle" />
         </div>
         <nav aria-label="Console" className="nav-list">
           {navItems.map((item) => (
@@ -661,11 +647,11 @@ export default function ConsolePage() {
 
             {view === "settings" && (
               <SettingsView
+                mode={mode}
                 notify={notify}
                 onLogout={() => void logout()}
-                onTheme={setTheme}
+                onMode={setMode}
                 organizationName={identity.organization?.name ?? "Workspace"}
-                theme={theme}
                 user={identity.user}
               />
             )}

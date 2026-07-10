@@ -3,7 +3,19 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
-import { Check, Circle, Cloud, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck } from "lucide-react";
+import {
+  Building2,
+  Check,
+  Circle,
+  Cloud,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Mail,
+  ShieldCheck,
+  UserRound,
+  UserPlus
+} from "lucide-react";
 import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { ThemeToggle } from "../theme";
 import "../auth.css";
@@ -11,7 +23,7 @@ import "../auth.css";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const RESEND_SECONDS = 30;
 
-type Mode = "login" | "twofa" | "forgot-request" | "forgot-reset";
+type Mode = "signup" | "twofa";
 type TwoFactorMethod = "totp" | "email";
 type Tone = "info" | "error" | "success";
 
@@ -57,22 +69,20 @@ function PasswordStrength({ password, describedById }: { password: string; descr
 
 function mapErrorCode(code?: string): string | undefined {
   switch (code) {
-    case "invalid_credentials":
-      return "That email or password is incorrect.";
+    case "email_already_registered":
+      return "An account with this email already exists. Try logging in instead.";
+    case "password_policy_violation":
+      return "Please choose a stronger password.";
     case "invalid_two_factor_code":
       return "That code is invalid. Please try again.";
     case "too_many_attempts":
-      return "Too many attempts. Please sign in again.";
+      return "Too many attempts. Please start over.";
     case "two_factor_challenge_not_found":
-      return "Your verification session expired. Please sign in again.";
-    case "invalid_reset_code":
-      return "That reset code is invalid or has expired.";
-    case "password_policy_violation":
-      return "Please choose a stronger password.";
-    case "google_oauth_not_configured":
-      return "Google sign-in isn't configured yet.";
+      return "Your verification session expired. Please sign up again.";
     case "resend_rate_limited":
       return "Please wait before requesting another code.";
+    case "google_oauth_not_configured":
+      return "Google sign-up isn't configured yet.";
     default:
       return undefined;
   }
@@ -86,29 +96,19 @@ function errorText(payload: any, fallback: string): string {
   return payload?.message ?? mapErrorCode(payload?.error) ?? fallback;
 }
 
-function mapGoogleRedirectError(code: string): string {
-  switch (code) {
-    case "google-not-configured":
-      return "Google sign-in isn't configured yet.";
-    case "invalid-google-state":
-      return "Your Google sign-in session expired. Please try again.";
-    case "google-callback-failed":
-      return "Google sign-in failed. Please try again.";
-    default:
-      return "Something went wrong with Google sign-in. Please try again.";
-  }
-}
-
-export default function LoginPage() {
+export default function SignupPage() {
   const reduceMotion = useReducedMotion();
 
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setMode] = useState<Mode>("signup");
   const [busy, setBusy] = useState(false);
   const [tone, setTone] = useState<Tone>("info");
   const [message, setMessage] = useState("");
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [challengeId, setChallengeId] = useState("");
@@ -116,61 +116,50 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [resendIn, setResendIn] = useState(0);
 
-  const [resetOtp, setResetOtp] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [showNewPassword, setShowNewPassword] = useState(false);
-
-  const resetPasswordValid = validatePassword(newPassword).valid;
+  const passwordValid = validatePassword(password).valid;
+  const confirmMismatch = confirmPassword.length > 0 && confirmPassword !== password;
+  const canSubmit =
+    !busy &&
+    name.trim().length >= 2 &&
+    email.length > 0 &&
+    organizationName.trim().length >= 2 &&
+    passwordValid &&
+    confirmPassword === password;
 
   function setStatus(nextTone: Tone, nextMessage: string) {
     setTone(nextTone);
     setMessage(nextMessage);
   }
 
-  // Resume a 2FA challenge (e.g. after the Google callback redirect), or surface
-  // a Google redirect error. Runs once on mount to avoid a hydration mismatch.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlChallengeId = params.get("challengeId");
-    const urlMethod = params.get("method");
-    const urlError = params.get("error");
-
-    if (urlChallengeId) {
-      const resolvedMethod: TwoFactorMethod = urlMethod === "email" ? "email" : "totp";
-      setChallengeId(urlChallengeId);
-      setMethod(resolvedMethod);
-      setMode("twofa");
-      if (resolvedMethod === "email") {
-        setResendIn(RESEND_SECONDS);
-        setStatus("info", "We emailed you a 6-digit code. Enter it below.");
-      } else {
-        setStatus("info", "Enter the 6-digit code from your authenticator app.");
-      }
-    } else if (urlError) {
-      setStatus("error", mapGoogleRedirectError(urlError));
-    }
-  }, []);
-
-  // 30s (or server-provided) resend cooldown countdown.
+  // 30s (or server-provided) resend cooldown countdown for email 2FA.
   useEffect(() => {
     if (resendIn <= 0) return;
     const timer = setTimeout(() => setResendIn((seconds) => seconds - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendIn]);
 
-  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+  async function submitRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!passwordValid) {
+      setStatus("error", "Please choose a password that meets every requirement.");
+      return;
+    }
+    if (confirmPassword !== password) {
+      setStatus("error", "Those passwords don't match.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(`${apiBaseUrl}/auth/login`, {
+      const response = await fetch(`${apiBaseUrl}/auth/register`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ name, email, organizationName, password })
       });
       const payload = await response.json().catch(() => ({}));
 
+      // Defensive: register does not normally require 2FA, but handle it like login.
       if (response.status === 202 && payload.challengeId) {
         const resolvedMethod: TwoFactorMethod = payload.method === "email" ? "email" : "totp";
         setChallengeId(payload.challengeId);
@@ -189,11 +178,11 @@ export default function LoginPage() {
       }
 
       if (!response.ok) {
-        setStatus("error", errorText(payload, "We couldn't sign you in."));
+        setStatus("error", errorText(payload, "We couldn't create your account."));
         return;
       }
 
-      setStatus("success", "Signed in. Redirecting to your console…");
+      setStatus("success", "Account created. Redirecting to your console…");
       window.location.href = "/console";
     } catch {
       setStatus("error", "Network error. Please check your connection and try again.");
@@ -217,7 +206,7 @@ export default function LoginPage() {
 
       if (!response.ok) {
         if (payload.error === "too_many_attempts" || payload.error === "two_factor_challenge_not_found") {
-          setMode("login");
+          setMode("signup");
           setCode("");
         }
         setStatus("error", errorText(payload, "That code didn't work."));
@@ -277,7 +266,7 @@ export default function LoginPage() {
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok || !payload.authUrl) {
-        setStatus("error", errorText(payload, "Google sign-in isn't available right now."));
+        setStatus("error", errorText(payload, "Google sign-up isn't available right now."));
         setBusy(false);
         return;
       }
@@ -285,66 +274,6 @@ export default function LoginPage() {
       window.location.href = payload.authUrl;
     } catch {
       setStatus("error", "Network error. Please check your connection and try again.");
-      setBusy(false);
-    }
-  }
-
-  async function submitForgotRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      await fetch(`${apiBaseUrl}/auth/password/forgot`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email })
-      });
-      // The endpoint always returns a generic response, so advance regardless.
-      setResetOtp("");
-      setNewPassword("");
-      setMode("forgot-reset");
-      setStatus(
-        "info",
-        "If that email is registered, we've sent a 6-digit reset code. Enter it below with your new password."
-      );
-    } catch {
-      setStatus("error", "Network error. Please check your connection and try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitForgotReset(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!resetPasswordValid) {
-      setStatus("error", "Please choose a password that meets every requirement.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch(`${apiBaseUrl}/auth/password/reset`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, otp: resetOtp, newPassword })
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setStatus("error", errorText(payload, "We couldn't reset your password."));
-        return;
-      }
-
-      setPassword("");
-      setResetOtp("");
-      setNewPassword("");
-      setMode("login");
-      setStatus("success", "Password updated. Sign in with your new password.");
-    } catch {
-      setStatus("error", "Network error. Please check your connection and try again.");
-    } finally {
       setBusy(false);
     }
   }
@@ -358,9 +287,9 @@ export default function LoginPage() {
       };
 
   const headings: Record<Mode, { title: string; subtitle: string }> = {
-    login: {
-      title: "Sign in to Onshell",
-      subtitle: "Access your browser-based SSH, SFTP, and RDP workspace."
+    signup: {
+      title: "Create your workspace",
+      subtitle: "Start browser-based SSH, SFTP, and RDP access for your team."
     },
     twofa: {
       title: "Two-factor verification",
@@ -368,14 +297,6 @@ export default function LoginPage() {
         method === "email"
           ? "We emailed you a 6-digit code. Enter it to continue."
           : "Enter the 6-digit code from your authenticator app."
-    },
-    "forgot-request": {
-      title: "Reset your password",
-      subtitle: "Enter your work email and we'll send a 6-digit reset code."
-    },
-    "forgot-reset": {
-      title: "Choose a new password",
-      subtitle: "Enter the code we emailed you, then set a new password."
     }
   };
 
@@ -407,15 +328,32 @@ export default function LoginPage() {
             </p>
           )}
 
-          {mode === "login" && (
+          {mode === "signup" && (
             <>
-              <form className="auth-form" onSubmit={submitLogin} noValidate>
+              <form className="auth-form" onSubmit={submitRegister} noValidate>
                 <div className="auth-field">
-                  <label htmlFor="login-email">Work email</label>
+                  <label htmlFor="signup-name">Full name</label>
+                  <div className="auth-input-wrap">
+                    <UserRound size={17} aria-hidden="true" />
+                    <input
+                      id="signup-name"
+                      className="auth-input has-icon"
+                      type="text"
+                      autoComplete="name"
+                      placeholder="Ada Lovelace"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="auth-field">
+                  <label htmlFor="signup-email">Work email</label>
                   <div className="auth-input-wrap">
                     <Mail size={17} aria-hidden="true" />
                     <input
-                      id="login-email"
+                      id="signup-email"
                       className="auth-input has-icon"
                       type="email"
                       autoComplete="email"
@@ -428,14 +366,32 @@ export default function LoginPage() {
                 </div>
 
                 <div className="auth-field">
-                  <label htmlFor="login-password">Password</label>
+                  <label htmlFor="signup-org">Organization name</label>
+                  <div className="auth-input-wrap">
+                    <Building2 size={17} aria-hidden="true" />
+                    <input
+                      id="signup-org"
+                      className="auth-input has-icon"
+                      type="text"
+                      autoComplete="organization"
+                      placeholder="Acme Inc."
+                      value={organizationName}
+                      onChange={(event) => setOrganizationName(event.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="auth-field">
+                  <label htmlFor="signup-password">Password</label>
                   <div className="auth-input-wrap">
                     <KeyRound size={17} aria-hidden="true" />
                     <input
-                      id="login-password"
+                      id="signup-password"
                       className="auth-input has-icon has-reveal"
                       type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
+                      autoComplete="new-password"
+                      aria-describedby="signup-pw-reqs"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       required
@@ -450,21 +406,35 @@ export default function LoginPage() {
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    className="text-link auth-forgot"
-                    onClick={() => {
-                      setMode("forgot-request");
-                      setMessage("");
-                    }}
-                  >
-                    Forgot password?
-                  </button>
+                  <PasswordStrength password={password} describedById="signup-pw-reqs" />
                 </div>
 
-                <button className="primary-button large full-width" type="submit" disabled={busy || !email || !password}>
-                  {busy ? <span className="auth-spinner" aria-hidden="true" /> : <LogIn size={17} />}
-                  {busy ? "Signing in…" : "Sign in"}
+                <div className="auth-field">
+                  <label htmlFor="signup-confirm">Confirm password</label>
+                  <div className="auth-input-wrap">
+                    <KeyRound size={17} aria-hidden="true" />
+                    <input
+                      id="signup-confirm"
+                      className="auth-input has-icon"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      aria-describedby={confirmMismatch ? "signup-confirm-hint" : undefined}
+                      aria-invalid={confirmMismatch}
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      required
+                    />
+                  </div>
+                  {confirmMismatch && (
+                    <span id="signup-confirm-hint" className="auth-hint error">
+                      Those passwords don&apos;t match.
+                    </span>
+                  )}
+                </div>
+
+                <button className="primary-button large full-width" type="submit" disabled={!canSubmit}>
+                  {busy ? <span className="auth-spinner" aria-hidden="true" /> : <UserPlus size={17} />}
+                  {busy ? "Creating account…" : "Create account"}
                 </button>
               </form>
 
@@ -478,11 +448,11 @@ export default function LoginPage() {
                 <span className="google-g" aria-hidden="true">
                   G
                 </span>
-                Continue with Google
+                Sign up with Google
               </button>
 
               <p className="auth-alt">
-                New here? <Link href="/signup">Create an account</Link>
+                Already have an account? <Link href="/login">Log in</Link>
               </p>
             </>
           )}
@@ -526,119 +496,12 @@ export default function LoginPage() {
                 type="button"
                 className="text-link auth-center"
                 onClick={() => {
-                  setMode("login");
+                  setMode("signup");
                   setCode("");
                   setMessage("");
                 }}
               >
-                Back to sign in
-              </button>
-            </form>
-          )}
-
-          {mode === "forgot-request" && (
-            <form className="auth-form" onSubmit={submitForgotRequest} noValidate>
-              <div className="auth-field">
-                <label htmlFor="forgot-email">Work email</label>
-                <div className="auth-input-wrap">
-                  <Mail size={17} aria-hidden="true" />
-                  <input
-                    id="forgot-email"
-                    className="auth-input has-icon"
-                    type="email"
-                    autoComplete="email"
-                    placeholder="you@company.com"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <button className="primary-button large full-width" type="submit" disabled={busy || !email}>
-                {busy ? <span className="auth-spinner" aria-hidden="true" /> : <Mail size={17} />}
-                {busy ? "Sending…" : "Send reset code"}
-              </button>
-
-              <button
-                type="button"
-                className="text-link auth-center"
-                onClick={() => {
-                  setMode("login");
-                  setMessage("");
-                }}
-              >
-                Back to sign in
-              </button>
-            </form>
-          )}
-
-          {mode === "forgot-reset" && (
-            <form className="auth-form" onSubmit={submitForgotReset} noValidate>
-              <div className="auth-field">
-                <label htmlFor="reset-otp">Reset code</label>
-                <div className="auth-input-wrap">
-                  <ShieldCheck size={17} aria-hidden="true" />
-                  <input
-                    id="reset-otp"
-                    className="auth-input has-icon auth-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder="6-digit code"
-                    value={resetOtp}
-                    onChange={(event) => setResetOtp(event.target.value.replace(/\D/g, ""))}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="auth-field">
-                <label htmlFor="reset-password">New password</label>
-                <div className="auth-input-wrap">
-                  <KeyRound size={17} aria-hidden="true" />
-                  <input
-                    id="reset-password"
-                    className="auth-input has-icon has-reveal"
-                    type={showNewPassword ? "text" : "password"}
-                    autoComplete="new-password"
-                    aria-describedby="reset-pw-reqs"
-                    value={newPassword}
-                    onChange={(event) => setNewPassword(event.target.value)}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="auth-reveal"
-                    aria-label={showNewPassword ? "Hide password" : "Show password"}
-                    aria-pressed={showNewPassword}
-                    onClick={() => setShowNewPassword((visible) => !visible)}
-                  >
-                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <PasswordStrength password={newPassword} describedById="reset-pw-reqs" />
-              </div>
-
-              <button
-                className="primary-button large full-width"
-                type="submit"
-                disabled={busy || resetOtp.length !== 6 || !resetPasswordValid}
-              >
-                {busy ? <span className="auth-spinner" aria-hidden="true" /> : <KeyRound size={17} />}
-                {busy ? "Updating…" : "Reset password"}
-              </button>
-
-              <button
-                type="button"
-                className="text-link auth-center"
-                onClick={() => {
-                  setMode("login");
-                  setMessage("");
-                }}
-              >
-                Back to sign in
+                Back to sign up
               </button>
             </form>
           )}

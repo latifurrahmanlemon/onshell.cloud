@@ -31,6 +31,8 @@ import {
   Users
 } from "lucide-react";
 import { cx } from "@onshell/ui";
+import AdminGate from "./gate";
+import { ThemeToggle } from "../theme";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -514,6 +516,14 @@ function EmptyState({ icon: Icon, title, body, action }: { icon: LucideIcon; tit
 /* ------------------------------------------------------------------- page */
 
 export default function AdminPage() {
+  return (
+    <AdminGate>
+      <AdminPanel />
+    </AdminGate>
+  );
+}
+
+function AdminPanel() {
   const reduceMotionPreference = useReducedMotion();
   const reduceMotion = reduceMotionPreference ?? false;
 
@@ -1687,6 +1697,7 @@ export default function AdminPage() {
             <p>{sectionMeta[section].description}</p>
           </div>
           <div className="adm-topbar-tools">
+            <ThemeToggle />
             <button
               aria-label="Refresh section data"
               className="icon-button"

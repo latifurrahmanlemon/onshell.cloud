@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Braces,
@@ -13,7 +12,10 @@ import {
   ScrollText,
   SquareTerminal
 } from "lucide-react";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { cx } from "@onshell/ui";
+import { ThemeToggle } from "./theme";
+import "./home.css";
 
 const plans = [
   {
@@ -127,6 +129,30 @@ interface ApiPlan {
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+const VIEWPORT = { once: true, margin: "-80px" };
+
+function fadeUp(reduce: boolean): Variants {
+  return {
+    hidden: { opacity: reduce ? 1 : 0, y: reduce ? 0 : 24 },
+    show: { opacity: 1, y: 0, transition: { duration: reduce ? 0 : 0.5, ease: EASE } }
+  };
+}
+
+function stagger(reduce: boolean, gap = 0.09): Variants {
+  return {
+    hidden: {},
+    show: { transition: { staggerChildren: reduce ? 0 : gap, delayChildren: reduce ? 0 : 0.06 } }
+  };
+}
+
+function itemUp(reduce: boolean): Variants {
+  return {
+    hidden: { opacity: reduce ? 1 : 0, y: reduce ? 0 : 16 },
+    show: { opacity: 1, y: 0, transition: { duration: reduce ? 0 : 0.45, ease: EASE } }
+  };
+}
+
 export default function PublicPage() {
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   const [apiPlans, setApiPlans] = useState<ApiPlan[]>([]);
@@ -134,6 +160,17 @@ export default function PublicPage() {
   const [checkoutOrganization, setCheckoutOrganization] = useState("");
   const [checkoutStatus, setCheckoutStatus] = useState("");
   const [terminal, setTerminal] = useState({ line: 0, chars: 0 });
+
+  const reduce = useReducedMotion() ?? false;
+  const motionVariants = useMemo(
+    () => ({
+      fade: fadeUp(reduce),
+      stagger: stagger(reduce),
+      staggerTight: stagger(reduce, 0.07),
+      item: itemUp(reduce)
+    }),
+    [reduce]
+  );
 
   useEffect(() => {
     let active = true;
@@ -228,263 +265,329 @@ export default function PublicPage() {
   }
 
   return (
-    <main className="public-page">
-      <nav className="public-nav" aria-label="Public">
-        <a className="brand-row brand-link" href="/">
-          <div className="brand-mark">
-            <Cloud size={18} />
-          </div>
-          <div>
-            <p className="brand-name">Onshell.cloud</p>
-            <p className="brand-domain">Browser remote access</p>
-          </div>
-        </a>
-        <div className="public-nav-links">
-          <a href="#features">Features</a>
-          <a href="#how-it-works">How it works</a>
-          <a href="#pricing">Pricing</a>
-        </div>
-        <div className="public-nav-actions">
-          <a href="/login">Login</a>
-          <a className="primary-link" href="#pricing">
-            Get started
+    <main className="lp-page">
+      <motion.nav
+        className="lp-nav"
+        aria-label="Primary"
+        initial={{ opacity: reduce ? 1 : 0, y: reduce ? 0 : -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduce ? 0 : 0.4, ease: EASE }}
+      >
+        <div className="lp-container lp-nav-inner">
+          <a className="lp-brand" href="/" aria-label="Onshell.cloud — home">
+            <span className="brand-mark">
+              <Cloud size={18} />
+            </span>
+            <span className="lp-brand-text">
+              <span className="brand-name">Onshell.cloud</span>
+              <span className="brand-domain">Browser remote access</span>
+            </span>
           </a>
+          <div className="lp-nav-links">
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How it works</a>
+            <a href="#pricing">Pricing</a>
+          </div>
+          <div className="lp-nav-actions">
+            <ThemeToggle />
+            <a className="lp-login" href="/login">
+              Log in
+            </a>
+            <a className="primary-button lp-nav-cta" href="/signup">
+              Get started
+            </a>
+          </div>
         </div>
-      </nav>
+      </motion.nav>
 
-      <section className="public-hero">
-        <div className="hero-copy">
-          <span className="eyebrow">
-            <span className="eyebrow-dot" aria-hidden="true" />
-            SSH · SFTP · RDP — one browser workspace
-          </span>
-          <h1>Secure remote access, straight from the browser.</h1>
-          <p>
-            Onshell.cloud gives your team audited terminals, a file manager, RDP sessions, an encrypted credential
-            vault, shared snippets, and admin billing controls — without installing a single client.
-          </p>
-          <div className="hero-actions">
+      <section className="lp-hero" aria-labelledby="lp-hero-title">
+        <span className="lp-hero-glow" aria-hidden="true" />
+        <div className="lp-container lp-hero-inner">
+          <motion.div className="lp-hero-copy" variants={motionVariants.stagger} initial="hidden" animate="show">
+            <motion.span className="lp-eyebrow" variants={motionVariants.fade}>
+              <span className="lp-eyebrow-dot" aria-hidden="true" />
+              SSH · SFTP · RDP — one browser workspace
+            </motion.span>
+            <motion.h1 id="lp-hero-title" variants={motionVariants.fade}>
+              Secure remote access, straight from the browser.
+            </motion.h1>
+            <motion.p className="lp-hero-lead" variants={motionVariants.fade}>
+              Onshell.cloud gives your team audited terminals, a file manager, RDP sessions, an encrypted credential
+              vault, shared snippets, and admin billing controls — without installing a single client.
+            </motion.p>
+            <motion.div className="lp-hero-actions" variants={motionVariants.fade}>
+              <a className="primary-button large" href="#pricing">
+                Choose a package
+                <ArrowRight size={18} />
+              </a>
+              <a className="secondary-button lp-hero-secondary" href="/console">
+                View live console
+              </a>
+            </motion.div>
+            <motion.p className="lp-hero-trust" variants={motionVariants.fade}>
+              No agents to install · Encrypted vault · Full session audit
+            </motion.p>
+          </motion.div>
+
+          <motion.div
+            className="lp-terminal"
+            aria-hidden="true"
+            initial={{ opacity: reduce ? 1 : 0, y: reduce ? 0 : 26 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduce ? 0 : 0.6, ease: EASE, delay: reduce ? 0 : 0.15 }}
+          >
+            <div className="lp-terminal-bar">
+              <span className="lp-dot" />
+              <span className="lp-dot" />
+              <span className="lp-dot" />
+              <p className="lp-terminal-title">deploy@edge-01 — onshell</p>
+            </div>
+            <div className="lp-terminal-body">
+              {terminalScript.map((entry, index) => {
+                if (index > terminal.line) return null;
+                const isTyping = index === terminal.line;
+                const commandText = isTyping ? entry.cmd.slice(0, terminal.chars) : entry.cmd;
+                return (
+                  <div key={entry.cmd}>
+                    <p className="lp-term-line">
+                      <span className="lp-term-prompt">deploy@edge-01:~$</span> {commandText}
+                      {isTyping && <span className="lp-term-caret" />}
+                    </p>
+                    {!isTyping &&
+                      entry.out.map((line) => (
+                        <p className="lp-term-output" key={line}>
+                          {line}
+                        </p>
+                      ))}
+                  </div>
+                );
+              })}
+              {terminal.line >= terminalScript.length && (
+                <p className="lp-term-line">
+                  <span className="lp-term-prompt">deploy@edge-01:~$</span> <span className="lp-term-caret" />
+                </p>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      <motion.section
+        className="lp-section"
+        id="features"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container">
+          <motion.div className="lp-heading" variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">Everything in one workspace</span>
+            <h2>The remote-access toolkit your team already needs</h2>
+            <p>Six capabilities that usually take six tools — behind one login, one policy, one audit trail.</p>
+          </motion.div>
+          <motion.div className="lp-feature-grid" variants={motionVariants.staggerTight}>
+            {featureCards.map(({ icon: Icon, title, text }) => (
+              <motion.article
+                className="lp-feature-card"
+                key={title}
+                variants={motionVariants.item}
+                whileHover={reduce ? undefined : { y: -4 }}
+              >
+                <span className="lp-feature-icon">
+                  <Icon size={20} />
+                </span>
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </motion.article>
+            ))}
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-steps"
+        id="how-it-works"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container">
+          <motion.div className="lp-heading" variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">How it works</span>
+            <h2>From bare servers to audited access in an afternoon</h2>
+          </motion.div>
+          <motion.div className="lp-steps-grid" variants={motionVariants.staggerTight}>
+            {steps.map((step) => (
+              <motion.div className="lp-step-card" key={step.number} variants={motionVariants.item}>
+                <span className="lp-step-number">{step.number}</span>
+                <h3>{step.title}</h3>
+                <p>{step.text}</p>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-pricing"
+        id="pricing"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container">
+          <motion.div className="lp-heading lp-pricing-heading" variants={motionVariants.fade}>
+            <div>
+              <span className="lp-section-eyebrow">Pricing</span>
+              <h2>Packages customers can buy and start using</h2>
+              <p>Plans map directly to limits the admin panel can manage.</p>
+            </div>
+            <div className="lp-billing-wrap">
+              <div className="lp-billing" role="group" aria-label="Billing interval">
+                {(["monthly", "yearly"] as const).map((value) => (
+                  <button
+                    key={value}
+                    className={cx("lp-billing-option", interval === value && "is-active")}
+                    type="button"
+                    aria-pressed={interval === value}
+                    onClick={() => setInterval(value)}
+                  >
+                    {interval === value && (
+                      <motion.span
+                        className="lp-billing-pill"
+                        layoutId="lp-billing-pill"
+                        transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
+                      />
+                    )}
+                    <span className="lp-billing-label">{value === "monthly" ? "Monthly" : "Yearly"}</span>
+                  </button>
+                ))}
+              </div>
+              <span className="lp-billing-hint">Yearly billing includes 2 months free</span>
+            </div>
+          </motion.div>
+
+          <motion.div className="lp-checkout" variants={motionVariants.fade}>
+            <label className="lp-field" htmlFor="checkout-email">
+              <span>Customer email</span>
+              <input
+                id="checkout-email"
+                onChange={(event) => setCheckoutEmail(event.target.value)}
+                placeholder="buyer@company.com"
+                type="email"
+                value={checkoutEmail}
+              />
+            </label>
+            <label className="lp-field" htmlFor="checkout-organization">
+              <span>Organization</span>
+              <input
+                id="checkout-organization"
+                onChange={(event) => setCheckoutOrganization(event.target.value)}
+                placeholder="Company name"
+                value={checkoutOrganization}
+              />
+            </label>
+            <p className="lp-checkout-status" aria-live="polite">
+              {checkoutStatus || "Buyer details are passed to the configured billing provider."}
+            </p>
+          </motion.div>
+
+          <motion.div className="lp-pricing-grid" variants={motionVariants.staggerTight}>
+            {visiblePlans.map((plan) => (
+              <motion.article
+                className={cx("lp-plan", plan.highlighted && "is-highlighted")}
+                key={plan.code}
+                variants={motionVariants.item}
+                whileHover={reduce ? undefined : { y: -4 }}
+              >
+                {plan.highlighted && <span className="lp-plan-badge">Most popular</span>}
+                <div className="lp-plan-head">
+                  <h3>{plan.name}</h3>
+                  <p>{plan.description}</p>
+                </div>
+                <div className="lp-plan-price">
+                  <strong>${plan.price[interval]}</strong>
+                  <span>/{interval === "monthly" ? "mo" : "yr"}</span>
+                </div>
+                <span className="lp-plan-limit">{plan.limit}</span>
+                <ul className="lp-plan-features">
+                  {plan.features.map((feature) => (
+                    <li key={feature}>
+                      <Check size={16} />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  className={cx("lp-plan-cta", plan.highlighted ? "primary-button" : "secondary-button")}
+                  type="button"
+                  onClick={() => startCheckout(plan.code)}
+                >
+                  Buy {plan.name}
+                </button>
+              </motion.article>
+            ))}
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-cta"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <motion.div className="lp-container lp-cta-inner" variants={motionVariants.fade}>
+          <h2>Ready to open a shell?</h2>
+          <p>Pick a package, invite your team, and connect to your first host today.</p>
+          <div className="lp-cta-actions">
             <a className="primary-button large" href="#pricing">
               Choose a package
               <ArrowRight size={18} />
             </a>
-            <a className="secondary-link" href="/console">
-              View live console
+            <a className="secondary-button lp-hero-secondary" href="/login">
+              Sign in instead
             </a>
           </div>
-          <p className="hero-trust">No agents to install · Encrypted vault · Full session audit</p>
-        </div>
+        </motion.div>
+      </motion.section>
 
-        <div className="hero-terminal" aria-hidden="true">
-          <div className="hero-terminal-bar">
-            <span />
-            <span />
-            <span />
-            <p>deploy@edge-01 — onshell</p>
-          </div>
-          <div className="hero-terminal-body">
-            {terminalScript.map((entry, index) => {
-              if (index > terminal.line) return null;
-              const isTyping = index === terminal.line;
-              const commandText = isTyping ? entry.cmd.slice(0, terminal.chars) : entry.cmd;
-              return (
-                <div key={entry.cmd}>
-                  <p className="term-line">
-                    <span className="term-prompt">deploy@edge-01:~$</span> {commandText}
-                    {isTyping && <span className="term-caret" />}
-                  </p>
-                  {!isTyping &&
-                    entry.out.map((line) => (
-                      <p className="term-output" key={line}>
-                        {line}
-                      </p>
-                    ))}
-                </div>
-              );
-            })}
-            {terminal.line >= terminalScript.length && (
-              <p className="term-line">
-                <span className="term-prompt">deploy@edge-01:~$</span> <span className="term-caret" />
-              </p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="feature-section" id="features">
-        <div className="section-heading">
-          <div>
-            <span className="section-eyebrow">Everything in one workspace</span>
-            <h2>The remote-access toolkit your team already needs</h2>
-            <p>Six capabilities that usually take six tools — behind one login, one policy, one audit trail.</p>
-          </div>
-        </div>
-        <div className="feature-grid">
-          {featureCards.map((feature) => (
-            <FeatureCard key={feature.title} {...feature} />
-          ))}
-        </div>
-      </section>
-
-      <section className="steps-section" id="how-it-works">
-        <div className="section-heading">
-          <div>
-            <span className="section-eyebrow">How it works</span>
-            <h2>From bare servers to audited access in an afternoon</h2>
-          </div>
-        </div>
-        <div className="steps-grid">
-          {steps.map((step) => (
-            <div className="step-card" key={step.number}>
-              <span className="step-number">{step.number}</span>
-              <h3>{step.title}</h3>
-              <p>{step.text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="pricing-section" id="pricing">
-        <div className="section-heading">
-          <div>
-            <span className="section-eyebrow">Pricing</span>
-            <h2>Packages customers can buy and start using</h2>
-            <p>Plans map directly to limits the admin panel can manage.</p>
-          </div>
-          <div className="pricing-toggle-group">
-            <div className="segmented pricing-toggle">
-              <button
-                className={cx(interval === "monthly" && "selected")}
-                type="button"
-                onClick={() => setInterval("monthly")}
-              >
-                Monthly
-              </button>
-              <button
-                className={cx(interval === "yearly" && "selected")}
-                type="button"
-                onClick={() => setInterval("yearly")}
-              >
-                Yearly
-              </button>
-            </div>
-            <span className="pricing-hint">Yearly billing includes 2 months free</span>
-          </div>
-        </div>
-
-        <div className="checkout-strip">
-          <label htmlFor="checkout-email">
-            Customer email
-            <input
-              id="checkout-email"
-              onChange={(event) => setCheckoutEmail(event.target.value)}
-              placeholder="buyer@company.com"
-              type="email"
-              value={checkoutEmail}
-            />
-          </label>
-          <label htmlFor="checkout-organization">
-            Organization
-            <input
-              id="checkout-organization"
-              onChange={(event) => setCheckoutOrganization(event.target.value)}
-              placeholder="Company name"
-              value={checkoutOrganization}
-            />
-          </label>
-          <p aria-live="polite">{checkoutStatus || "Buyer details are passed to the configured billing provider."}</p>
-        </div>
-
-        <div className="pricing-grid">
-          {visiblePlans.map((plan) => (
-            <article className={cx("pricing-card", plan.highlighted && "highlighted")} key={plan.code}>
-              {plan.highlighted && <span className="plan-badge">Most popular</span>}
-              <div>
-                <h3>{plan.name}</h3>
-                <p>{plan.description}</p>
-              </div>
-              <div className="price-row">
-                <strong>${plan.price[interval]}</strong>
-                <span>/{interval === "monthly" ? "mo" : "yr"}</span>
-              </div>
-              <span className="limit-pill">{plan.limit}</span>
-              <ul>
-                {plan.features.map((feature) => (
-                  <li key={feature}>
-                    <Check size={16} />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                className={cx("plan-button", plan.highlighted && "primary")}
-                type="button"
-                onClick={() => startCheckout(plan.code)}
-              >
-                Buy {plan.name}
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="cta-band">
-        <h2>Ready to open a shell?</h2>
-        <p>Pick a package, invite your team, and connect to your first host today.</p>
-        <div className="hero-actions centered">
-          <a className="primary-button large" href="#pricing">
-            Choose a package
-            <ArrowRight size={18} />
-          </a>
-          <a className="secondary-link" href="/login">
-            Sign in instead
-          </a>
-        </div>
-      </section>
-
-      <footer className="public-footer">
-        <div className="footer-grid">
-          <div className="footer-brand">
-            <div className="brand-row">
-              <div className="brand-mark">
+      <footer className="lp-footer">
+        <div className="lp-container lp-footer-grid">
+          <div className="lp-footer-brand">
+            <a className="lp-brand" href="/">
+              <span className="brand-mark">
                 <Cloud size={18} />
-              </div>
-              <div>
-                <p className="brand-name">Onshell.cloud</p>
-                <p className="brand-domain">Browser remote access</p>
-              </div>
-            </div>
+              </span>
+              <span className="lp-brand-text">
+                <span className="brand-name">Onshell.cloud</span>
+                <span className="brand-domain">Browser remote access</span>
+              </span>
+            </a>
             <p>Audited SSH, SFTP, and RDP for teams that live in the terminal but work in the browser.</p>
           </div>
-          <div className="footer-column">
+          <div className="lp-footer-col">
             <strong>Product</strong>
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
             <a href="#pricing">Pricing</a>
           </div>
-          <div className="footer-column">
+          <div className="lp-footer-col">
             <strong>Account</strong>
-            <a href="/login">Login</a>
+            <a href="/login">Log in</a>
+            <a href="/signup">Sign up</a>
             <a href="/console">Console</a>
-            <a href="/admin">Admin</a>
           </div>
         </div>
-        <div className="footer-bottom">
+        <div className="lp-container lp-footer-bottom">
           <p>© 2026 Onshell.cloud. All rights reserved.</p>
+          <p className="lp-footer-meta">SSH · SFTP · RDP</p>
         </div>
       </footer>
     </main>
-  );
-}
-
-function FeatureCard({ icon: Icon, title, text }: { icon: LucideIcon; title: string; text: string }) {
-  return (
-    <div className="feature-card">
-      <div className="feature-icon">
-        <Icon size={20} />
-      </div>
-      <strong>{title}</strong>
-      <p>{text}</p>
-    </div>
   );
 }

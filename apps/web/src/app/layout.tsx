@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { DM_Sans, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { themeBootstrapScript } from "./theme";
 import "./globals.css";
 
 const displayFont = Space_Grotesk({
@@ -40,13 +41,19 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#111312"
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#111312" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f7f1" }
+  ]
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html className={`${displayFont.variable} ${sansFont.variable} ${monoFont.variable}`} lang="en">
-      <body>{children}</body>
+    <html className={`${displayFont.variable} ${sansFont.variable} ${monoFont.variable}`} lang="en" suppressHydrationWarning>
+      <body>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        {children}
+      </body>
     </html>
   );
 }
