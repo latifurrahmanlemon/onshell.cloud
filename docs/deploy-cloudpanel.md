@@ -209,6 +209,10 @@ openssl rand -base64 32   # MASTER_ENCRYPTION_KEY
 cd ~/htdocs/onshell.latifur.com
 set -a && source .env && set +a      # .env কে shell env-এ load করো
 
+# Prisma CLI apps/api/ থেকে run হয়, তাই root .env এর একটা symlink দিয়ে দাও
+# যাতে db:generate/deploy/seed সব সময় DATABASE_URL পায় (একবারই লাগবে):
+ln -sf ../../.env apps/api/.env
+
 corepack enable
 yarn install --immutable
 yarn build                            # packages + api/gateway dist + web .next
@@ -217,17 +221,21 @@ yarn db:deploy                        # MySQL migration apply
 yarn db:seed                          # admin/plans/settings seed
 ```
 
+> **`Environment variable not found: DATABASE_URL` error?** কারণ `yarn db:*` script গুলো `apps/api/`
+> ফোল্ডারে run হয়, আর Prisma root-এর `.env` দেখতে পায় না। উপরের `ln -sf ../../.env apps/api/.env`
+> symlink দিলেই ঠিক হয়ে যায় (অথবা প্রতিবার আগে `set -a && source .env && set +a` করলেও চলবে)।
+
 সব সফল হলে `apps/api/dist`, `apps/gateway/dist`, `apps/web/.next` তৈরি হবে এবং DB তে table + admin account বসবে।
 
 ---
 
 ## 8. PM2 দিয়ে ৩টা service চালানো
 
-Repo-তে already একটা `ecosystem.config.cjs` আছে (web=5016, api=4000, gateway=4100):
+Repo-তে already একটা `ecosystem.config.cjs` আছে (web=5016, api=4000, gateway=4100)। এটা
+নিজে থেকেই root `.env` load করে নেয়, তাই আলাদা করে source করা লাগে না (shell-এ set করা থাকলে সেটাই অগ্রাধিকার পায়):
 
 ```bash
 cd ~/htdocs/onshell.latifur.com
-set -a && source .env && set +a
 pm2 start ecosystem.config.cjs
 pm2 status
 pm2 logs                              # সব service-এর log

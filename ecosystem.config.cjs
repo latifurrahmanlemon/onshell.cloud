@@ -21,8 +21,32 @@
  * or edit the values in this file.
  */
 const path = require("path");
+const fs = require("fs");
 
 const root = __dirname;
+
+// Load repo-root .env so `pm2 start ecosystem.config.cjs` gets secrets even
+// without `source .env`. Existing shell env always wins (does not override).
+(() => {
+  const envPath = path.join(root, ".env");
+  if (!fs.existsSync(envPath)) return;
+  for (let line of fs.readFileSync(envPath, "utf8").split("\n")) {
+    line = line.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = val;
+  }
+})();
+
 const env = process.env;
 
 // Ports
