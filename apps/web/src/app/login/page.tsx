@@ -8,8 +8,8 @@ const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:400
 type LoginState = "idle" | "loading" | "two-factor" | "success" | "error";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("latifur.tech@gmial.com");
-  const [password, setPassword] = useState("Lemon553&");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [state, setState] = useState<LoginState>("idle");

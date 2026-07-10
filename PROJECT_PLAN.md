@@ -476,11 +476,41 @@ Before launch:
 * Backup/restore documented
 * Audit logs working
 
-## 13. Current Implementation Status - 2026-07-09
+## 13. A-Z Review and Corrected Status - 2026-07-10
 
-### Overall Progress
+A full audit of the actual code (API routes, gateway, Prisma schema, web pages) was performed on 2026-07-10. The previous "90% complete" estimate was wrong: the pieces exist but are not connected. Accurate status:
 
-Code-side MVP implementation is about 90% complete. The main remaining work is remote-server activation, real database migration/seed execution, and live provider/host testing.
+### What is genuinely real and working
+
+* Auth: register, email/password login, TOTP 2FA (Google Authenticator), Google OAuth, JWT cookies, logout — DB-backed.
+* Admin panel: plans CRUD, SMTP config + test email, payment provider settings, users list, overview — DB-backed and wired to the UI.
+* Billing: `GET /plans` and Stripe checkout session creation are real (Paddle/SSLCommerz stubs).
+* Gateway: real SSH terminal (ssh2 + PTY over WebSocket) and a real hand-implemented guacd/RDP protocol bridge. SFTP directory listing only.
+* Prisma schema: rich and production-shaped (invitations, host groups/tags, credentials with AES-GCM columns, tunnel rules, refresh tokens, password reset tokens).
+
+### Critical defects found (the "not workable" gap)
+
+1. **Resource layer is fake.** `hosts`, `credentials`, `sessions`, `snippets`, `audit`, `organizations` routes run on an in-memory store — data vanishes on restart, and none of the rich Prisma models are used by them.
+2. **No real auth on resource routes.** `getCurrentUser` trusts an `x-user-email` header and falls back to the first store user — effectively unauthenticated; RBAC checks there are meaningless.
+3. **Credential vault discards secrets.** `POST /credentials` throws the secret away (only logs its length); nothing is encrypted or persisted despite the schema supporting AES-256-GCM.
+4. **API never talks to the gateway.** `POST /sessions` fabricates a gateway session ID; there is no server-side credential handoff, and gateway endpoints have no auth.
+5. **Console UI is a static mock.** No API calls, fake `<pre>` terminal, decorative nav. Admin/login are real; console is not.
+6. **Auth gaps:** no `/auth/refresh` (15-minute access tokens die with no rotation), no password reset flow, invitation endpoint returns a fake object (no row, no email, no accept flow), no member management endpoints.
+7. **Billing lifecycle open.** No payment webhook; checkout never creates Subscription/Invoice rows; plan limits (users/hosts/sessions) never enforced.
+8. **Hardcoded real-looking credentials** pre-filled in the login page state — must be removed.
+
+### Mandatory requirements added 2026-07-10 (owner decision)
+
+* Strong password policy enforced on register, reset, and invite-accept (min 10 chars, upper+lower+digit+symbol).
+* Two-factor authentication for user login via **either** email OTP **or** Google Authenticator (TOTP); resend with rate limiting.
+* Termius-grade professional UX: workspace console (hosts, keychain, snippets, SFTP, sessions, team, settings, theming), PWA installability, Framer Motion polish.
+* SaaS control: admin panel manages everything (packages, users, subscriptions, SMTP, payment provider, platform settings); org owners manage team members, roles, invitations, and shared resources.
+
+### Corrected roadmap
+
+* **Phase A — Make it real (in progress 2026-07-10):** resource routes → Prisma with real JWT auth; credential vault → real AES-256-GCM persistence; API→gateway session handoff with server-side credential decryption + gateway shared-secret auth; `/auth/refresh`; password reset via email OTP; email-OTP 2FA method; real invitations (token + email + accept flow) and member role management; console rebuilt as a real workspace with xterm.js terminal over the gateway WebSocket; admin panel sections completed (subscriptions, settings, loading/error states); PWA manifest + icons; landing page redesigned.
+* **Phase B — Complete the product:** full SFTP file manager (upload/download/rename/delete/mkdir/edit) in gateway + console; RDP client UI (guacd bridge exists); billing webhooks → Subscription/Invoice rows + plan limit enforcement; per-member resource sharing ACLs (host groups/tags surfaces); snippet variables (`{{host}}` etc.); session recording/replay metadata.
+* **Phase C — Production hardening:** rate limits on all sensitive routes, host key verification UX, tunnels/port-forward proxy, observability, backups, CI e2e with disposable SSH containers, deployment docs.
 
 ### Completed Coding Work
 

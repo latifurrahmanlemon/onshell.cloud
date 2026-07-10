@@ -212,20 +212,24 @@ Google Authenticator 2FA flow:
 
 ## Current Implementation Status
 
-Implemented:
+Implemented (verified 2026-07-10 — see PROJECT_PLAN.md section 13 for the full audit):
 
 * Yarn workspace monorepo
-* Public SaaS package page
-* Customer remote-access console
-* Admin management panel
-* Fastify API route contracts
+* Redesigned public SaaS landing page (terminal hero, pricing wired to `/plans` and `/checkout`)
+* Customer console: Termius-style workspace with live xterm.js SSH terminal tabs over the gateway WebSocket, SFTP browser, encrypted credential vault, snippets, team management, audit log, theming (Forest/Slate/Carbon), Framer Motion transitions
+* Admin panel: functional sections for overview, packages, subscriptions, users, SMTP, billing provider, and platform settings with loading/error/toast states
+* Auth: register/login with strong password policy, 2FA via Google Authenticator (TOTP) or email OTP, Google OAuth, refresh-token rotation (`/auth/refresh`), password reset via email OTP
+* Teams: real invitations (emailed accept links), member role management, last-owner protection
+* Resource APIs backed by Prisma with real JWT auth (hosts with groups/tags, encrypted credentials, sessions with API→gateway handoff, snippets, unified audit log)
+* Gateway: real SSH terminal (ssh2 + PTY over WebSocket), guacd RDP protocol bridge, SFTP directory listing
+* PWA: web manifest, installable icons, standalone display
 * Prisma schema, migration, and seed
-* Gateway session skeleton
 * Docker Compose infrastructure
 
-Pending production work:
+Pending production work (Phase B/C in PROJECT_PLAN.md):
 
-* Connect frontend mutation forms for creating/updating all admin resources
-* Integrate real checkout provider
+* Full SFTP file operations (upload/download/rename/delete/edit) and the browser RDP viewer UI
+* Billing webhooks (subscription/invoice rows) and plan-limit enforcement
+* Per-member resource-sharing ACLs and snippet variables
 * Expand gateway tests with disposable SSH/RDP containers
 * Add production observability and rate limiting

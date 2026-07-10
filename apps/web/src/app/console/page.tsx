@@ -1,173 +1,332 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  Activity,
   AlertTriangle,
+  Braces,
   CheckCircle2,
-  Clipboard,
+  ChevronRight,
   Cloud,
-  Database,
-  FileText,
-  Gauge,
-  HardDrive,
+  File,
+  Folder,
+  FolderLock,
   KeyRound,
-  LockKeyhole,
-  MonitorUp,
-  MoreHorizontal,
-  Network,
-  Play,
-  Plus,
-  RefreshCcw,
-  Search,
+  LayoutDashboard,
+  Loader2,
+  ScrollText,
   Server,
-  ShieldCheck,
+  Settings,
   SquareTerminal,
-  Upload,
   Users,
-  XCircle
+  X
 } from "lucide-react";
+import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, User } from "@onshell/shared";
 import { cx } from "@onshell/ui";
+import { ApiError, consoleApi, gatewayBaseUrl, sessionWebsocketUrl } from "./api";
+import type { PendingInvitation, TeamMember } from "./api";
+import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
+import type { ThemeName } from "./panels";
+import type { TerminalStatus } from "./terminal";
+import "./console.css";
 
-type Protocol = "ssh" | "rdp" | "vnc";
-type Environment = "production" | "staging" | "development";
-type Health = "online" | "degraded" | "offline";
+const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
 
-interface HostRow {
-  id: string;
+type ViewKey = "overview" | "hosts" | "terminal" | "sftp" | "vault" | "snippets" | "team" | "audit" | "settings";
+
+interface TerminalTab {
+  key: string;
+  sessionId: string;
+  hostName: string;
+  websocketUrl: string;
+  status: TerminalStatus;
+}
+
+interface SftpEntry {
   name: string;
-  protocol: Protocol;
-  address: string;
-  port: number;
-  owner: string;
-  environment: Environment;
-  tags: string[];
-  health: Health;
-  credential: string;
+  directory: boolean;
+  size?: number;
 }
 
-interface ActiveSession {
-  id: string;
-  host: string;
-  protocol: Protocol;
-  user: string;
-  started: string;
-  status: "active" | "pending";
+interface Toast {
+  message: string;
+  kind: "success" | "error";
 }
 
-const hosts: HostRow[] = [
-  {
-    id: "host_prod_bastion",
-    name: "Production Bastion",
-    protocol: "ssh",
-    address: "10.20.0.10",
-    port: 22,
-    owner: "DevOps",
-    environment: "production",
-    tags: ["linux", "bastion"],
-    health: "online",
-    credential: "Prod Deploy Key"
-  },
-  {
-    id: "host_finance_rdp",
-    name: "Finance RDP",
-    protocol: "rdp",
-    address: "10.20.4.12",
-    port: 3389,
-    owner: "Operations",
-    environment: "production",
-    tags: ["windows", "rdp"],
-    health: "degraded",
-    credential: "RDP Admin Vault"
-  },
-  {
-    id: "host_stage_web",
-    name: "Staging Web",
-    protocol: "ssh",
-    address: "10.30.1.24",
-    port: 22,
-    owner: "Platform",
-    environment: "staging",
-    tags: ["nginx", "api"],
-    health: "online",
-    credential: "Staging SSH Key"
-  },
-  {
-    id: "host_legacy_vnc",
-    name: "Legacy Console",
-    protocol: "vnc",
-    address: "10.40.7.8",
-    port: 5900,
-    owner: "Support",
-    environment: "development",
-    tags: ["legacy", "vnc"],
-    health: "offline",
-    credential: "Support Vault"
-  }
+const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
+  { key: "overview", label: "Overview", icon: LayoutDashboard },
+  { key: "hosts", label: "Hosts", icon: Server },
+  { key: "terminal", label: "Terminal", icon: SquareTerminal },
+  { key: "sftp", label: "Files", icon: FolderLock },
+  { key: "vault", label: "Vault", icon: KeyRound },
+  { key: "snippets", label: "Snippets", icon: Braces },
+  { key: "team", label: "Team", icon: Users },
+  { key: "audit", label: "Audit", icon: ScrollText },
+  { key: "settings", label: "Settings", icon: Settings }
 ];
 
-const snippets = [
-  { name: "Release Status", command: "systemctl status onshell-api --no-pager" },
-  { name: "Disk Pressure", command: "df -h && du -sh /var/log" },
-  { name: "Docker Tail", command: "docker compose logs -f --tail=200" }
-];
+export default function ConsolePage() {
+  const reduceMotion = useReducedMotion();
+  const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
+  const [authFailed, setAuthFailed] = useState(false);
+  const [view, setView] = useState<ViewKey>("overview");
+  const [theme, setTheme] = useState<ThemeName>("forest");
+  const [toast, setToast] = useState<Toast | null>(null);
 
-const auditEvents = [
-  { action: "ssh.session.open", actor: "owner@onshell.cloud", target: "Production Bastion", time: "14:58" },
-  { action: "credential.rotate", actor: "owner@onshell.cloud", target: "Prod Deploy Key", time: "14:41" },
-  { action: "rdp.session.close", actor: "ops@onshell.cloud", target: "Finance RDP", time: "13:19" },
-  { action: "host.update", actor: "admin@onshell.cloud", target: "Staging Web", time: "12:05" }
-];
+  const [hosts, setHosts] = useState<Host[]>([]);
+  const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
+  const [sessions, setSessions] = useState<RemoteSession[]>([]);
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [audit, setAudit] = useState<AuditLog[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-const initialSessions: ActiveSession[] = [
-  { id: "sess_1", host: "Production Bastion", protocol: "ssh", user: "owner@onshell.cloud", started: "14:58", status: "active" },
-  { id: "sess_2", host: "Finance RDP", protocol: "rdp", user: "ops@onshell.cloud", started: "14:22", status: "pending" }
-];
+  const [tabs, setTabs] = useState<TerminalTab[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [injected, setInjected] = useState<{ id: number; command: string } | null>(null);
+  const injectedCounter = useRef(0);
 
-const navItems = [
-  { label: "Overview", icon: Gauge, active: true },
-  { label: "Hosts", icon: Server },
-  { label: "Terminal", icon: SquareTerminal },
-  { label: "Files", icon: HardDrive },
-  { label: "RDP", icon: MonitorUp },
-  { label: "Vault", icon: LockKeyhole },
-  { label: "Audit", icon: ShieldCheck },
-  { label: "Team", icon: Users }
-];
+  const [sftp, setSftp] = useState<{
+    gatewaySessionId: string;
+    hostName: string;
+    path: string;
+    entries: SftpEntry[];
+    busy: boolean;
+    error: string | null;
+  } | null>(null);
 
-const protocolLabels: Array<"all" | Protocol> = ["all", "ssh", "rdp", "vnc"];
+  const notify = useCallback((message: string, kind: "success" | "error" = "success") => {
+    setToast({ message, kind });
+  }, []);
 
-export default function DashboardPage() {
-  const [protocol, setProtocol] = useState<"all" | Protocol>("all");
-  const [query, setQuery] = useState("");
-  const [sessions, setSessions] = useState(initialSessions);
-  const [selectedHostId, setSelectedHostId] = useState(hosts[0].id);
-  const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? hosts[0];
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
-  const filteredHosts = useMemo(() => {
-    return hosts.filter((host) => {
-      const matchesProtocol = protocol === "all" || host.protocol === protocol;
-      const matchesQuery = `${host.name} ${host.address} ${host.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase());
-      return matchesProtocol && matchesQuery;
-    });
-  }, [protocol, query]);
+  /* theme */
+  useEffect(() => {
+    const saved = window.localStorage.getItem("onshell-theme") as ThemeName | null;
+    if (saved === "slate" || saved === "carbon") setTheme(saved);
+  }, []);
 
-  function launchSession(host: HostRow) {
-    const nextSession: ActiveSession = {
-      id: `sess_${Date.now()}`,
-      host: host.name,
-      protocol: host.protocol,
-      user: "owner@onshell.cloud",
-      started: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      status: "active"
+  useEffect(() => {
+    if (theme === "forest") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", theme);
+    }
+    window.localStorage.setItem("onshell-theme", theme);
+  }, [theme]);
+
+  /* auth + data */
+  const refreshAll = useCallback(async () => {
+    setLoadError(null);
+    const results = await Promise.allSettled([
+      consoleApi.hosts(),
+      consoleApi.credentials(),
+      consoleApi.sessions(),
+      consoleApi.snippets(),
+      consoleApi.audit(80),
+      consoleApi.organization(),
+      consoleApi.invitations().catch(() => [] as PendingInvitation[])
+    ]);
+    const [hostsR, credentialsR, sessionsR, snippetsR, auditR, orgR, invitationsR] = results;
+    if (hostsR.status === "fulfilled") setHosts(hostsR.value);
+    if (credentialsR.status === "fulfilled") setCredentials(credentialsR.value);
+    if (sessionsR.status === "fulfilled") setSessions(sessionsR.value);
+    if (snippetsR.status === "fulfilled") setSnippets(snippetsR.value);
+    if (auditR.status === "fulfilled") setAudit(auditR.value);
+    if (invitationsR.status === "fulfilled") setInvitations(invitationsR.value);
+    if (orgR.status === "fulfilled") {
+      const payload = orgR.value as Record<string, unknown>;
+      const nested = payload.organization as Record<string, unknown> | undefined;
+      const rawMembers = Array.isArray(payload.members)
+        ? payload.members
+        : nested && Array.isArray(nested.members)
+          ? nested.members
+          : [];
+      setMembers(rawMembers as TeamMember[]);
+    }
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length === results.length) {
+      setLoadError("The API is not reachable. Start it with `yarn dev` and refresh.");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    consoleApi
+      .me()
+      .then(async (payload) => {
+        if (!active) return;
+        const user = (payload as { user?: User }).user ?? (payload as unknown as User);
+        const organization = (payload as { organization?: Organization }).organization;
+        setIdentity({ user, organization });
+        await refreshAll();
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        if (error instanceof ApiError && error.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        setAuthFailed(true);
+        setLoading(false);
+      });
+    return () => {
+      active = false;
     };
-    setSelectedHostId(host.id);
-    setSessions((current) => [nextSession, ...current].slice(0, 6));
+  }, [refreshAll]);
+
+  /* SFTP */
+  const browseSftp = useCallback(async (gatewaySessionId: string, path: string, hostName: string) => {
+    setSftp((current) => (current ? { ...current, busy: true, error: null } : current));
+    try {
+      const response = await fetch(
+        `${gatewayBaseUrl}/sessions/${gatewaySessionId}/sftp/list?path=${encodeURIComponent(path)}`
+      );
+      const payload: unknown = await response.json();
+      if (!response.ok) throw new Error("Could not list this directory.");
+      const rawEntries: unknown[] = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).entries)
+          ? ((payload as Record<string, unknown>).entries as unknown[])
+          : [];
+      const entries: SftpEntry[] = rawEntries.map((raw) => {
+        const item = raw as Record<string, unknown>;
+        return {
+          name: String(item.name ?? item.filename ?? "?"),
+          directory:
+            item.directory === true || item.isDirectory === true || item.type === "directory" || item.type === "d",
+          size: typeof item.size === "number" ? item.size : undefined
+        };
+      });
+      entries.sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
+      setSftp({ gatewaySessionId, hostName, path, entries, busy: false, error: null });
+    } catch (error) {
+      setSftp((current) =>
+        current
+          ? { ...current, busy: false, error: error instanceof Error ? error.message : "SFTP listing failed." }
+          : current
+      );
+    }
+  }, []);
+
+  /* sessions */
+  const launchSession = useCallback(
+    async (host: Host, protocol: "ssh" | "sftp" | "rdp") => {
+      if (protocol === "rdp") {
+        notify("RDP viewer ships in the next phase — the gateway bridge is ready, the browser client is not.", "error");
+        return;
+      }
+      try {
+        const { session, websocketUrl } = await consoleApi.openSession({ hostId: host.id, protocol });
+        if (protocol === "ssh") {
+          const tab: TerminalTab = {
+            key: `${session.id}-${Date.now()}`,
+            sessionId: session.id,
+            hostName: host.name,
+            websocketUrl: sessionWebsocketUrl(session, websocketUrl),
+            status: "connecting"
+          };
+          setTabs((current) => [...current, tab]);
+          setActiveTab(tab.key);
+          setView("terminal");
+        } else {
+          const gatewaySessionId = session.gatewaySessionId ?? session.id;
+          setSftp({ gatewaySessionId, hostName: host.name, path: ".", entries: [], busy: true, error: null });
+          setView("sftp");
+          await browseSftp(gatewaySessionId, ".", host.name);
+        }
+        void consoleApi.sessions().then(setSessions).catch(() => undefined);
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "Could not open the session.", "error");
+      }
+    },
+    [notify, browseSftp]
+  );
+
+  const closeTab = useCallback((tab: TerminalTab) => {
+    setTabs((current) => {
+      const remaining = current.filter((item) => item.key !== tab.key);
+      setActiveTab((active) => (active === tab.key ? (remaining.at(-1)?.key ?? null) : active));
+      return remaining;
+    });
+    void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
+  }, []);
+
+  const runSnippet = useCallback(
+    (command: string) => {
+      if (!activeTab) {
+        notify("Open a terminal first, then run the snippet.", "error");
+        return;
+      }
+      injectedCounter.current += 1;
+      setInjected({ id: injectedCounter.current, command });
+      setView("terminal");
+    },
+    [activeTab, notify]
+  );
+
+  async function deleteHost(host: Host) {
+    if (!window.confirm(`Delete host "${host.name}"?`)) return;
+    try {
+      await consoleApi.deleteHost(host.id);
+      notify("Host deleted.", "success");
+      setHosts(await consoleApi.hosts());
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not delete host.", "error");
+    }
   }
+
+  async function logout() {
+    try {
+      await consoleApi.logout();
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
+  const memberNames = useMemo(() => {
+    const map = new Map<string, string>();
+    members.forEach((member) => map.set(member.id, member.name));
+    if (identity) map.set(identity.user.id, identity.user.name);
+    return map;
+  }, [members, identity]);
+
+  const activeSessions = useMemo(() => sessions.filter((session) => session.status === "active"), [sessions]);
+
+  if (!identity) {
+    return (
+      <main className="console-loading console-page">
+        {authFailed ? (
+          <>
+            <AlertTriangle size={26} />
+            <p>
+              Could not reach the API at <code>{process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"}</code>.
+              Start the stack with <code>yarn dev</code>, then reload.
+            </p>
+          </>
+        ) : (
+          <>
+            <span aria-hidden="true" className="console-spinner" />
+            <p>Loading your workspace…</p>
+          </>
+        )}
+      </main>
+    );
+  }
+
+  const role = identity.user.role;
 
   return (
-    <main className="app-shell">
+    <div className="app-shell console-page">
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand-mark">
@@ -175,272 +334,392 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="brand-name">Onshell.cloud</p>
-            <p className="brand-domain">onshell.cloud</p>
+            <p className="brand-domain">{identity.organization?.name ?? "Workspace"}</p>
           </div>
         </div>
-
-        <nav className="nav-list" aria-label="Primary">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button key={item.label} className={cx("nav-item", item.active && "is-active")} type="button" title={item.label}>
-                <Icon size={17} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
+        <nav aria-label="Console" className="nav-list">
+          {navItems.map((item) => (
+            <button
+              className={cx("nav-item", view === item.key && "is-active")}
+              key={item.key}
+              onClick={() => setView(item.key)}
+              type="button"
+            >
+              <item.icon size={16} />
+              <span>{item.label}</span>
+              {item.key === "terminal" && tabs.length > 0 && <span className="nav-badge">{tabs.length}</span>}
+              {item.key === "hosts" && hosts.length > 0 && <span className="nav-badge">{hosts.length}</span>}
+            </button>
+          ))}
         </nav>
-
         <div className="sidebar-status">
           <div className="status-line">
-            <span>Gateway</span>
-            <strong>Healthy</strong>
-          </div>
-          <div className="status-meter">
-            <span style={{ width: "72%" }} />
+            <span>Signed in</span>
+            <strong>{identity.user.role}</strong>
           </div>
           <div className="status-grid">
-            <span>API 18ms</span>
-            <span>Redis ok</span>
+            <span>{identity.user.name}</span>
           </div>
         </div>
       </aside>
 
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <h1>Remote Access Console</h1>
-            <p>Production workspace / Asia-Dhaka control plane.</p>
-          </div>
-          <div className="topbar-actions">
-            <button className="icon-button" type="button" title="Refresh status">
-              <RefreshCcw size={17} />
-            </button>
-            <button className="primary-button" type="button">
-              <Plus size={17} />
-              <span>Add Host</span>
-            </button>
-          </div>
-        </header>
-
-        <section className="metrics-grid" aria-label="System summary">
-          <Metric icon={Server} label="Hosts" value="24" tone="green" detail="19 online" />
-          <Metric icon={Activity} label="Active Sessions" value={String(sessions.length)} tone="cyan" detail="2 pending review" />
-          <Metric icon={KeyRound} label="Vault Items" value="41" tone="amber" detail="3 rotate soon" />
-          <Metric icon={Database} label="Audit Events" value="1.8k" tone="rose" detail="24h window" />
-        </section>
-
-        <section className="content-grid">
-          <div className="main-column">
-            <section className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Hosts</h2>
-                  <p>{filteredHosts.length} visible</p>
-                </div>
-                <div className="table-tools">
-                  <div className="segmented" aria-label="Protocol filter">
-                    {protocolLabels.map((item) => (
-                      <button
-                        key={item}
-                        className={cx(protocol === item && "selected")}
-                        type="button"
-                        onClick={() => setProtocol(item)}
-                      >
-                        {item.toUpperCase()}
-                      </button>
-                    ))}
+      <main className="workspace">
+        <AnimatePresence mode="wait">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="view-container"
+            exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            key={view}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+          >
+            {view === "overview" && (
+              <>
+                <div className="topbar">
+                  <div>
+                    <h1>Welcome back, {identity.user.name.split(" ")[0]}</h1>
+                    <p>Everything your team runs, in one audited workspace.</p>
                   </div>
-                  <label className="search-field">
-                    <Search size={16} />
-                    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search hosts" />
-                  </label>
                 </div>
-              </div>
-
-              <div className="host-table">
-                <div className="host-row table-head">
-                  <span>Host</span>
-                  <span>Address</span>
-                  <span>Env</span>
-                  <span>Health</span>
-                  <span>Action</span>
+                {loadError && <div className="error-banner">{loadError}</div>}
+                <div className="metrics-grid">
+                  <Metric color="green" hint="registered" icon={Server} label="Hosts" value={hosts.length} />
+                  <Metric color="cyan" hint="live now" icon={SquareTerminal} label="Active Sessions" value={activeSessions.length} />
+                  <Metric color="amber" hint="encrypted" icon={KeyRound} label="Vault Items" value={credentials.length} />
+                  <Metric color="rose" hint="recent" icon={ScrollText} label="Audit Events" value={audit.length} />
                 </div>
-                {filteredHosts.map((host) => (
-                  <div
-                    className={cx("host-row", selectedHostId === host.id && "is-selected")}
-                    key={host.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedHostId(host.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedHostId(host.id);
-                      }
-                    }}
-                  >
-                    <span className="host-title">
-                      <ProtocolIcon protocol={host.protocol} />
-                      <span>
-                        <strong>{host.name}</strong>
-                        <small>{host.owner}</small>
-                      </span>
-                    </span>
-                    <span>
-                      {host.address}:{host.port}
-                    </span>
-                    <span className={cx("env-pill", host.environment)}>{host.environment}</span>
-                    <HealthBadge health={host.health} />
-                    <span className="row-actions">
-                      <button
-                        className="icon-button compact"
-                        type="button"
-                        title={`Launch ${host.protocol.toUpperCase()}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          launchSession(host);
-                        }}
-                      >
-                        <Play size={15} />
-                      </button>
-                      <button className="icon-button compact" type="button" title="More actions">
-                        <MoreHorizontal size={15} />
-                      </button>
-                    </span>
+                <div className="content-grid">
+                  <div className="main-column">
+                    <section className="panel">
+                      <div className="panel-header tight">
+                        <h2>Recent Sessions</h2>
+                      </div>
+                      {sessions.length === 0 ? (
+                        <EmptyState
+                          hint="Launch a host to start your first session."
+                          icon={<SquareTerminal size={22} />}
+                          title="No sessions yet"
+                        />
+                      ) : (
+                        <div className="session-list">
+                          {sessions.slice(0, 6).map((session) => (
+                            <div className="session-row" key={session.id}>
+                              <SquareTerminal size={15} />
+                              <div>
+                                <strong>
+                                  {hosts.find((host) => host.id === session.hostId)?.name ?? session.hostId.slice(0, 8)}
+                                </strong>
+                                <small>
+                                  {session.protocol.toUpperCase()} · {new Date(session.startedAt).toLocaleString()}
+                                </small>
+                              </div>
+                              <span className={cx("session-state", session.status === "pending" && "pending")}>
+                                {session.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
                   </div>
-                ))}
-              </div>
-            </section>
+                  <div className="side-column">
+                    <section className="panel">
+                      <div className="panel-header tight">
+                        <h2>Latest Activity</h2>
+                      </div>
+                      <div className="audit-list">
+                        {audit.slice(0, 5).map((log) => (
+                          <div className="audit-row" key={log.id}>
+                            <span>
+                              {new Date(log.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <div>
+                              <strong>{log.action.replaceAll(".", " · ")}</strong>
+                              <small>{memberNames.get(log.actorId) ?? "system"}</small>
+                            </div>
+                          </div>
+                        ))}
+                        {audit.length === 0 && <EmptyState icon={<ScrollText size={20} />} title="No activity yet" />}
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              </>
+            )}
 
-            <section className="panel terminal-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>{selectedHost.name}</h2>
-                  <p>
-                    {selectedHost.protocol.toUpperCase()} at {selectedHost.address}:{selectedHost.port}
-                  </p>
-                </div>
-                <div className="terminal-actions">
-                  <button className="secondary-button" type="button">
-                    <Clipboard size={16} />
-                    <span>Paste Snippet</span>
-                  </button>
-                  <button className="primary-button" type="button" onClick={() => launchSession(selectedHost)}>
-                    <Play size={16} />
-                    <span>Launch</span>
-                  </button>
-                </div>
-              </div>
-              <div className="terminal-window" aria-label="Terminal preview">
-                <div className="terminal-bar">
-                  <span />
-                  <span />
-                  <span />
-                  <strong>{selectedHost.name}</strong>
-                </div>
-                <pre>
-{`$ ssh ${selectedHost.address}
-Onshell.cloud gateway prepared session token
-host_key: verified
-vault: ${selectedHost.credential}
-status: ready`}
-                </pre>
-              </div>
-            </section>
-          </div>
+            {view === "hosts" && (
+              <HostsView
+                error={loadError}
+                hosts={hosts}
+                loading={loading}
+                notify={notify}
+                onCreated={() => void consoleApi.hosts().then(setHosts)}
+                onDelete={deleteHost}
+                onLaunch={launchSession}
+                onRefresh={() => void consoleApi.hosts().then(setHosts).catch(() => notify("Refresh failed.", "error"))}
+                role={role}
+              />
+            )}
 
-          <aside className="side-column">
-            <section className="panel">
-              <div className="panel-header tight">
-                <h2>Sessions</h2>
-                <span className="count-pill">{sessions.length}</span>
-              </div>
-              <div className="session-list">
-                {sessions.map((session) => (
-                  <div className="session-row" key={session.id}>
-                    <ProtocolIcon protocol={session.protocol} />
-                    <div>
-                      <strong>{session.host}</strong>
-                      <small>{session.user}</small>
+            {view === "terminal" && (
+              <section className="panel">
+                <div className="panel-header tight">
+                  <div>
+                    <h2>Terminal</h2>
+                    <p>Live SSH over the Onshell gateway — every session is audited.</p>
+                  </div>
+                </div>
+                {tabs.length === 0 ? (
+                  <div className="terminal-empty">
+                    <SquareTerminal size={26} />
+                    <strong>No open terminals</strong>
+                    <span>Pick a host and press play to open an audited SSH session in this tab.</span>
+                    <button className="primary-button" onClick={() => setView("hosts")} type="button">
+                      Browse Hosts
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="terminal-tabs" role="tablist">
+                      {tabs.map((tab) => (
+                        <div
+                          aria-selected={activeTab === tab.key}
+                          className={cx("terminal-tab", activeTab === tab.key && "is-active")}
+                          data-status={tab.status}
+                          key={tab.key}
+                          onClick={() => setActiveTab(tab.key)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") setActiveTab(tab.key);
+                          }}
+                          role="tab"
+                          tabIndex={0}
+                        >
+                          <span aria-hidden="true" className="tab-dot" />
+                          {tab.hostName}
+                          <button
+                            aria-label={`Close ${tab.hostName}`}
+                            className="tab-close"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              closeTab(tab);
+                            }}
+                            type="button"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <span className={cx("session-state", session.status)}>{session.status}</span>
+                    <div className="terminal-stage">
+                      {tabs.map((tab) => (
+                        <div key={tab.key} style={{ display: activeTab === tab.key ? "block" : "none" }}>
+                          <XtermTerminal
+                            injectedCommand={activeTab === tab.key ? injected : null}
+                            onStatusChange={(status) =>
+                              setTabs((current) =>
+                                current.map((item) => (item.key === tab.key ? { ...item, status } : item))
+                              )
+                            }
+                            websocketUrl={tab.websocketUrl}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+
+            {view === "sftp" && (
+              <section className="panel">
+                <div className="panel-header tight">
+                  <div>
+                    <h2>Files</h2>
+                    <p>SFTP browser{sftp ? ` — ${sftp.hostName}` : ""}. Upload/download ship in the next phase.</p>
                   </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-header tight">
-                <h2>Snippets</h2>
-                <button className="icon-button compact" type="button" title="Upload snippet">
-                  <Upload size={15} />
-                </button>
-              </div>
-              <div className="snippet-list">
-                {snippets.map((snippet) => (
-                  <button className="snippet-row" key={snippet.name} type="button" title={snippet.command}>
-                    <FileText size={16} />
-                    <span>
-                      <strong>{snippet.name}</strong>
-                      <small>{snippet.command}</small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-header tight">
-                <h2>Audit</h2>
-                <ShieldCheck size={17} />
-              </div>
-              <div className="audit-list">
-                {auditEvents.map((event) => (
-                  <div className="audit-row" key={`${event.action}-${event.time}`}>
-                    <span>{event.time}</span>
-                    <div>
-                      <strong>{event.action}</strong>
-                      <small>
-                        {event.actor} {"->"} {event.target}
-                      </small>
+                </div>
+                {!sftp ? (
+                  <div className="terminal-empty">
+                    <FolderLock size={26} />
+                    <strong>No SFTP session</strong>
+                    <span>Open one from an SSH host.</span>
+                    <div className="inline-form" style={{ justifyContent: "center" }}>
+                      {hosts
+                        .filter((host) => host.type === "ssh")
+                        .slice(0, 4)
+                        .map((host) => (
+                          <button
+                            className="secondary-button"
+                            key={host.id}
+                            onClick={() => launchSession(host, "sftp")}
+                            type="button"
+                          >
+                            <FolderLock size={14} />
+                            {host.name}
+                          </button>
+                        ))}
+                      {hosts.filter((host) => host.type === "ssh").length === 0 && (
+                        <button className="primary-button" onClick={() => setView("hosts")} type="button">
+                          Add an SSH host first
+                        </button>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
-          </aside>
-        </section>
-      </section>
-    </main>
+                ) : (
+                  <>
+                    <div className="sftp-path">
+                      <Folder size={14} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{sftp.path}</span>
+                      {sftp.busy && <Loader2 className="spin" size={14} />}
+                    </div>
+                    {sftp.error && <div className="error-banner">{sftp.error}</div>}
+                    <div>
+                      {sftp.path !== "." && sftp.path !== "/" && (
+                        <button
+                          className="sftp-row is-dir"
+                          onClick={() =>
+                            browseSftp(
+                              sftp.gatewaySessionId,
+                              sftp.path.split("/").slice(0, -1).join("/") || ".",
+                              sftp.hostName
+                            )
+                          }
+                          type="button"
+                        >
+                          <Folder size={15} />
+                          <strong>..</strong>
+                          <span />
+                          <span />
+                        </button>
+                      )}
+                      {sftp.entries.map((entry) => (
+                        <button
+                          className={cx("sftp-row", entry.directory && "is-dir")}
+                          disabled={!entry.directory}
+                          key={entry.name}
+                          onClick={() =>
+                            entry.directory
+                              ? browseSftp(
+                                  sftp.gatewaySessionId,
+                                  sftp.path === "." ? entry.name : `${sftp.path}/${entry.name}`,
+                                  sftp.hostName
+                                )
+                              : undefined
+                          }
+                          type="button"
+                        >
+                          {entry.directory ? <Folder size={15} /> : <File size={15} />}
+                          <strong>{entry.name}</strong>
+                          <span>{entry.directory ? "directory" : formatBytes(entry.size)}</span>
+                          <span />
+                        </button>
+                      ))}
+                      {!sftp.busy && sftp.entries.length === 0 && !sftp.error && (
+                        <EmptyState icon={<Folder size={20} />} title="Empty directory" />
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+
+            {view === "vault" && (
+              <VaultView
+                credentials={credentials}
+                hosts={hosts}
+                loading={loading}
+                notify={notify}
+                onChanged={() => void consoleApi.credentials().then(setCredentials)}
+                role={role}
+              />
+            )}
+
+            {view === "snippets" && (
+              <SnippetsView
+                hasActiveTerminal={Boolean(activeTab)}
+                loading={loading}
+                notify={notify}
+                onChanged={() => void consoleApi.snippets().then(setSnippets)}
+                onRun={runSnippet}
+                snippets={snippets}
+              />
+            )}
+
+            {view === "team" && (
+              <TeamView
+                currentUser={identity.user}
+                invitations={invitations}
+                loading={loading}
+                members={members}
+                notify={notify}
+                onChanged={() => void refreshAll()}
+              />
+            )}
+
+            {view === "audit" && <AuditView loading={loading} logs={audit} memberNames={memberNames} />}
+
+            {view === "settings" && (
+              <SettingsView
+                notify={notify}
+                onLogout={() => void logout()}
+                onTheme={setTheme}
+                organizationName={identity.organization?.name ?? "Workspace"}
+                theme={theme}
+                user={identity.user}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className={cx("console-toast", toast.kind)}
+            exit={{ opacity: 0, y: 8 }}
+            initial={{ opacity: reduceMotion ? 1 : 0, y: reduceMotion ? 0 : 8 }}
+            role="status"
+            transition={{ duration: 0.18 }}
+          >
+            {toast.kind === "success" ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
-function Metric({ icon: Icon, label, value, detail, tone }: { icon: LucideIcon; label: string; value: string; detail: string; tone: string }) {
+function Metric({
+  color,
+  icon: Icon,
+  label,
+  value,
+  hint
+}: {
+  color: "green" | "cyan" | "amber" | "rose";
+  icon: typeof Server;
+  label: string;
+  value: number;
+  hint: string;
+}) {
   return (
-    <div className={cx("metric", tone)}>
-      <Icon size={20} />
+    <div className={cx("metric", color)}>
+      <Icon size={18} />
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
-        <small>{detail}</small>
+        <small>{hint}</small>
       </div>
     </div>
   );
 }
 
-function ProtocolIcon({ protocol }: { protocol: Protocol }) {
-  if (protocol === "rdp") return <MonitorUp className="protocol-icon rdp" size={17} />;
-  if (protocol === "vnc") return <Network className="protocol-icon vnc" size={17} />;
-  return <SquareTerminal className="protocol-icon ssh" size={17} />;
-}
-
-function HealthBadge({ health }: { health: Health }) {
-  const Icon = health === "online" ? CheckCircle2 : health === "degraded" ? AlertTriangle : XCircle;
-  return (
-    <span className={cx("health-badge", health)}>
-      <Icon size={15} />
-      {health}
-    </span>
-  );
+function formatBytes(size?: number) {
+  if (size === undefined) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }

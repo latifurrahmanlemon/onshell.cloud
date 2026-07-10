@@ -1,4 +1,33 @@
-import type { FastifyInstance } from "fastify";
+/**
+ * Gateway wire protocol
+ * =====================
+ *
+ * REST (called by the API service, never by browsers):
+ *   - GET  /health                          liveness probe (never requires auth)
+ *   - POST /sessions                        open a session (body: openSessionSchema below)
+ *   - GET  /sessions                        list gateway sessions
+ *   - GET  /sessions/:sessionId             inspect one gateway session
+ *   - POST /sessions/:sessionId/close       terminate a gateway session
+ *   - GET  /sessions/:sessionId/sftp/list   list a directory over SFTP (?path=/)
+ *   When the GATEWAY_SHARED_SECRET environment variable is set, every REST
+ *   endpoint except /health requires `Authorization: Bearer <secret>`.
+ *
+ * WebSocket /ws/ssh/:sessionId (browser terminal, e.g. xterm.js):
+ *   server -> client:
+ *     - UTF-8 text frames containing raw terminal output (stdout/stderr).
+ *     - The first frame is a JSON control frame {"type":"system","data":"..."}.
+ *   client -> server:
+ *     - Control frames are JSON text starting with "{" and carrying a known type:
+ *         {"type":"resize","cols":<number>,"rows":<number>}  resize the remote pty
+ *         {"type":"data","data":"<text>"}                    explicit keyboard input
+ *     - Any other frame (including JSON with an unknown type) is written
+ *       verbatim to the shell as keyboard input.
+ *
+ * WebSocket /ws/rdp/:sessionId:
+ *   Opaque bidirectional relay of the Guacamole protocol between the browser
+ *   client (guacamole-common-js) and guacd. Frames pass through untouched.
+ */
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { z } from "zod";
 import { openRdpSession } from "./protocols/rdp.js";
@@ -24,6 +53,13 @@ const openSessionSchema = z.object({
   startPath: z.string().optional()
 });
 
+const sharedSecret = process.env.GATEWAY_SHARED_SECRET;
+
+function isRestAuthorized(request: FastifyRequest) {
+  if (!sharedSecret) return true;
+  return request.headers.authorization === `Bearer ${sharedSecret}`;
+}
+
 export async function registerGatewayRoutes(app: FastifyInstance, config: RuntimeConfig) {
   app.get("/health", async () => ({
     status: "ok",
@@ -32,9 +68,13 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
     version: "0.1.0"
   }));
 
-  app.get("/sessions", async () => listGatewaySessions());
+  app.get("/sessions", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    return listGatewaySessions();
+  });
 
   app.post("/sessions", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
     const body = openSessionSchema.parse(request.body);
     const session =
       body.protocol === "ssh"
@@ -51,6 +91,7 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
   });
 
   app.get("/sessions/:sessionId", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
     const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
     const session = getGatewaySession(sessionId);
     if (!session) {
@@ -61,6 +102,7 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
   });
 
   app.post("/sessions/:sessionId/close", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
     const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
     closeSshClient(sessionId);
     const session = updateGatewaySession(sessionId, { status: "closed" });
@@ -73,6 +115,7 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
 
   app.get("/sessions/:sessionId/sftp/list", async (request, reply) => {
     try {
+      if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
       const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
       const query = z.object({ path: z.string().default("/") }).parse(request.query);
       const session = getGatewaySession(sessionId);
@@ -113,7 +156,24 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       });
 
       socket.on("message", (message: Buffer | ArrayBuffer | Buffer[]) => {
-        shell.write(message.toString());
+        const text = message.toString();
+        if (text.startsWith("{")) {
+          try {
+            const frame = JSON.parse(text) as { type?: string; cols?: number; rows?: number; data?: string };
+            if (frame.type === "resize" && typeof frame.cols === "number" && typeof frame.rows === "number") {
+              shell.setWindow(frame.rows, frame.cols, 0, 0);
+              return;
+            }
+            if (frame.type === "data" && typeof frame.data === "string") {
+              shell.write(frame.data);
+              return;
+            }
+          } catch {
+            // Not a JSON control frame — fall through and treat it as raw input.
+          }
+        }
+
+        shell.write(text);
       });
       socket.on("close", () => {
         shell.end();

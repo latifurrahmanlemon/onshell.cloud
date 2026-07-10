@@ -30,7 +30,18 @@ export const store: {
     googleEmail?: string;
   }>;
   pendingTwoFactorSetups: Record<string, string>;
-  pendingTwoFactorChallenges: Record<string, { userId: string; createdAt: string }>;
+  pendingTwoFactorChallenges: Record<
+    string,
+    {
+      userId: string;
+      createdAt: string;
+      method?: "totp" | "email";
+      emailOtpHash?: string;
+      emailOtpExpiresAt?: string;
+      lastEmailSentAt?: string;
+      attempts?: number;
+    }
+  >;
   googleOAuthStates: Record<string, { createdAt: string; returnTo: string }>;
 } = {
   organizations: [

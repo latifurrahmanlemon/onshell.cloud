@@ -1,10 +1,15 @@
-import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { canManageHosts, type Host } from "@onshell/shared";
+import { canManageHosts } from "@onshell/shared";
 import { z } from "zod";
-import { getCurrentUser } from "../../lib/current-user.js";
+import { getAuthenticatedUser } from "../../lib/current-user.js";
+import { prisma } from "../../lib/prisma.js";
+import {
+  environmentToPrisma,
+  hostTypeToPrisma,
+  recordAudit,
+  toHost
+} from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
-import { createAudit, store } from "../../lib/store.js";
 
 const hostSchema = z.object({
   name: z.string().min(2),
@@ -18,60 +23,97 @@ const hostSchema = z.object({
   notes: z.string().optional()
 });
 
+const hostPatchSchema = hostSchema.partial().extend({
+  group: z.string().nullable().optional()
+});
+
+const hostQuerySchema = z.object({
+  type: z.enum(["ssh", "rdp", "vnc"]).optional(),
+  environment: z.enum(["production", "staging", "development"]).optional(),
+  search: z.string().optional(),
+  group: z.string().optional(),
+  tag: z.string().optional()
+});
+
+const hostInclude = { tags: true, group: true } as const;
+
+async function resolveGroupId(organizationId: string, name: string) {
+  const existing = await prisma.hostGroup.findFirst({ where: { organizationId, name } });
+  if (existing) return existing.id;
+
+  const created = await prisma.hostGroup.create({ data: { organizationId, name } });
+  return created.id;
+}
+
 export async function registerHostRoutes(app: FastifyInstance) {
-  app.get("/hosts", async (request) => {
-    const user = getCurrentUser(request);
-    const query = z
-      .object({
-        type: z.enum(["ssh", "rdp", "vnc"]).optional(),
-        environment: z.enum(["production", "staging", "development"]).optional(),
-        search: z.string().optional()
-      })
-      .parse(request.query);
+  app.get("/hosts", async (request, reply) => {
+    try {
+      const user = await getAuthenticatedUser(request);
+      if (!user) return reply.code(401).send({ error: "unauthorized" });
 
-    return store.hosts.filter((host) => {
-      if (host.organizationId !== user.organizationId) return false;
-      if (query.type && host.type !== query.type) return false;
-      if (query.environment && host.environment !== query.environment) return false;
-      if (query.search) {
-        const haystack = `${host.name} ${host.address} ${host.tags.join(" ")}`.toLowerCase();
-        return haystack.includes(query.search.toLowerCase());
-      }
+      const query = hostQuerySchema.parse(request.query);
+      const hosts = await prisma.host.findMany({
+        where: {
+          organizationId: user.organizationId,
+          ...(query.type && { type: hostTypeToPrisma[query.type] }),
+          ...(query.environment && { environment: environmentToPrisma[query.environment] }),
+          ...(query.group && { group: { name: query.group } }),
+          ...(query.tag && { tags: { some: { name: query.tag } } }),
+          ...(query.search && {
+            OR: [
+              { name: { contains: query.search } },
+              { address: { contains: query.search } },
+              { tags: { some: { name: { contains: query.search } } } }
+            ]
+          })
+        },
+        include: hostInclude,
+        orderBy: { createdAt: "desc" }
+      });
 
-      return true;
-    });
+      return hosts.map(toHost);
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
   });
 
   app.post("/hosts", async (request, reply) => {
     try {
-      const actor = getCurrentUser(request);
+      const actor = await getAuthenticatedUser(request);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
       if (!canManageHosts(actor.role)) {
         return reply.code(403).send({ error: "forbidden" });
       }
 
       const body = hostSchema.parse(request.body);
-      const now = new Date().toISOString();
-      const host: Host = {
-        id: `host_${randomUUID()}`,
-        organizationId: actor.organizationId,
-        health: "unknown",
-        createdAt: now,
-        updatedAt: now,
-        ...body
-      };
+      const groupId = body.group ? await resolveGroupId(actor.organizationId, body.group) : undefined;
+      const host = await prisma.host.create({
+        data: {
+          organizationId: actor.organizationId,
+          name: body.name,
+          type: hostTypeToPrisma[body.type],
+          address: body.address,
+          port: body.port,
+          username: body.username,
+          environment: environmentToPrisma[body.environment],
+          notes: body.notes,
+          groupId,
+          tags: { create: body.tags.map((name) => ({ name })) }
+        },
+        include: hostInclude
+      });
 
-      store.hosts.push(host);
-      createAudit({
+      await recordAudit({
         organizationId: actor.organizationId,
         actorId: actor.id,
         action: "host.create",
         targetType: "host",
         targetId: host.id,
         ipAddress: request.ip,
-        metadata: { type: host.type, environment: host.environment }
+        metadata: { type: body.type, environment: body.environment }
       });
 
-      return reply.code(201).send(host);
+      return reply.code(201).send(toHost(host));
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -79,20 +121,46 @@ export async function registerHostRoutes(app: FastifyInstance) {
 
   app.patch("/hosts/:hostId", async (request, reply) => {
     try {
-      const actor = getCurrentUser(request);
+      const actor = await getAuthenticatedUser(request);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
       if (!canManageHosts(actor.role)) {
         return reply.code(403).send({ error: "forbidden" });
       }
 
       const { hostId } = z.object({ hostId: z.string() }).parse(request.params);
-      const body = hostSchema.partial().parse(request.body);
-      const host = store.hosts.find((candidate) => candidate.id === hostId && candidate.organizationId === actor.organizationId);
-      if (!host) {
+      const body = hostPatchSchema.parse(request.body);
+      const existing = await prisma.host.findFirst({
+        where: { id: hostId, organizationId: actor.organizationId }
+      });
+      if (!existing) {
         return reply.code(404).send({ error: "host_not_found" });
       }
 
-      Object.assign(host, body, { updatedAt: new Date().toISOString() });
-      createAudit({
+      const groupId =
+        body.group === undefined
+          ? undefined
+          : !body.group
+            ? null
+            : await resolveGroupId(actor.organizationId, body.group);
+      const host = await prisma.host.update({
+        where: { id: existing.id },
+        data: {
+          ...(body.name !== undefined && { name: body.name }),
+          ...(body.type !== undefined && { type: hostTypeToPrisma[body.type] }),
+          ...(body.address !== undefined && { address: body.address }),
+          ...(body.port !== undefined && { port: body.port }),
+          ...(body.username !== undefined && { username: body.username }),
+          ...(body.environment !== undefined && { environment: environmentToPrisma[body.environment] }),
+          ...(body.notes !== undefined && { notes: body.notes }),
+          ...(groupId !== undefined && { groupId }),
+          ...(body.tags !== undefined && {
+            tags: { deleteMany: {}, create: body.tags.map((name) => ({ name })) }
+          })
+        },
+        include: hostInclude
+      });
+
+      await recordAudit({
         organizationId: actor.organizationId,
         actorId: actor.id,
         action: "host.update",
@@ -101,7 +169,44 @@ export async function registerHostRoutes(app: FastifyInstance) {
         ipAddress: request.ip
       });
 
-      return host;
+      return toHost(host);
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.delete("/hosts/:hostId", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+      if (!canManageHosts(actor.role)) {
+        return reply.code(403).send({ error: "forbidden" });
+      }
+
+      const { hostId } = z.object({ hostId: z.string() }).parse(request.params);
+      const existing = await prisma.host.findFirst({
+        where: { id: hostId, organizationId: actor.organizationId }
+      });
+      if (!existing) {
+        return reply.code(404).send({ error: "host_not_found" });
+      }
+
+      await prisma.$transaction([
+        prisma.snippet.updateMany({ where: { hostId: existing.id }, data: { hostId: null } }),
+        prisma.host.delete({ where: { id: existing.id } })
+      ]);
+
+      await recordAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "host.delete",
+        targetType: "host",
+        targetId: existing.id,
+        ipAddress: request.ip,
+        metadata: { name: existing.name }
+      });
+
+      return { ok: true };
     } catch (error) {
       return handleRouteError(reply, error);
     }

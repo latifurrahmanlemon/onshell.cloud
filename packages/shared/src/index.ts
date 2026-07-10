@@ -163,6 +163,36 @@ export function canManagePlatform(user: Pick<User, "isPlatformAdmin" | "role">) 
   return user.isPlatformAdmin || user.role === "owner";
 }
 
+export const passwordPolicy = {
+  minLength: 10,
+  requireLowercase: true,
+  requireUppercase: true,
+  requireDigit: true,
+  requireSymbol: true
+} as const;
+
+export function validatePassword(password: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (password.length < passwordPolicy.minLength) {
+    errors.push(`Password must be at least ${passwordPolicy.minLength} characters long.`);
+  }
+  if (passwordPolicy.requireLowercase && !/[a-z]/.test(password)) {
+    errors.push("Password must contain at least one lowercase letter.");
+  }
+  if (passwordPolicy.requireUppercase && !/[A-Z]/.test(password)) {
+    errors.push("Password must contain at least one uppercase letter.");
+  }
+  if (passwordPolicy.requireDigit && !/[0-9]/.test(password)) {
+    errors.push("Password must contain at least one digit.");
+  }
+  if (passwordPolicy.requireSymbol && !/[^a-zA-Z0-9]/.test(password)) {
+    errors.push("Password must contain at least one symbol.");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 export function normalizeSlug(value: string) {
   return value
     .trim()
