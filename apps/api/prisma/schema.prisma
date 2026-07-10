@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -73,42 +73,42 @@ enum AuthProvider {
 }
 
 model User {
-  id                 String               @id @default(cuid())
-  email              String               @unique
-  name               String
-  passwordHash       String?
-  isPlatformAdmin    Boolean              @default(false)
-  emailVerifiedAt    DateTime?
-  twoFactorEnabled   Boolean              @default(false)
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  memberships        OrganizationMember[]
-  sessions           Session[]
-  snippets           Snippet[]
-  refreshTokens      RefreshToken[]
-  twoFactorSecret    TwoFactorSecret?
-  passwordResetToken PasswordResetToken[]
-  auditLogs          AuditLog[]           @relation("AuditActor")
-  updatedSettings    AppSetting[]         @relation("SettingUpdatedBy")
-  updatedSmtpSettings SmtpSetting[]       @relation("SmtpUpdatedBy")
-  oauthAccounts      OAuthAccount[]
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  name                String
+  passwordHash        String?
+  isPlatformAdmin     Boolean              @default(false)
+  emailVerifiedAt     DateTime?
+  twoFactorEnabled    Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  memberships         OrganizationMember[]
+  sessions            Session[]
+  snippets            Snippet[]
+  refreshTokens       RefreshToken[]
+  twoFactorSecret     TwoFactorSecret?
+  passwordResetToken  PasswordResetToken[]
+  auditLogs           AuditLog[]           @relation("AuditActor")
+  updatedSettings     AppSetting[]         @relation("SettingUpdatedBy")
+  updatedSmtpSettings SmtpSetting[]        @relation("SmtpUpdatedBy")
+  oauthAccounts       OAuthAccount[]
 }
 
 model Organization {
-  id          String               @id @default(cuid())
-  name        String
-  slug        String               @unique
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  members     OrganizationMember[]
-  invitations Invitation[]
-  hosts       Host[]
-  credentials Credential[]
-  sessions    Session[]
-  auditLogs   AuditLog[]
-  snippets    Snippet[]
+  id            String               @id @default(cuid())
+  name          String
+  slug          String               @unique
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  members       OrganizationMember[]
+  invitations   Invitation[]
+  hosts         Host[]
+  credentials   Credential[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  snippets      Snippet[]
   subscriptions Subscription[]
-  usageRecords UsageRecord[]
+  usageRecords  UsageRecord[]
 }
 
 model OrganizationMember {
@@ -145,7 +145,7 @@ model Host {
   port           Int
   username       String?
   environment    Environment
-  notes          String?
+  notes          String?         @db.Text
   health         String          @default("unknown")
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -161,7 +161,7 @@ model Host {
 }
 
 model HostGroup {
-  id             String       @id @default(cuid())
+  id             String @id @default(cuid())
   organizationId String
   name           String
   hosts          Host[]
@@ -179,7 +179,7 @@ model Credential {
   organizationId   String
   name             String
   kind             CredentialKind
-  encryptedPayload String
+  encryptedPayload String         @db.Text
   nonce            String
   authTag          String
   rotatedAt        DateTime?
@@ -235,7 +235,7 @@ model Snippet {
   ownerId        String
   hostId         String?
   name           String
-  command        String
+  command        String       @db.Text
   scope          String
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -249,7 +249,7 @@ model SftpOperation {
   sessionId String
   hostId    String
   operation String
-  path      String
+  path      String   @db.Text
   status    String
   createdAt DateTime @default(now())
   session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -257,41 +257,41 @@ model SftpOperation {
 }
 
 model RdpConnection {
-  id        String   @id @default(cuid())
-  hostId    String   @unique
-  width     Int?
-  height    Int?
+  id         String   @id @default(cuid())
+  hostId     String   @unique
+  width      Int?
+  height     Int?
   colorDepth Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  host       Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
 }
 
 model TunnelRule {
   id        String   @id @default(cuid())
   hostId    String
   name      String
-  localPath String
-  targetUrl String
+  localPath String   @db.Text
+  targetUrl String   @db.Text
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   tokenHash String
   revokedAt DateTime?
   expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model TwoFactorSecret {
   id              String   @id @default(cuid())
   userId          String   @unique
-  encryptedSecret String
+  encryptedSecret String   @db.Text
   nonce           String
   authTag         String
   createdAt       DateTime @default(now())
@@ -299,13 +299,13 @@ model TwoFactorSecret {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   tokenHash String
   usedAt    DateTime?
   expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model OAuthAccount {
@@ -314,8 +314,8 @@ model OAuthAccount {
   provider          AuthProvider
   providerAccountId String
   email             String
-  accessToken       String?
-  refreshToken      String?
+  accessToken       String?      @db.Text
+  refreshToken      String?      @db.Text
   expiresAt         DateTime?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
@@ -329,7 +329,7 @@ model Plan {
   id                    String         @id @default(cuid())
   code                  String         @unique
   name                  String
-  description           String
+  description           String         @db.Text
   priceMonthlyCents     Int
   priceYearlyCents      Int
   currency              String         @default("USD")
@@ -371,7 +371,7 @@ model Invoice {
   currency          String       @default("USD")
   status            String       @default("draft")
   providerInvoiceId String?      @unique
-  hostedInvoiceUrl  String?
+  hostedInvoiceUrl  String?      @db.Text
   paidAt            DateTime?
   dueAt             DateTime?
   createdAt         DateTime     @default(now())
@@ -395,7 +395,7 @@ model SmtpSetting {
   port              Int
   secure            Boolean  @default(true)
   username          String?
-  encryptedPassword String?
+  encryptedPassword String?  @db.Text
   passwordNonce     String?
   passwordAuthTag   String?
   fromEmail         String
@@ -419,19 +419,19 @@ model AppSetting {
 }
 
 model PaymentSetting {
-  id                 String          @id @default(cuid())
-  provider           PaymentProvider
-  mode               String          @default("test")
-  publicKey          String?
-  encryptedSecretKey String?
-  secretKeyNonce     String?
-  secretKeyAuthTag   String?
-  encryptedWebhookSecret String?
-  webhookSecretNonce String?
-  webhookSecretAuthTag String?
-  enabled            Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  id                     String          @id @default(cuid())
+  provider               PaymentProvider
+  mode                   String          @default("test")
+  publicKey              String?
+  encryptedSecretKey     String?         @db.Text
+  secretKeyNonce         String?
+  secretKeyAuthTag       String?
+  encryptedWebhookSecret String?         @db.Text
+  webhookSecretNonce     String?
+  webhookSecretAuthTag   String?
+  enabled                Boolean         @default(false)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
   @@unique([provider, mode])
 }

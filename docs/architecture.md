@@ -6,7 +6,7 @@ Onshell.cloud is split into separate services so browser UI, API business logic,
 flowchart LR
   Browser["Browser Dashboard"] --> Web["Next.js Web"]
   Web --> API["Fastify API"]
-  API --> Postgres["PostgreSQL"]
+  API --> MySQL["MySQL"]
   API --> Redis["Redis"]
   API --> Gateway["Gateway Service"]
   Gateway --> SSH["SSH Hosts"]
@@ -23,7 +23,7 @@ flowchart LR
 * `apps/web`: renders the public SaaS page, customer console, admin panel, host list, terminal/RDP surfaces, snippets, and audit views.
 * `apps/api`: owns authentication, organizations, RBAC, hosts, credential metadata, session records, snippets, public packages, checkout contracts, subscriptions, SMTP settings, platform settings, users, and audit events.
 * `apps/gateway`: owns protocol sessions and performs server-side SSH, SFTP, tunnel, and RDP connection work.
-* PostgreSQL: durable system of record.
+* MySQL: durable system of record.
 * Redis: session coordination, rate limits, queue state, and gateway coordination.
 * guacd: RDP protocol bridge.
 

@@ -11,22 +11,23 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres:17-alpine
+      mysql:
+        image: mysql:8.4
         env:
-          POSTGRES_DB: onshell_cloud
-          POSTGRES_USER: onshell
-          POSTGRES_PASSWORD: onshell
+          MYSQL_DATABASE: onshell_cloud
+          MYSQL_USER: onshell
+          MYSQL_PASSWORD: onshell
+          MYSQL_ROOT_PASSWORD: onshell
         ports:
-          - 5432:5432
+          - 3306:3306
         options: >-
-          --health-cmd "pg_isready -U onshell -d onshell_cloud"
+          --health-cmd "mysqladmin ping -h localhost -u root -ponshell"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://onshell:onshell@localhost:5432/onshell_cloud?schema=public
+      DATABASE_URL: mysql://onshell:onshell@localhost:3306/onshell_cloud
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-jwt-secret
       MASTER_ENCRYPTION_KEY: ci-master-key

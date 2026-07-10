@@ -1,16 +1,18 @@
 services:
-  postgres:
-    image: postgres:17-alpine
+  mysql:
+    image: mysql:8.4
+    command: --default-authentication-plugin=caching_sha2_password
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-onshell_cloud}
-      POSTGRES_USER: ${POSTGRES_USER:-onshell}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-onshell}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-onshell_cloud}
+      MYSQL_USER: ${MYSQL_USER:-onshell}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-onshell}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-onshell}
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,7 +39,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 4000
-      DATABASE_URL: postgresql://onshell:onshell@postgres:5432/onshell_cloud?schema=public
+      DATABASE_URL: mysql://onshell:onshell@mysql:3306/onshell_cloud
       REDIS_URL: redis://redis:6379
       GATEWAY_BASE_URL: http://gateway:4100
       CORS_ORIGINS: http://localhost:3000
@@ -46,7 +48,7 @@ services:
     ports:
       - "4000:4000"
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -86,5 +88,5 @@ services:
       - gateway
 
 volumes:
-  postgres_data:
+  mysql_data:
 

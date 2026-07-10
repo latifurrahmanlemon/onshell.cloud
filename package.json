@@ -20,7 +20,7 @@
     "db:deploy": "yarn workspace @onshell/api prisma migrate deploy",
     "db:seed": "yarn workspace @onshell/api prisma db seed",
     "db:studio": "yarn workspace @onshell/api prisma studio",
-    "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-postgres.ps1"
+    "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-mysql.ps1"
   },
   "devDependencies": {
     "prettier": "^3.4.2",

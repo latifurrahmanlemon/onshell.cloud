@@ -59,7 +59,7 @@ export function loadConfig(service: ServiceName): RuntimeConfig {
     publicBaseUrl: env("PUBLIC_BASE_URL", "http://localhost:3000"),
     apiBaseUrl: env("API_BASE_URL", "http://localhost:4000"),
     gatewayBaseUrl: env("GATEWAY_BASE_URL", "http://localhost:4100"),
-    databaseUrl: env("DATABASE_URL", "postgresql://onshell:onshell@localhost:5432/onshell_cloud?schema=public"),
+    databaseUrl: env("DATABASE_URL", "mysql://onshell:onshell@localhost:3306/onshell_cloud"),
     redisUrl: env("REDIS_URL", "redis://localhost:6379"),
     jwtSecret: env("JWT_SECRET", "development-only-change-me"),
     masterEncryptionKey: env("MASTER_ENCRYPTION_KEY", "development-only-change-me"),

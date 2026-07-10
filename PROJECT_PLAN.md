@@ -173,7 +173,7 @@ So first production version should include backend-side tunnel/proxy, not full d
 
 ### Database
 
-* PostgreSQL
+* MySQL
 * Prisma ORM
 * Database migrations
 * Seed scripts
@@ -389,7 +389,7 @@ PasswordResetToken
 * Monorepo setup
 * Next.js frontend
 * Backend API
-* PostgreSQL + Prisma
+* MySQL + Prisma
 * Auth system
 * Organization/team system
 * Basic dashboard layout
@@ -492,15 +492,15 @@ Code-side MVP implementation is about 90% complete. The main remaining work is r
 * Two-factor authentication support is implemented with TOTP/Google Authenticator style setup and verification.
 * Prisma schema, migration files, and seed script are prepared, including the platform admin account.
 * Gateway code includes SSH/SFTP integration and RDP gateway bridge structure.
-* README/deployment documentation, CI workflow, and PostgreSQL backup script are included.
+* README/deployment documentation, CI workflow, and MySQL backup script are included.
 
 ### Local Blocker
 
-Database migration and seed were not run locally because PostgreSQL authentication is not available in this workstation environment. A local PostgreSQL service was detected on port 5433, but the available credentials failed password authentication. Because of that, database activation is intentionally left for the remote server.
+Database migration and seed were not run locally because MySQL authentication is not available in this workstation environment. A local MySQL service was detected on port 3307, but the available credentials failed password authentication. Because of that, database activation is intentionally left for the remote server.
 
 ### Remote Server Steps
 
-Run these after PostgreSQL credentials are ready on the remote server:
+Run these after MySQL credentials are ready on the remote server:
 
 ```bash
 corepack enable

@@ -25,7 +25,7 @@ Recommended production services:
 * `web`: Next.js app behind TLS
 * `api`: Fastify API
 * `gateway`: SSH/SFTP/RDP session service
-* `postgres`: managed PostgreSQL
+* `mysql`: managed MySQL
 * `redis`: managed Redis
 * `guacd`: isolated RDP bridge
 * `reverse-proxy`: Caddy, Nginx, or managed ingress
@@ -62,7 +62,7 @@ Terminate TLS before traffic reaches the app services. Enforce HTTPS and secure 
 
 ## Backups
 
-Back up PostgreSQL daily and before migrations. Keep restore instructions close to the deployment runbook and test restore at least once per release cycle.
+Back up MySQL daily and before migrations. Keep restore instructions close to the deployment runbook and test restore at least once per release cycle.
 
 Manual backup:
 

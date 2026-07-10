@@ -15,7 +15,7 @@ Onshell.cloud is a browser-based SaaS platform for SSH terminals, SFTP file oper
 
 * Node.js 22+
 * Yarn 4 through Corepack
-* Docker Desktop for PostgreSQL, Redis, and guacd
+* Docker Desktop for MySQL, Redis, and guacd
 
 ## Start From Fresh Clone
 
@@ -32,7 +32,7 @@ Update `.env` before production. The seed script creates a platform admin. It us
 Start local infrastructure:
 
 ```bash
-docker compose up -d postgres redis guacd
+docker compose up -d mysql redis guacd
 ```
 
 Generate Prisma client, run migrations, and seed packages/admin/settings:
@@ -43,13 +43,13 @@ yarn db:migrate
 yarn db:seed
 ```
 
-If you use the local PostgreSQL service installed on this machine, it may listen on port `5433`. In that case set:
+If you use a local MySQL service installed on this machine, it may listen on a different port such as `3307`. In that case set:
 
 ```env
-DATABASE_URL=postgresql://onshell:onshell@localhost:5433/onshell_cloud?schema=public
+DATABASE_URL=mysql://onshell:onshell@localhost:3307/onshell_cloud
 ```
 
-The local database still needs a matching `onshell` user/database or a PostgreSQL admin password to create them.
+The local database still needs a matching `onshell` user/database or a MySQL admin (root) password to create them.
 
 For production deploys, use:
 
@@ -83,7 +83,7 @@ docker compose up --build
 
 The Compose stack includes:
 
-* PostgreSQL
+* MySQL
 * Redis
 * guacd
 * API
@@ -92,7 +92,7 @@ The Compose stack includes:
 
 ## Production Deployment Flow
 
-1. Provision PostgreSQL and Redis.
+1. Provision MySQL and Redis.
 2. Configure DNS for `onshell.cloud`.
 3. Set production environment variables.
 4. Build services:
