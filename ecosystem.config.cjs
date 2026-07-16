@@ -49,10 +49,10 @@ const root = __dirname;
 
 const env = process.env;
 
-// Ports
-const WEB_PORT = 5016; // public web UI (the port you run behind your proxy/domain)
-const API_PORT = Number(env.API_PORT) || 4000;
-const GATEWAY_PORT = Number(env.GATEWAY_PORT) || 4100;
+// Ports (env can override; defaults match the production CloudPanel deploy)
+const WEB_PORT = Number(env.WEB_PORT) || 5018; // public web UI (behind Nginx/domain)
+const API_PORT = Number(env.API_PORT) || 5017;
+const GATEWAY_PORT = Number(env.GATEWAY_PORT) || 5019;
 
 const DATABASE_URL = env.DATABASE_URL || "mysql://onshell:onshell@localhost:3306/onshell_cloud";
 const REDIS_URL = env.REDIS_URL || "redis://localhost:6379";

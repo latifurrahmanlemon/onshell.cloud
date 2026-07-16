@@ -1,19 +1,19 @@
-# Deploy onshell.cloud on CloudPanel — `onshell.latifur.com`
+# Deploy onshell.cloud on CloudPanel — `web.onshell.cloud`
 
 CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + Fastify API + Gateway + MySQL + Redis) কীভাবে
-একটা subdomain `onshell.latifur.com` এ host করবে, তার step-by-step runbook।
+একটা subdomain `web.onshell.cloud` এ host করবে, তার step-by-step runbook।
 
 ## Architecture (single subdomain, path routing)
 
 সব traffic একটাই domain দিয়ে ঢুকবে; CloudPanel এর Nginx সেটা ভেতরের ৩টা Node process এ route করবে:
 
 ```
-                         https://onshell.latifur.com   (CloudPanel Nginx + Let's Encrypt SSL)
+                         https://web.onshell.cloud   (CloudPanel Nginx + Let's Encrypt SSL)
                                         │
         ┌───────────────────────────────┼───────────────────────────────┐
         │ location /                     │ location /api/                 │ location /gateway/
         ▼                               ▼                               ▼
-   127.0.0.1:5016                  127.0.0.1:4000                  127.0.0.1:4100
+   127.0.0.1:5018                  127.0.0.1:5017                  127.0.0.1:5019
    onshell-web (Next.js)           onshell-api (Fastify)           onshell-gateway (WS/SSH/RDP)
                                         │                               │
                                    127.0.0.1:3306 (MySQL)          guacd (optional, RDP)
@@ -21,7 +21,7 @@ CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + F
 ```
 
 - Node process গুলো শুধু `127.0.0.1` এ listen করে — বাইরে থেকে সরাসরি reachable নয়। শুধু `80/443` public.
-- Browser-এর API call যায় `https://onshell.latifur.com/api/...` এ, Nginx সেটা `/api` prefix বাদ দিয়ে API তে পাঠায়।
+- Browser-এর API call যায় `https://web.onshell.cloud/api/...` এ, Nginx সেটা `/api` prefix বাদ দিয়ে API তে পাঠায়।
 - Same-origin, তাই JWT cookie আর CORS নিয়ে বাড়তি ঝামেলা নেই।
 
 ---
@@ -29,22 +29,22 @@ CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + F
 ## 0. Prerequisites
 
 - CloudPanel-installed VPS (Ubuntu 22.04/24.04), root বা sudo + SSH access।
-- DNS control for `latifur.com`.
+- DNS control for `onshell.cloud`.
 - এই services গুলো VPS-এ লাগবে: **Node.js 22**, **MySQL 8** (CloudPanel দেয়), **Redis**, এবং RDP feature লাগলে **guacd** (Docker)।
 
 ---
 
 ## 1. DNS — subdomain point করা
 
-তোমার DNS provider (Cloudflare/registrar) এ একটা **A record** বানাও:
+তোমার DNS provider (Cloudflare/registrar) এ `onshell.cloud`-এর অধীনে একটা **A record** বানাও:
 
 | Type | Name              | Value            | Proxy/TTL          |
 |------|-------------------|------------------|--------------------|
-| A    | `onshell`         | `<VPS_PUBLIC_IP>`| DNS only / Auto    |
+| A    | `web`             | `<VPS_PUBLIC_IP>`| DNS only / Auto    |
 
 > Cloudflare ব্যবহার করলে প্রথমে **DNS only (grey cloud)** রাখো যাতে Let's Encrypt issue করা যায়। SSL ঠিকমতো হওয়ার পর orange cloud (proxy) অন করতে পারো।
 
-`dig +short onshell.latifur.com` দিয়ে verify করো IP ঠিক আসছে কিনা।
+`dig +short web.onshell.cloud` দিয়ে verify করো IP ঠিক আসছে কিনা।
 
 ---
 
@@ -85,15 +85,15 @@ mysql://onshell:<DB_PASSWORD>@127.0.0.1:3306/onshell_cloud
 
 CloudPanel UI → **Sites** → **Add Site** → **Create a Node.js Site**:
 
-- **Domain Name:** `onshell.latifur.com`
+- **Domain Name:** `web.onshell.cloud`
 - **Node.js Version:** `22`
-- **App Port:** `5016`  ← আমাদের web app এই port-এ চলবে
+- **App Port:** `5018`  ← আমাদের web app এই port-এ চলবে
 - **Site User:** `onshell` (একটা system user তৈরি হবে)
 - **Site User Password:** নোট করে রাখো
 
 Create করলে CloudPanel:
-- একটা Linux user + home dir বানায়: `/home/onshell/htdocs/onshell.latifur.com`
-- একটা Nginx vhost বানায় যেটা `443/80` → `127.0.0.1:5016` reverse-proxy করে (এটা আমরা পরে edit করে `/api` আর `/gateway` যোগ করবো)।
+- একটা Linux user + home dir বানায়: `/home/onshell/htdocs/web.onshell.cloud`
+- একটা Nginx vhost বানায় যেটা `443/80` → `127.0.0.1:5018` reverse-proxy করে (এটা আমরা পরে edit করে `/api` আর `/gateway` যোগ করবো)।
 
 > Button/tab-এর নাম CloudPanel version ভেদে সামান্য আলাদা হতে পারে, কিন্তু ধাপগুলো একই।
 
@@ -130,7 +130,7 @@ pm2 -v
 ## 6. কোড আনা + `.env` বানানো
 
 ```bash
-cd ~/htdocs/onshell.latifur.com
+cd ~/htdocs/web.onshell.cloud
 # htdocs খালি থাকলে সরাসরি এখানে clone করো (অথবা temp-এ clone করে content move করো):
 git clone <YOUR_REPO_URL> .
 ```
@@ -151,14 +151,20 @@ LOG_LEVEL=info
 # সব Node service শুধু localhost-এ bind করবে (Nginx বাইরে থেকে proxy করে)
 HOST=127.0.0.1
 
+# প্রতিটা Node service যে internal port-এ listen করবে (Nginx এগুলোতে proxy করে)।
+# ecosystem.config.cjs-এর default এগুলোর সাথেই মেলানো, তাই এই লাইনগুলো optional।
+WEB_PORT=5018
+API_PORT=5017
+GATEWAY_PORT=5019
+
 # Public base URLs — single subdomain, path routing
-PUBLIC_BASE_URL=https://onshell.latifur.com
-API_BASE_URL=https://onshell.latifur.com/api
-GATEWAY_BASE_URL=https://onshell.latifur.com/gateway
+PUBLIC_BASE_URL=https://web.onshell.cloud
+API_BASE_URL=https://web.onshell.cloud/api
+GATEWAY_BASE_URL=https://web.onshell.cloud/gateway
 
 # Web (Next.js) client bundle — build time-এ bake হয়
-NEXT_PUBLIC_API_BASE_URL=https://onshell.latifur.com/api
-NEXT_PUBLIC_GATEWAY_BASE_URL=https://onshell.latifur.com/gateway
+NEXT_PUBLIC_API_BASE_URL=https://web.onshell.cloud/api
+NEXT_PUBLIC_GATEWAY_BASE_URL=https://web.onshell.cloud/gateway
 
 # Database (CloudPanel MySQL) + Redis
 DATABASE_URL=mysql://onshell:<DB_PASSWORD>@127.0.0.1:3306/onshell_cloud
@@ -167,7 +173,7 @@ REDIS_URL=redis://127.0.0.1:6379
 # Secrets — অবশ্যই বদলাও
 JWT_SECRET=<long-random-string>
 MASTER_ENCRYPTION_KEY=<32-byte-base64-key>
-CORS_ORIGINS=https://onshell.latifur.com
+CORS_ORIGINS=https://web.onshell.cloud
 
 # Admin seed account
 ADMIN_EMAIL=you@example.com
@@ -176,7 +182,7 @@ ADMIN_PASSWORD=<strong-admin-password>
 # Google OAuth (optional; না লাগলে খালি রাখো)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=https://onshell.latifur.com/api/auth/google/callback
+GOOGLE_REDIRECT_URI=https://web.onshell.cloud/api/auth/google/callback
 
 # SMTP (optional)
 SMTP_HOST=smtp.example.com
@@ -184,7 +190,7 @@ SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_USER=
 SMTP_PASSWORD=
-SMTP_FROM_EMAIL=noreply@onshell.latifur.com
+SMTP_FROM_EMAIL=noreply@onshell.cloud
 SMTP_FROM_NAME=Onshell
 
 # Guacd (RDP feature চালালে; নাহলে default রাখো)
@@ -206,7 +212,7 @@ openssl rand -base64 32   # MASTER_ENCRYPTION_KEY
 ## 7. Install → Build → Migrate → Seed
 
 ```bash
-cd ~/htdocs/onshell.latifur.com
+cd ~/htdocs/web.onshell.cloud
 set -a && source .env && set +a      # .env কে shell env-এ load করো
 
 # Prisma CLI apps/api/ থেকে run হয়, তাই root .env এর একটা symlink দিয়ে দাও
@@ -231,11 +237,11 @@ yarn db:seed                          # admin/plans/settings seed
 
 ## 8. PM2 দিয়ে ৩টা service চালানো
 
-Repo-তে already একটা `ecosystem.config.cjs` আছে (web=5016, api=4000, gateway=4100)। এটা
+Repo-তে already একটা `ecosystem.config.cjs` আছে (web=5018, api=5017, gateway=5019)। এটা
 নিজে থেকেই root `.env` load করে নেয়, তাই আলাদা করে source করা লাগে না (shell-এ set করা থাকলে সেটাই অগ্রাধিকার পায়):
 
 ```bash
-cd ~/htdocs/onshell.latifur.com
+cd ~/htdocs/web.onshell.cloud
 pm2 start ecosystem.config.cjs
 pm2 status
 pm2 logs                              # সব service-এর log
@@ -261,14 +267,14 @@ pm2 save
 
 ## 9. Nginx vhost edit — `/api` আর `/gateway` route যোগ করা
 
-CloudPanel UI → **Sites** → `onshell.latifur.com` → **Vhost** tab।
+CloudPanel UI → **Sites** → `web.onshell.cloud` → **Vhost** tab।
 
-ডিফল্ট vhost-এ শুধু `location / { ... :5016 }` আছে। HTTPS `server { }` block-এর ভেতরে, `location / { }` এর **পাশে/উপরে** নিচের দুইটা block যোগ করো:
+ডিফল্ট vhost-এ শুধু `location / { ... :5018 }` আছে। HTTPS `server { }` block-এর ভেতরে, `location / { }` এর **পাশে/উপরে** নিচের দুইটা block যোগ করো:
 
 ```nginx
-    # API (Fastify) — /api/* -> :4000  (/api prefix স্ট্রিপ হয়)
+    # API (Fastify) — /api/* -> :5017  (/api prefix স্ট্রিপ হয়)
     location /api/ {
-        proxy_pass http://127.0.0.1:4000/;
+        proxy_pass http://127.0.0.1:5017/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -277,9 +283,9 @@ CloudPanel UI → **Sites** → `onshell.latifur.com` → **Vhost** tab।
         client_max_body_size 25m;
     }
 
-    # Gateway (WebSocket + REST) — /gateway/* -> :4100  (/gateway prefix স্ট্রিপ হয়)
+    # Gateway (WebSocket + REST) — /gateway/* -> :5019  (/gateway prefix স্ট্রিপ হয়)
     location /gateway/ {
-        proxy_pass http://127.0.0.1:4100/;
+        proxy_pass http://127.0.0.1:5019/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -292,11 +298,11 @@ CloudPanel UI → **Sites** → `onshell.latifur.com` → **Vhost** tab।
     }
 ```
 
-`location / { }` block-টা যেন `127.0.0.1:5016` এ যায় সেটা confirm করো (Node.js site বানানোর সময় port 5016 দিলে এটা এমনিতেই থাকবে):
+`location / { }` block-টা যেন `127.0.0.1:5018` এ যায় সেটা confirm করো (Node.js site বানানোর সময় port 5018 দিলে এটা এমনিতেই থাকবে):
 
 ```nginx
     location / {
-        proxy_pass http://127.0.0.1:5016;
+        proxy_pass http://127.0.0.1:5018;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -313,7 +319,7 @@ Save করলে CloudPanel config test করে Nginx reload করে। Err
 
 ## 10. SSL (Let's Encrypt)
 
-CloudPanel UI → **Sites** → `onshell.latifur.com` → **SSL/TLS** → **Actions → New Let's Encrypt Certificate** → **Create and Install**।
+CloudPanel UI → **Sites** → `web.onshell.cloud` → **SSL/TLS** → **Actions → New Let's Encrypt Certificate** → **Create and Install**।
 
 DNS ঠিকমতো point করা থাকলে কয়েক সেকেন্ডে issue হবে এবং HTTP→HTTPS redirect অন হবে। (Cloudflare proxy অন থাকলে issue fail করতে পারে — আগে grey cloud রাখো।)
 
@@ -324,26 +330,26 @@ DNS ঠিকমতো point করা থাকলে কয়েক সেক
 VPS থেকে internal check:
 
 ```bash
-curl -s http://127.0.0.1:5016 | head -c 200      # web
-curl -s http://127.0.0.1:4000/health             # api  => {"status":"ok",...}
-curl -s http://127.0.0.1:4100/health             # gateway
+curl -s http://127.0.0.1:5018 | head -c 200      # web
+curl -s http://127.0.0.1:5017/health             # api  => {"status":"ok",...}
+curl -s http://127.0.0.1:5019/health             # gateway
 ```
 
 বাইরে থেকে (public, path routing সহ):
 
 ```bash
-curl -s https://onshell.latifur.com/api/health     # => API health JSON
-curl -s https://onshell.latifur.com/gateway/health # => gateway health JSON
-curl -sI https://onshell.latifur.com               # => 200, Next.js web
+curl -s https://web.onshell.cloud/api/health     # => API health JSON
+curl -s https://web.onshell.cloud/gateway/health # => gateway health JSON
+curl -sI https://web.onshell.cloud               # => 200, Next.js web
 ```
 
-Browser-এ `https://onshell.latifur.com` খুলে `/login` এ seed করা admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD`) দিয়ে login করে দেখো। Browser DevTools → Network-এ API call গুলো `https://onshell.latifur.com/api/...` এ যাচ্ছে কিনা confirm করো।
+Browser-এ `https://web.onshell.cloud` খুলে `/login` এ seed করা admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD`) দিয়ে login করে দেখো। Browser DevTools → Network-এ API call গুলো `https://web.onshell.cloud/api/...` এ যাচ্ছে কিনা confirm করো।
 
 ---
 
 ## 12. Firewall (security)
 
-শুধু web আর SSH public রাখো; app port গুলো (5016/4000/4100) localhost-এই থাকুক:
+শুধু web আর SSH public রাখো; app port গুলো (5018/5017/5019) localhost-এই থাকুক:
 
 ```bash
 sudo ufw allow 22
@@ -362,7 +368,7 @@ sudo ufw status
 Google Cloud Console → OAuth client → **Authorized redirect URIs**-এ যোগ করো:
 
 ```
-https://onshell.latifur.com/api/auth/google/callback
+https://web.onshell.cloud/api/auth/google/callback
 ```
 
 আর `.env`-এ `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` বসিয়ে rebuild/restart করো (ধাপ ১৪)।
@@ -372,7 +378,7 @@ https://onshell.latifur.com/api/auth/google/callback
 ## 14. আপডেট / redeploy (নতুন কোড push করলে)
 
 ```bash
-cd ~/htdocs/onshell.latifur.com
+cd ~/htdocs/web.onshell.cloud
 set -a && source .env && set +a
 git pull
 yarn install --immutable
@@ -403,7 +409,7 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 
 | সমস্যা | কারণ / সমাধান |
 |---|---|
-| `502 Bad Gateway` | PM2 process down বা ভুল port। `pm2 status`, `pm2 logs onshell-web` দেখো; vhost-এর port (5016/4000/4100) মিলিয়ে দেখো। |
+| `502 Bad Gateway` | PM2 process down বা ভুল port। `pm2 status`, `pm2 logs onshell-web` দেখো; vhost-এর port (5018/5017/5019) মিলিয়ে দেখো। |
 | Web খোলে, কিন্তু login/API fail | `NEXT_PUBLIC_API_BASE_URL` ভুল বা build-এ bake হয়নি → `.env` ঠিক করে `yarn build` আবার চালাও। DevTools-এ actual call URL দেখো। |
 | `P1001: can't reach database` | `DATABASE_URL` ভুল, MySQL down, বা password-এ special char URL-encode হয়নি। `mysql -u onshell -p onshell_cloud` দিয়ে test করো। |
 | Migration fail / access denied | CloudPanel-এ DB user-এর privilege, host `127.0.0.1` ঠিক আছে কিনা দেখো। |
@@ -417,9 +423,9 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 
 | Service | PM2 name | Internal port | Public path |
 |---|---|---|---|
-| Web (Next.js) | `onshell-web` | 5016 | `/` |
-| API (Fastify) | `onshell-api` | 4000 | `/api` |
-| Gateway (WS/SSH/RDP) | `onshell-gateway` | 4100 | `/gateway` |
+| Web (Next.js) | `onshell-web` | 5018 | `/` |
+| API (Fastify) | `onshell-api` | 5017 | `/api` |
+| Gateway (WS/SSH/RDP) | `onshell-gateway` | 5019 | `/gateway` |
 | MySQL | (CloudPanel) | 3306 | internal only |
 | Redis | (system) | 6379 | internal only |
 
@@ -429,8 +435,8 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 
 একটাই path routing-এর বদলে চাইলে আলাদা subdomain-ও করা যায় (cleaner separation, তবে ৩টা site + ৩টা SSL):
 
-- `onshell.latifur.com` → web (5016)
-- `api.onshell.latifur.com` → api (4000)
-- `gateway.onshell.latifur.com` → gateway (4100)
+- `web.onshell.cloud` → web (5018)
+- `api.onshell.cloud` → api (5017)
+- `gateway.onshell.cloud` → gateway (5019)
 
-তখন `.env`-এ `API_BASE_URL`/`NEXT_PUBLIC_API_BASE_URL` = `https://api.onshell.latifur.com` (path prefix ছাড়া) দিতে হবে, আর CloudPanel-এ প্রতিটার জন্য আলাদা **Reverse Proxy Site** বানাতে হবে। বেশিরভাগ ক্ষেত্রে উপরের single-subdomain approach-ই যথেষ্ট আর সহজ।
+তখন `.env`-এ `API_BASE_URL`/`NEXT_PUBLIC_API_BASE_URL` = `https://api.onshell.cloud` (path prefix ছাড়া) দিতে হবে, আর CloudPanel-এ প্রতিটার জন্য আলাদা **Reverse Proxy Site** বানাতে হবে। বেশিরভাগ ক্ষেত্রে উপরের single-subdomain approach-ই যথেষ্ট আর সহজ।
