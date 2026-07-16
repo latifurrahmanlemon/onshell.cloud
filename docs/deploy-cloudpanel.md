@@ -410,6 +410,7 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 | সমস্যা | কারণ / সমাধান |
 |---|---|
 | `502 Bad Gateway` | PM2 process down বা ভুল port। `pm2 status`, `pm2 logs onshell-web` দেখো; vhost-এর port (5018/5017/5019) মিলিয়ে দেখো। |
+| `525 SSL handshake failed` | Cloudflare error — Cloudflare ↔ origin এর মধ্যে TLS handshake ফেল। কারণ: Cloudflare proxy (orange) অন কিন্তু origin-এ valid SSL cert নেই (grey cloud না রেখে Let's Encrypt issue করায় বসেনি), বা SSL/TLS mode ভুল। মূল পেজ cache থেকে load হলেও `/api/*` (dynamic) origin hit করে বলে ওখানেই 525 দেখা যায়। **সমাধান:** grey cloud করে Let's Encrypt issue করো (ধাপ ১০), **অথবা** Cloudflare Origin Certificate origin-এ বসাও; তারপর SSL/TLS mode = **Full (strict)**। "Flexible" ব্যবহার করো না। Verify (Cloudflare bypass করে origin টেস্ট): `curl -sv --resolve web.onshell.cloud:443:<VPS_IP> https://web.onshell.cloud/api/health`। |
 | Web খোলে, কিন্তু login/API fail | `NEXT_PUBLIC_API_BASE_URL` ভুল বা build-এ bake হয়নি → `.env` ঠিক করে `yarn build` আবার চালাও। DevTools-এ actual call URL দেখো। |
 | `P1001: can't reach database` | `DATABASE_URL` ভুল, MySQL down, বা password-এ special char URL-encode হয়নি। `mysql -u onshell -p onshell_cloud` দিয়ে test করো। |
 | Migration fail / access denied | CloudPanel-এ DB user-এর privilege, host `127.0.0.1` ঠিক আছে কিনা দেখো। |
