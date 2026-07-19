@@ -791,3 +791,79 @@
   color: var(--soft);
   cursor: not-allowed;
 }
+
+/* Account section: password change + sign out */
+
+.adm-pw-field {
+  position: relative;
+  display: block;
+}
+
+.adm-pw-field input {
+  width: 100%;
+  padding-right: 38px;
+}
+
+.adm-pw-reveal {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.adm-pw-reveal:hover {
+  color: var(--text);
+}
+
+.adm-pw-reqs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 14px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adm-pw-req {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.adm-pw-req.unmet {
+  color: var(--soft);
+}
+
+.adm-pw-req.met {
+  color: var(--green);
+}
+
+.adm-pw-req > svg {
+  flex-shrink: 0;
+}
+
+.adm-pw-mismatch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--rose);
+  font-size: 12.5px;
+}
+
+.adm-signout {
+  color: var(--rose);
+  border-color: var(--rose);
+}

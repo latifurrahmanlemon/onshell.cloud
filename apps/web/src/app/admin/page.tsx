@@ -9,13 +9,17 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
   CheckCircle2,
+  Circle,
   CreditCard,
   Database,
   Edit3,
+  Eye,
+  EyeOff,
   Inbox,
   KeyRound,
   LayoutDashboard,
   Loader2,
+  LogOut,
   Mail,
   Package,
   Plus,
@@ -28,8 +32,10 @@ import {
   Settings2,
   ShieldCheck,
   ShieldOff,
+  UserCog,
   Users
 } from "lucide-react";
+import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import AdminGate from "./gate";
 import { ThemeToggle } from "../theme";
@@ -170,7 +176,7 @@ interface NewSettingForm {
   isSecret: boolean;
 }
 
-type SectionId = "overview" | "packages" | "subscriptions" | "users" | "smtp" | "billing" | "settings";
+type SectionId = "overview" | "packages" | "subscriptions" | "users" | "smtp" | "billing" | "settings" | "account";
 
 /* ------------------------------------------------------------- constants */
 
@@ -181,7 +187,8 @@ const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: "users", label: "Users", icon: Users },
   { id: "smtp", label: "SMTP", icon: Mail },
   { id: "billing", label: "Billing Provider", icon: CreditCard },
-  { id: "settings", label: "Settings", icon: Settings2 }
+  { id: "settings", label: "Settings", icon: Settings2 },
+  { id: "account", label: "Account", icon: UserCog }
 ];
 
 const sectionMeta: Record<SectionId, { title: string; description: string }> = {
@@ -191,7 +198,8 @@ const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   users: { title: "Users", description: "All accounts across organizations, with roles and security posture." },
   smtp: { title: "SMTP", description: "Email delivery for invitations, password resets, invoices, and alerts." },
   billing: { title: "Billing Provider", description: "Connect Stripe, Paddle, SSLCommerz, or manual invoicing." },
-  settings: { title: "Settings", description: "Brand and platform settings stored as key-value configuration." }
+  settings: { title: "Settings", description: "Brand and platform settings stored as key-value configuration." },
+  account: { title: "Account", description: "Change your admin password and sign out of this session." }
 };
 
 const SMTP_FALLBACK: SmtpSettings = {
@@ -244,6 +252,23 @@ function friendlyError(payload: { error?: string; message?: string }, status: nu
 function errorText(error: unknown) {
   if (error instanceof TypeError) return "Cannot reach the API server. Check that it is running, then retry.";
   return error instanceof Error ? error.message : "Request failed.";
+}
+
+function passwordChangeError(raw: string): string {
+  switch (raw) {
+    case "invalid_current_password":
+      return "Your current password is incorrect.";
+    case "password_policy_violation":
+      return "The new password does not meet the requirements below.";
+    case "password_reuse":
+      return "Choose a password different from your current one.";
+    case "password_not_set":
+      return "This account signs in with Google, so it has no password to change.";
+    case "unauthorized":
+      return "Your session expired. Please sign in again.";
+    default:
+      return raw;
+  }
 }
 
 async function apiSend<T>(path: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
@@ -513,6 +538,28 @@ function EmptyState({ icon: Icon, title, body, action }: { icon: LucideIcon; tit
   );
 }
 
+function passwordRequirements(password: string): Array<{ label: string; met: boolean }> {
+  const reqs = [{ label: `At least ${passwordPolicy.minLength} characters`, met: password.length >= passwordPolicy.minLength }];
+  if (passwordPolicy.requireLowercase) reqs.push({ label: "One lowercase letter", met: /[a-z]/.test(password) });
+  if (passwordPolicy.requireUppercase) reqs.push({ label: "One uppercase letter", met: /[A-Z]/.test(password) });
+  if (passwordPolicy.requireDigit) reqs.push({ label: "One number", met: /[0-9]/.test(password) });
+  if (passwordPolicy.requireSymbol) reqs.push({ label: "One symbol (!@#?…)", met: /[^a-zA-Z0-9]/.test(password) });
+  return reqs;
+}
+
+function PasswordChecklist({ password }: { password: string }) {
+  return (
+    <ul className="adm-pw-reqs">
+      {passwordRequirements(password).map((requirement) => (
+        <li className={cx("adm-pw-req", requirement.met ? "met" : "unmet")} key={requirement.label}>
+          {requirement.met ? <CheckCircle2 size={13} /> : <Circle size={13} />}
+          <span>{requirement.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ------------------------------------------------------------------- page */
 
 export default function AdminPage() {
@@ -572,6 +619,14 @@ function AdminPanel() {
   const [newSetting, setNewSetting] = useState<NewSettingForm>(NEW_SETTING_DEFAULTS);
   const [savingNewSetting, setSavingNewSetting] = useState(false);
 
+  /* account */
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
   useEffect(() => {
     if (smtpRes.data) setSmtpForm(smtpToForm(smtpRes.data));
   }, [smtpRes.data]);
@@ -612,7 +667,8 @@ function AdminPanel() {
     users: usersRes.loading,
     smtp: smtpRes.loading,
     billing: paymentRes.loading,
-    settings: settingsRes.loading
+    settings: settingsRes.loading,
+    account: false
   };
 
   function reloadActiveSection() {
@@ -623,7 +679,8 @@ function AdminPanel() {
       users: usersRes.reload,
       smtp: smtpRes.reload,
       billing: paymentRes.reload,
-      settings: settingsRes.reload
+      settings: settingsRes.reload,
+      account: async () => {}
     };
     void reloaders[section]();
   }
@@ -898,6 +955,54 @@ function AdminPanel() {
       showToast("error", errorText(error));
     } finally {
       setSavingNewSetting(false);
+    }
+  }
+
+  /* --------------------------------------------------------- account actions */
+
+  const newPasswordValid = validatePassword(newPassword).valid;
+  const passwordsMatch = newPassword === confirmPassword;
+
+  async function changePassword() {
+    if (!currentPassword) {
+      showToast("error", "Enter your current password.");
+      return;
+    }
+    if (!newPasswordValid) {
+      showToast("error", "The new password does not meet the requirements.");
+      return;
+    }
+    if (!passwordsMatch) {
+      showToast("error", "New password and confirmation do not match.");
+      return;
+    }
+    if (currentPassword === newPassword) {
+      showToast("error", "Choose a password different from your current one.");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await apiSend("/auth/password/change", "POST", { currentPassword, newPassword });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      showToast("success", "Password updated. Your other sessions have been signed out.");
+    } catch (error) {
+      showToast("error", passwordChangeError(errorText(error)));
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  async function logout() {
+    setLoggingOut(true);
+    try {
+      await fetch(`${apiBaseUrl}/auth/logout`, { method: "POST", credentials: "include" });
+    } catch {
+      // Ignore network errors — send the admin to the sign-in screen regardless.
+    } finally {
+      // Reload /admin so the gate re-checks the (now cleared) session and shows sign-in.
+      window.location.href = "/admin";
     }
   }
 
@@ -1642,6 +1747,103 @@ function AdminPanel() {
     );
   }
 
+  function renderAccount() {
+    return (
+      <div className="adm-stack">
+        <div className="panel">
+          <div className="panel-header tight">
+            <div>
+              <h2>Change password</h2>
+              <p>Update the password for your admin account. Saving signs out every other device.</p>
+            </div>
+            <KeyRound size={18} />
+          </div>
+          <div className="form-grid">
+            <label className="span-two">
+              Current password
+              <input
+                autoComplete="current-password"
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="Your current password"
+                type="password"
+                value={currentPassword}
+              />
+            </label>
+            <label>
+              New password
+              <span className="adm-pw-field">
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="New password"
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                />
+                <button
+                  aria-label={showNewPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showNewPassword}
+                  className="adm-pw-reveal"
+                  onClick={() => setShowNewPassword((visible) => !visible)}
+                  type="button"
+                >
+                  {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </span>
+            </label>
+            <label>
+              Confirm new password
+              <input
+                autoComplete="new-password"
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="Re-enter new password"
+                type={showNewPassword ? "text" : "password"}
+                value={confirmPassword}
+              />
+            </label>
+            {newPassword.length > 0 && (
+              <div className="span-two">
+                <PasswordChecklist password={newPassword} />
+                {confirmPassword.length > 0 && !passwordsMatch && (
+                  <p className="adm-pw-mismatch">
+                    <AlertCircle size={13} />
+                    Passwords do not match.
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="form-actions span-two">
+              <button
+                className="primary-button"
+                disabled={savingPassword || !currentPassword || !newPasswordValid || !passwordsMatch}
+                onClick={changePassword}
+                type="button"
+              >
+                {savingPassword ? <Loader2 className="adm-spin" size={16} /> : <KeyRound size={16} />}
+                <span>{savingPassword ? "Updating..." : "Update password"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header tight">
+            <div>
+              <h2>Session</h2>
+              <p>Sign out of the admin panel on this device.</p>
+            </div>
+            <LogOut size={18} />
+          </div>
+          <div className="form-actions">
+            <button className="secondary-button adm-signout" disabled={loggingOut} onClick={logout} type="button">
+              {loggingOut ? <Loader2 className="adm-spin" size={16} /> : <LogOut size={16} />}
+              <span>{loggingOut ? "Signing out..." : "Sign out"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const sectionRenderers: Record<SectionId, () => ReactNode> = {
     overview: renderOverview,
     packages: renderPackages,
@@ -1649,7 +1851,8 @@ function AdminPanel() {
     users: renderUsers,
     smtp: renderSmtp,
     billing: renderBilling,
-    settings: renderSettings
+    settings: renderSettings,
+    account: renderAccount
   };
 
   /* ------------------------------------------------------------------ shell */
@@ -1707,6 +1910,16 @@ function AdminPanel() {
               type="button"
             >
               <RefreshCw className={cx(sectionLoading[section] && "adm-spin")} size={16} />
+            </button>
+            <button
+              aria-label="Sign out"
+              className="icon-button"
+              disabled={loggingOut}
+              onClick={logout}
+              title="Sign out"
+              type="button"
+            >
+              <LogOut className={cx(loggingOut && "adm-spin")} size={16} />
             </button>
           </div>
         </header>

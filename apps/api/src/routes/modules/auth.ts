@@ -64,6 +64,11 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(1)
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(1)
+});
+
 const googleCallbackSchema = z.object({
   code: z.string(),
   state: z.string()
@@ -946,6 +951,72 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       }
 
       return { ok: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.post("/auth/password/change", async (request, reply) => {
+    try {
+      const user = await getAuthenticatedUser(request, config);
+      if (!user) return reply.code(401).send({ error: "unauthorized" });
+
+      const body = changePasswordSchema.parse(request.body);
+
+      const prismaUser = await prisma.user.findUnique({ where: { id: user.id } });
+      if (!prismaUser?.passwordHash) {
+        // Google-only accounts have no password to verify against.
+        return reply.code(400).send({ error: "password_not_set" });
+      }
+
+      const currentValid = await bcrypt.compare(body.currentPassword, prismaUser.passwordHash);
+      if (!currentValid) {
+        await createAudit({
+          organizationId: user.organizationId,
+          actorId: user.id,
+          action: "auth.password.change.failed",
+          targetType: "user",
+          targetId: user.id,
+          ipAddress: request.ip,
+          metadata: { reason: "invalid_current_password" }
+        });
+        return reply.code(401).send({ error: "invalid_current_password" });
+      }
+
+      const passwordCheck = validatePassword(body.newPassword);
+      if (!passwordCheck.valid) {
+        return reply.code(400).send({ error: "password_policy_violation", errors: passwordCheck.errors });
+      }
+
+      const sameAsOld = await bcrypt.compare(body.newPassword, prismaUser.passwordHash);
+      if (sameAsOld) {
+        return reply.code(400).send({ error: "password_reuse" });
+      }
+
+      const passwordHash = await bcrypt.hash(body.newPassword, 12);
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: prismaUser.id },
+          data: { passwordHash }
+        }),
+        // Revoke every refresh token so other devices are signed out. A fresh
+        // pair is issued below so the current session stays valid.
+        prisma.refreshToken.updateMany({
+          where: { userId: prismaUser.id, revokedAt: null },
+          data: { revokedAt: new Date() }
+        })
+      ]);
+
+      await createAudit({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: "auth.password.change",
+        targetType: "user",
+        targetId: user.id,
+        ipAddress: request.ip
+      });
+
+      return issueTokens(reply, config, user);
     } catch (error) {
       return handleRouteError(reply, error);
     }
