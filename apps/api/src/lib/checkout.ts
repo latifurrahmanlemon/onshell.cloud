@@ -1,6 +1,6 @@
 import Stripe from "stripe";
-import type { PaymentSetting, Plan } from "@prisma/client";
-import { PaymentProvider } from "@prisma/client";
+import prismaPkg, { type PaymentSetting, type Plan } from "@prisma/client";
+const { PaymentProvider } = prismaPkg;
 import type { RuntimeConfig } from "@onshell/config";
 import { decryptSecret } from "./encryption.js";
 

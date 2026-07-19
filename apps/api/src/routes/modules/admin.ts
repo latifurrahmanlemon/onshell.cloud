@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { canManagePlatform } from "@onshell/shared";
-import { PaymentProvider, Prisma } from "@prisma/client";
+import prismaPkg, { type Prisma } from "@prisma/client";
+const { PaymentProvider } = prismaPkg;
+type PaymentProvider = (typeof PaymentProvider)[keyof typeof PaymentProvider];
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
