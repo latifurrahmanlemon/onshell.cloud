@@ -45,6 +45,73 @@
   min-width: 0;
 }
 
+/* Top-right workspace toolbar */
+.console-topright {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.console-topright-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.console-topright-btn:hover {
+  border-color: rgba(101, 196, 102, 0.6);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.console-topright-btn:focus-visible {
+  outline: none;
+  border-color: var(--green);
+}
+
+/* Custom fast tooltips */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-3px);
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 60;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .nav-item {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -288,6 +355,103 @@
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Settings — tabbed layout */
+.settings-shell {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.settings-tab:focus-visible {
+  outline: none;
+  color: var(--text);
+  border-left-color: var(--green);
+}
+
+.settings-tab svg {
+  flex-shrink: 0;
+}
+
+.settings-tab.is-active {
+  border-left-color: var(--green);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.settings-content {
+  min-width: 0;
+}
+
+.settings-account-line {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .settings-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-tabs {
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .settings-tab {
+    width: auto;
+    flex: 0 0 auto;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+
+  .settings-tab.is-active {
+    border-left: 0;
+    border-bottom-color: var(--green);
+    border-radius: 8px;
+  }
+
+  .settings-tab:focus-visible {
+    border-left-color: transparent;
+    border-bottom-color: var(--green);
+  }
 }
 
 /* Settings */

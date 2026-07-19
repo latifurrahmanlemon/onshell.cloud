@@ -8,6 +8,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
+  ArrowLeftRight,
   CheckCircle2,
   Circle,
   CreditCard,
@@ -92,6 +93,15 @@ interface AdminUser {
   twoFactorEnabled: boolean;
   emailVerifiedAt?: string | null;
   createdAt?: string;
+}
+
+interface AdminIdentity {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
+  isPlatformAdmin: boolean;
 }
 
 interface AdminSubscription {
@@ -413,6 +423,13 @@ function formatDate(value?: string | null) {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function subscriptionTone(status: string) {
   const normalized = status.toLowerCase();
   if (normalized.includes("active")) return "green";
@@ -575,6 +592,25 @@ function AdminPanel() {
   const reduceMotion = reduceMotionPreference ?? false;
 
   const [section, setSection] = useState<SectionId>("overview");
+
+  /* signed-in identity (for the sidebar) */
+  const [identity, setIdentity] = useState<AdminIdentity | null>(null);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" });
+        if (!response.ok) return;
+        const data = (await response.json()) as { user?: AdminIdentity };
+        if (active && data.user) setIdentity(data.user);
+      } catch {
+        // Best-effort — the sidebar identity is non-critical.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const overviewRes = useAdminResource<Overview>("/admin/overview");
   const plansRes = useAdminResource<AdminPlan[]>("/admin/plans");
@@ -1888,8 +1924,23 @@ function AdminPanel() {
           })}
         </nav>
         <div className="adm-sidebar-foot">
-          <strong>Platform admin</strong>
-          Every change here is audit-logged.
+          {identity && (
+            <div className="adm-identity">
+              <span className="adm-identity-avatar">
+                {identity.avatarUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img alt="" src={identity.avatarUrl} />
+                ) : (
+                  <span>{initials(identity.name)}</span>
+                )}
+              </span>
+              <span className="adm-identity-meta">
+                <strong>{identity.name}</strong>
+                <small>{identity.email || identity.role}</small>
+              </span>
+            </div>
+          )}
+          <span className="adm-sidebar-hint">Every change here is audit-logged.</span>
         </div>
       </aside>
 
@@ -1904,19 +1955,30 @@ function AdminPanel() {
             <button
               aria-label="Refresh section data"
               className="icon-button"
+              data-tooltip="Refresh"
               disabled={sectionLoading[section]}
               onClick={reloadActiveSection}
-              title="Refresh section data"
               type="button"
             >
               <RefreshCw className={cx(sectionLoading[section] && "adm-spin")} size={16} />
             </button>
             <button
+              aria-label="Switch to user panel"
+              className="icon-button"
+              data-tooltip="Switch to user panel"
+              onClick={() => {
+                window.location.href = "/console";
+              }}
+              type="button"
+            >
+              <ArrowLeftRight size={16} />
+            </button>
+            <button
               aria-label="Sign out"
               className="icon-button"
+              data-tooltip="Sign out"
               disabled={loggingOut}
               onClick={logout}
-              title="Sign out"
               type="button"
             >
               <LogOut className={cx(loggingOut && "adm-spin")} size={16} />

@@ -1,6 +1,15 @@
 "use client";
 
-import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Braces,
@@ -12,8 +21,10 @@ import {
   Inbox,
   KeyRound,
   Loader2,
+  LogOut,
   Mail,
   MonitorUp,
+  Palette,
   Play,
   Plus,
   RefreshCw,
@@ -23,10 +34,25 @@ import {
   ShieldCheck,
   SquareTerminal,
   Trash2,
-  X
+  UserRound,
+  X,
 } from "lucide-react";
-import type { AuditLog, CredentialSummary, Host, Role, Snippet, User } from "@onshell/shared";
-import { canManageHosts, canManageUsers, canOpenSession, passwordPolicy, roles, validatePassword } from "@onshell/shared";
+import type {
+  AuditLog,
+  CredentialSummary,
+  Host,
+  Role,
+  Snippet,
+  User,
+} from "@onshell/shared";
+import {
+  canManageHosts,
+  canManageUsers,
+  canOpenSession,
+  passwordPolicy,
+  roles,
+  validatePassword,
+} from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import type { PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
@@ -34,7 +60,15 @@ import type { ThemeMode } from "../theme";
 
 /* ---------- shared bits ---------- */
 
-export function EmptyState({ icon, title, hint }: { icon: ReactNode; title: string; hint?: string }) {
+export function EmptyState({
+  icon,
+  title,
+  hint,
+}: {
+  icon: ReactNode;
+  title: string;
+  hint?: string;
+}) {
   return (
     <div className="empty-state">
       {icon}
@@ -49,7 +83,7 @@ export function Drawer({
   title,
   subtitle,
   onClose,
-  children
+  children,
 }: {
   open: boolean;
   title: string;
@@ -73,7 +107,10 @@ export function Drawer({
             animate={{ opacity: 1, y: 0 }}
             className="drawer-card"
             exit={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
-            initial={{ opacity: reduceMotion ? 1 : 0, y: reduceMotion ? 0 : 16 }}
+            initial={{
+              opacity: reduceMotion ? 1 : 0,
+              y: reduceMotion ? 0 : 16,
+            }}
             onClick={(event) => event.stopPropagation()}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
@@ -82,7 +119,12 @@ export function Drawer({
                 <h2>{title}</h2>
                 {subtitle && <p>{subtitle}</p>}
               </div>
-              <button aria-label="Close" className="icon-button compact" onClick={onClose} type="button">
+              <button
+                aria-label="Close"
+                className="icon-button compact"
+                onClick={onClose}
+                type="button"
+              >
                 <X size={15} />
               </button>
             </div>
@@ -105,7 +147,11 @@ function SubmitButton({ busy, label }: { busy: boolean; label: string }) {
 
 /* ---------- Hosts ---------- */
 
-const protocolIcons = { ssh: SquareTerminal, rdp: MonitorUp, vnc: MonitorUp } as const;
+const protocolIcons = {
+  ssh: SquareTerminal,
+  rdp: MonitorUp,
+  vnc: MonitorUp,
+} as const;
 
 export function HostsView({
   hosts,
@@ -116,7 +162,7 @@ export function HostsView({
   onDelete,
   onRefresh,
   onCreated,
-  notify
+  notify,
 }: {
   hosts: Host[];
   role: Role;
@@ -129,7 +175,9 @@ export function HostsView({
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "ssh" | "rdp" | "vnc">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "ssh" | "rdp" | "vnc">(
+    "all",
+  );
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -137,10 +185,11 @@ export function HostsView({
     () =>
       hosts.filter((host) => {
         if (typeFilter !== "all" && host.type !== typeFilter) return false;
-        const haystack = `${host.name} ${host.address} ${host.tags.join(" ")} ${host.group ?? ""}`.toLowerCase();
+        const haystack =
+          `${host.name} ${host.address} ${host.tags.join(" ")} ${host.group ?? ""}`.toLowerCase();
         return haystack.includes(query.toLowerCase());
       }),
-    [hosts, query, typeFilter]
+    [hosts, query, typeFilter],
   );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -159,13 +208,16 @@ export function HostsView({
         tags: String(data.get("tags") ?? "")
           .split(",")
           .map((tag) => tag.trim())
-          .filter(Boolean)
+          .filter(Boolean),
       });
       notify("Host added.", "success");
       setAdding(false);
       onCreated();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not add host.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not add host.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -179,7 +231,10 @@ export function HostsView({
           <p>Servers your team can reach through the gateway.</p>
         </div>
         <div className="table-tools">
-          <div className="segmented" style={{ gridTemplateColumns: "repeat(4, 54px)" }}>
+          <div
+            className="segmented"
+            style={{ gridTemplateColumns: "repeat(4, 54px)" }}
+          >
             {(["all", "ssh", "rdp", "vnc"] as const).map((value) => (
               <button
                 className={cx(typeFilter === value && "selected")}
@@ -200,11 +255,20 @@ export function HostsView({
               value={query}
             />
           </div>
-          <button aria-label="Refresh hosts" className="icon-button" onClick={onRefresh} type="button">
+          <button
+            aria-label="Refresh hosts"
+            className="icon-button"
+            onClick={onRefresh}
+            type="button"
+          >
             <RefreshCw size={15} />
           </button>
           {canManageHosts(role) && (
-            <button className="primary-button" onClick={() => setAdding(true)} type="button">
+            <button
+              className="primary-button"
+              onClick={() => setAdding(true)}
+              type="button"
+            >
               <Plus size={15} />
               Add Host
             </button>
@@ -221,7 +285,11 @@ export function HostsView({
         </>
       ) : filtered.length === 0 ? (
         <EmptyState
-          hint={hosts.length === 0 ? "Add your first host to open a terminal." : "No host matches the current filter."}
+          hint={
+            hosts.length === 0
+              ? "Add your first host to open a terminal."
+              : "No host matches the current filter."
+          }
           icon={<Inbox size={22} />}
           title={hosts.length === 0 ? "No hosts yet" : "Nothing found"}
         />
@@ -252,14 +320,20 @@ export function HostsView({
                 <span>
                   {host.address}:{host.port}
                 </span>
-                <span className={cx("env-pill", host.environment)}>{host.environment}</span>
-                <span className={cx("health-badge", host.health)}>{host.health}</span>
+                <span className={cx("env-pill", host.environment)}>
+                  {host.environment}
+                </span>
+                <span className={cx("health-badge", host.health)}>
+                  {host.health}
+                </span>
                 <div className="row-actions">
                   {canOpenSession(role) && (
                     <button
                       aria-label={`Connect to ${host.name}`}
                       className="icon-button compact"
-                      onClick={() => onLaunch(host, host.type === "ssh" ? "ssh" : "rdp")}
+                      onClick={() =>
+                        onLaunch(host, host.type === "ssh" ? "ssh" : "rdp")
+                      }
                       title="Open session"
                       type="button"
                     >
@@ -284,7 +358,12 @@ export function HostsView({
         </div>
       )}
 
-      <Drawer onClose={() => setAdding(false)} open={adding} subtitle="Connection details are stored per organization." title="Add host">
+      <Drawer
+        onClose={() => setAdding(false)}
+        open={adding}
+        subtitle="Connection details are stored per organization."
+        title="Add host"
+      >
         <form className="form-grid" onSubmit={submit}>
           <label>
             Name
@@ -300,11 +379,21 @@ export function HostsView({
           </label>
           <label>
             Address
-            <input name="address" placeholder="203.0.113.10 or host.example.com" required />
+            <input
+              name="address"
+              placeholder="203.0.113.10 or host.example.com"
+              required
+            />
           </label>
           <label>
             Port
-            <input defaultValue={22} name="port" type="number" min={1} max={65535} />
+            <input
+              defaultValue={22}
+              name="port"
+              type="number"
+              min={1}
+              max={65535}
+            />
           </label>
           <label>
             Username
@@ -343,7 +432,7 @@ export function VaultView({
   role,
   loading,
   onChanged,
-  notify
+  notify,
 }: {
   credentials: CredentialSummary[];
   hosts: Host[];
@@ -354,7 +443,8 @@ export function VaultView({
 }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
-  const hostName = (id: string) => hosts.find((host) => host.id === id)?.name ?? "unknown";
+  const hostName = (id: string) =>
+    hosts.find((host) => host.id === id)?.name ?? "unknown";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -365,26 +455,37 @@ export function VaultView({
         name: String(data.get("name") ?? ""),
         kind: String(data.get("kind") ?? "password"),
         secret: String(data.get("secret") ?? ""),
-        attachedHostIds: data.getAll("attachedHostIds").map(String)
+        attachedHostIds: data.getAll("attachedHostIds").map(String),
       });
       notify("Credential stored in the encrypted vault.", "success");
       setAdding(false);
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not save credential.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not save credential.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function remove(credential: CredentialSummary) {
-    if (!window.confirm(`Delete credential "${credential.name}"? Hosts using it will need a new one.`)) return;
+    if (
+      !window.confirm(
+        `Delete credential "${credential.name}"? Hosts using it will need a new one.`,
+      )
+    )
+      return;
     try {
       await consoleApi.deleteCredential(credential.id);
       notify("Credential deleted.", "success");
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not delete credential.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not delete credential.",
+        "error",
+      );
     }
   }
 
@@ -393,10 +494,16 @@ export function VaultView({
       <div className="panel-header">
         <div>
           <h2>Credential Vault</h2>
-          <p>Secrets are encrypted server-side and never returned after save.</p>
+          <p>
+            Secrets are encrypted server-side and never returned after save.
+          </p>
         </div>
         {canManageHosts(role) && (
-          <button className="primary-button" onClick={() => setAdding(true)} type="button">
+          <button
+            className="primary-button"
+            onClick={() => setAdding(true)}
+            type="button"
+          >
             <Plus size={15} />
             Add Credential
           </button>
@@ -417,14 +524,20 @@ export function VaultView({
       ) : (
         <div className="host-table">
           {credentials.map((credential) => (
-            <div className="host-row" key={credential.id} style={{ cursor: "default" }}>
+            <div
+              className="host-row"
+              key={credential.id}
+              style={{ cursor: "default" }}
+            >
               <div className="host-title">
                 <KeyRound className="protocol-icon" size={16} />
                 <div>
                   <strong>{credential.name}</strong>
                   <small>
                     {credential.kind.replace("_", " ")}
-                    {credential.rotatedAt ? ` · rotated ${new Date(credential.rotatedAt).toLocaleDateString()}` : ""}
+                    {credential.rotatedAt
+                      ? ` · rotated ${new Date(credential.rotatedAt).toLocaleDateString()}`
+                      : ""}
                   </small>
                 </div>
               </div>
@@ -474,11 +587,19 @@ export function VaultView({
           </label>
           <label className="span-two">
             Secret
-            <textarea name="secret" placeholder="Password or private key contents" required />
+            <textarea
+              name="secret"
+              placeholder="Password or private key contents"
+              required
+            />
           </label>
           <label className="span-two">
             Attach to hosts
-            <select multiple name="attachedHostIds" size={Math.min(5, Math.max(2, hosts.length))}>
+            <select
+              multiple
+              name="attachedHostIds"
+              size={Math.min(5, Math.max(2, hosts.length))}
+            >
               {hosts.map((host) => (
                 <option key={host.id} value={host.id}>
                   {host.name} ({host.address})
@@ -503,7 +624,7 @@ export function SnippetsView({
   hasActiveTerminal,
   onRun,
   onChanged,
-  notify
+  notify,
 }: {
   snippets: Snippet[];
   loading: boolean;
@@ -523,13 +644,16 @@ export function SnippetsView({
       await consoleApi.createSnippet({
         name: String(data.get("name") ?? ""),
         command: String(data.get("command") ?? ""),
-        scope: String(data.get("scope") ?? "personal")
+        scope: String(data.get("scope") ?? "personal"),
       });
       notify("Snippet saved.", "success");
       setAdding(false);
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not save snippet.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not save snippet.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -549,9 +673,16 @@ export function SnippetsView({
       <div className="panel-header">
         <div>
           <h2>Snippets</h2>
-          <p>Reusable commands for the whole team. Run them straight into the active terminal.</p>
+          <p>
+            Reusable commands for the whole team. Run them straight into the
+            active terminal.
+          </p>
         </div>
-        <button className="primary-button" onClick={() => setAdding(true)} type="button">
+        <button
+          className="primary-button"
+          onClick={() => setAdding(true)}
+          type="button"
+        >
           <Plus size={15} />
           New Snippet
         </button>
@@ -563,18 +694,34 @@ export function SnippetsView({
           <div className="skeleton-row" />
         </>
       ) : snippets.length === 0 ? (
-        <EmptyState hint="Save the commands you run on every server." icon={<Braces size={22} />} title="No snippets yet" />
+        <EmptyState
+          hint="Save the commands you run on every server."
+          icon={<Braces size={22} />}
+          title="No snippets yet"
+        />
       ) : (
         <div className="snippet-list">
           {snippets.map((snippet) => (
-            <div className="snippet-row" key={snippet.id} style={{ cursor: "default" }}>
+            <div
+              className="snippet-row"
+              key={snippet.id}
+              style={{ cursor: "default" }}
+            >
               <Braces size={15} />
               <div style={{ minWidth: 0 }}>
                 <strong>{snippet.name}</strong>
-                <small style={{ fontFamily: "var(--font-mono), monospace" }}>{snippet.command}</small>
+                <small style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  {snippet.command}
+                </small>
               </div>
               <div className="row-actions">
-                <button aria-label={`Copy ${snippet.name}`} className="icon-button compact" onClick={() => copy(snippet)} title="Copy" type="button">
+                <button
+                  aria-label={`Copy ${snippet.name}`}
+                  className="icon-button compact"
+                  onClick={() => copy(snippet)}
+                  title="Copy"
+                  type="button"
+                >
                   <ScrollText size={14} />
                 </button>
                 <button
@@ -582,7 +729,11 @@ export function SnippetsView({
                   className="icon-button compact"
                   disabled={!hasActiveTerminal}
                   onClick={() => onRun(snippet.command)}
-                  title={hasActiveTerminal ? "Run in active terminal" : "Open a terminal first"}
+                  title={
+                    hasActiveTerminal
+                      ? "Run in active terminal"
+                      : "Open a terminal first"
+                  }
                   type="button"
                 >
                   <Play size={14} />
@@ -593,7 +744,11 @@ export function SnippetsView({
         </div>
       )}
 
-      <Drawer onClose={() => setAdding(false)} open={adding} title="New snippet">
+      <Drawer
+        onClose={() => setAdding(false)}
+        open={adding}
+        title="New snippet"
+      >
         <form className="form-grid" onSubmit={submit}>
           <label className="span-two">
             Name
@@ -601,7 +756,11 @@ export function SnippetsView({
           </label>
           <label className="span-two">
             Command
-            <textarea name="command" placeholder="sudo systemctl restart nginx" required />
+            <textarea
+              name="command"
+              placeholder="sudo systemctl restart nginx"
+              required
+            />
           </label>
           <label>
             Scope
@@ -627,7 +786,7 @@ export function TeamView({
   currentUser,
   loading,
   onChanged,
-  notify
+  notify,
 }: {
   members: TeamMember[];
   invitations: PendingInvitation[];
@@ -647,13 +806,16 @@ export function TeamView({
     try {
       await consoleApi.invite({
         email: String(data.get("email") ?? ""),
-        role: String(data.get("role") ?? "developer") as Role
+        role: String(data.get("role") ?? "developer") as Role,
       });
       notify("Invitation sent by email.", "success");
       form.reset();
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not send invitation.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not send invitation.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -665,7 +827,10 @@ export function TeamView({
       notify(`${member.name} is now ${role}.`, "success");
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not change role.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not change role.",
+        "error",
+      );
     }
   }
 
@@ -676,7 +841,10 @@ export function TeamView({
       notify("Member removed.", "success");
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not remove member.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not remove member.",
+        "error",
+      );
     }
   }
 
@@ -686,7 +854,10 @@ export function TeamView({
       notify("Invitation revoked.", "success");
       onChanged();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not revoke invitation.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not revoke invitation.",
+        "error",
+      );
     }
   }
 
@@ -714,13 +885,20 @@ export function TeamView({
                 </strong>
                 <small>{member.email}</small>
               </div>
-              <span className={cx("env-pill", member.twoFactorEnabled && "development")}>
+              <span
+                className={cx(
+                  "env-pill",
+                  member.twoFactorEnabled && "development",
+                )}
+              >
                 {member.twoFactorEnabled ? "2FA on" : "2FA off"}
               </span>
               {manager && member.id !== currentUser.id ? (
                 <select
                   aria-label={`Role for ${member.name}`}
-                  onChange={(event) => changeRole(member, event.target.value as Role)}
+                  onChange={(event) =>
+                    changeRole(member, event.target.value as Role)
+                  }
                   value={member.role}
                 >
                   {roles.map((role) => (
@@ -733,7 +911,12 @@ export function TeamView({
                 <span className="env-pill">{member.role}</span>
               )}
               {manager && member.id !== currentUser.id ? (
-                <button aria-label={`Remove ${member.name}`} className="danger-button" onClick={() => remove(member)} type="button">
+                <button
+                  aria-label={`Remove ${member.name}`}
+                  className="danger-button"
+                  onClick={() => remove(member)}
+                  type="button"
+                >
                   <Trash2 size={13} />
                 </button>
               ) : (
@@ -754,7 +937,14 @@ export function TeamView({
           </div>
           <div className="settings-block">
             <form className="inline-form" onSubmit={invite}>
-              <input aria-label="Email address" name="email" placeholder="teammate@company.com" required style={{ flex: "1 1 220px" }} type="email" />
+              <input
+                aria-label="Email address"
+                name="email"
+                placeholder="teammate@company.com"
+                required
+                style={{ flex: "1 1 220px" }}
+                type="email"
+              />
               <select aria-label="Role" defaultValue="developer" name="role">
                 {roles.map((role) => (
                   <option key={role} value={role}>
@@ -763,7 +953,11 @@ export function TeamView({
                 ))}
               </select>
               <button className="primary-button" disabled={busy} type="submit">
-                {busy ? <Loader2 className="spin" size={15} /> : <Mail size={15} />}
+                {busy ? (
+                  <Loader2 className="spin" size={15} />
+                ) : (
+                  <Mail size={15} />
+                )}
                 Send Invite
               </button>
             </form>
@@ -776,12 +970,18 @@ export function TeamView({
                     <strong>{invitation.email}</strong>
                     <small>
                       pending · {invitation.role}
-                      {invitation.expiresAt ? ` · expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : ""}
+                      {invitation.expiresAt
+                        ? ` · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`
+                        : ""}
                     </small>
                   </div>
                   <span />
                   <span />
-                  <button className="danger-button" onClick={() => revoke(invitation)} type="button">
+                  <button
+                    className="danger-button"
+                    onClick={() => revoke(invitation)}
+                    type="button"
+                  >
                     Revoke
                   </button>
                 </div>
@@ -796,13 +996,23 @@ export function TeamView({
 
 /* ---------- Audit ---------- */
 
-export function AuditView({ logs, loading, memberNames }: { logs: AuditLog[]; loading: boolean; memberNames: Map<string, string> }) {
+export function AuditView({
+  logs,
+  loading,
+  memberNames,
+}: {
+  logs: AuditLog[];
+  loading: boolean;
+  memberNames: Map<string, string>;
+}) {
   return (
     <section className="panel">
       <div className="panel-header">
         <div>
           <h2>Audit Log</h2>
-          <p>Every session, credential, and admin action in this organization.</p>
+          <p>
+            Every session, credential, and admin action in this organization.
+          </p>
         </div>
       </div>
       {loading ? (
@@ -812,12 +1022,21 @@ export function AuditView({ logs, loading, memberNames }: { logs: AuditLog[]; lo
           <div className="skeleton-row" />
         </>
       ) : logs.length === 0 ? (
-        <EmptyState hint="Activity will appear here as your team works." icon={<ScrollText size={22} />} title="No audit events yet" />
+        <EmptyState
+          hint="Activity will appear here as your team works."
+          icon={<ScrollText size={22} />}
+          title="No audit events yet"
+        />
       ) : (
         <div className="audit-list">
           {logs.map((log) => (
             <div className="audit-row" key={log.id}>
-              <span>{new Date(log.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              <span>
+                {new Date(log.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
               <div>
                 <strong>{log.action.replaceAll(".", " · ")}</strong>
                 <small>
@@ -838,7 +1057,7 @@ export function AuditView({ logs, loading, memberNames }: { logs: AuditLog[]; lo
 
 const modeSwatches: Record<ThemeMode, string[]> = {
   dark: ["#111312", "#1c271c", "#65c466"],
-  light: ["#f4f7f1", "#e2efe0", "#1e7d3c"]
+  light: ["#f4f7f1", "#e2efe0", "#1e7d3c"],
 };
 
 const AVATAR_SIZE = 256;
@@ -861,7 +1080,8 @@ async function fileToAvatarDataUrl(file: File): Promise<string> {
   canvas.width = AVATAR_SIZE;
   canvas.height = AVATAR_SIZE;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Image processing is not available in this browser.");
+  if (!ctx)
+    throw new Error("Image processing is not available in this browser.");
   const side = Math.min(image.width, image.height);
   const sx = (image.width - side) / 2;
   const sy = (image.height - side) / 2;
@@ -876,12 +1096,26 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function passwordReqs(password: string): Array<{ label: string; met: boolean }> {
-  const reqs = [{ label: `At least ${passwordPolicy.minLength} characters`, met: password.length >= passwordPolicy.minLength }];
-  if (passwordPolicy.requireLowercase) reqs.push({ label: "One lowercase letter", met: /[a-z]/.test(password) });
-  if (passwordPolicy.requireUppercase) reqs.push({ label: "One uppercase letter", met: /[A-Z]/.test(password) });
-  if (passwordPolicy.requireDigit) reqs.push({ label: "One number", met: /[0-9]/.test(password) });
-  if (passwordPolicy.requireSymbol) reqs.push({ label: "One symbol (!@#?…)", met: /[^a-zA-Z0-9]/.test(password) });
+function passwordReqs(
+  password: string,
+): Array<{ label: string; met: boolean }> {
+  const reqs = [
+    {
+      label: `At least ${passwordPolicy.minLength} characters`,
+      met: password.length >= passwordPolicy.minLength,
+    },
+  ];
+  if (passwordPolicy.requireLowercase)
+    reqs.push({ label: "One lowercase letter", met: /[a-z]/.test(password) });
+  if (passwordPolicy.requireUppercase)
+    reqs.push({ label: "One uppercase letter", met: /[A-Z]/.test(password) });
+  if (passwordPolicy.requireDigit)
+    reqs.push({ label: "One number", met: /[0-9]/.test(password) });
+  if (passwordPolicy.requireSymbol)
+    reqs.push({
+      label: "One symbol (!@#?…)",
+      met: /[^a-zA-Z0-9]/.test(password),
+    });
   return reqs;
 }
 
@@ -903,6 +1137,16 @@ function passwordChangeError(err: unknown): string {
   }
 }
 
+const settingsTabs = [
+  { key: "profile", label: "Profile", icon: UserRound },
+  { key: "appearance", label: "Appearance", icon: Palette },
+  { key: "security", label: "Two-Factor", icon: ShieldCheck },
+  { key: "password", label: "Password", icon: KeyRound },
+  { key: "session", label: "Session", icon: LogOut },
+] as const;
+
+type SettingsTab = (typeof settingsTabs)[number]["key"];
+
 export function SettingsView({
   user,
   organizationName,
@@ -910,7 +1154,7 @@ export function SettingsView({
   onMode,
   onLogout,
   onProfileUpdated,
-  notify
+  notify,
 }: {
   user: User;
   organizationName: string;
@@ -920,11 +1164,19 @@ export function SettingsView({
   onProfileUpdated: (user: User) => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
-  const [twoFa, setTwoFa] = useState<{ enabled: boolean; method?: "totp" | "email" | null } | null>(null);
-  const [qr, setQr] = useState<{ qrCodeDataUrl?: string; manualEntryKey?: string } | null>(null);
+  const [twoFa, setTwoFa] = useState<{
+    enabled: boolean;
+    method?: "totp" | "email" | null;
+  } | null>(null);
+  const [qr, setQr] = useState<{
+    qrCodeDataUrl?: string;
+    manualEntryKey?: string;
+  } | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [emailPending, setEmailPending] = useState(false);
+
+  const [tab, setTab] = useState<SettingsTab>("profile");
 
   /* profile */
   const [name, setName] = useState(user.name);
@@ -939,7 +1191,8 @@ export function SettingsView({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
 
-  const profileDirty = name.trim() !== user.name || (avatar ?? null) !== (user.avatarUrl ?? null);
+  const profileDirty =
+    name.trim() !== user.name || (avatar ?? null) !== (user.avatarUrl ?? null);
   const newPasswordValid = validatePassword(newPassword).valid;
   const passwordsMatch = newPassword === confirmPassword;
 
@@ -954,7 +1207,10 @@ export function SettingsView({
     try {
       setAvatar(await fileToAvatarDataUrl(file));
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not process that image.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not process that image.",
+        "error",
+      );
     }
   }
 
@@ -968,12 +1224,16 @@ export function SettingsView({
     try {
       const body: { name?: string; avatarUrl?: string | null } = {};
       if (trimmed !== user.name) body.name = trimmed;
-      if ((avatar ?? null) !== (user.avatarUrl ?? null)) body.avatarUrl = avatar ?? "";
+      if ((avatar ?? null) !== (user.avatarUrl ?? null))
+        body.avatarUrl = avatar ?? "";
       const { user: updated } = await consoleApi.updateProfile(body);
       onProfileUpdated(updated);
       notify("Profile updated.", "success");
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not update your profile.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not update your profile.",
+        "error",
+      );
     } finally {
       setSavingProfile(false);
     }
@@ -995,7 +1255,10 @@ export function SettingsView({
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      notify("Password updated. Your other sessions were signed out.", "success");
+      notify(
+        "Password updated. Your other sessions were signed out.",
+        "success",
+      );
     } catch (err) {
       notify(passwordChangeError(err), "error");
     } finally {
@@ -1021,7 +1284,10 @@ export function SettingsView({
       setQr(await consoleApi.setupTotp());
       setEmailPending(false);
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not start 2FA setup.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not start 2FA setup.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -1037,7 +1303,10 @@ export function SettingsView({
       setCode("");
       await loadStatus();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Code was not accepted.", "error");
+      notify(
+        err instanceof Error ? err.message : "Code was not accepted.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -1051,7 +1320,10 @@ export function SettingsView({
       setQr(null);
       notify("We emailed you a confirmation code.", "success");
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not send the code.", "error");
+      notify(
+        err instanceof Error ? err.message : "Could not send the code.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -1067,231 +1339,373 @@ export function SettingsView({
       setCode("");
       await loadStatus();
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Code was not accepted.", "error");
+      notify(
+        err instanceof Error ? err.message : "Code was not accepted.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="settings-grid">
-      <section className="panel">
-        <div className="panel-header tight">
-          <div>
-            <h2>Profile</h2>
-            <p>Your name and photo across the workspace.</p>
-          </div>
-        </div>
-        <div className="settings-block">
-          <div className="profile-row">
-            <div className="profile-avatar">
-              {avatar ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img alt="Your profile photo" src={avatar} />
-              ) : (
-                <span className="profile-avatar-fallback">{initials(name || user.name)}</span>
-              )}
-            </div>
-            <div className="profile-avatar-actions">
-              <input accept="image/*" hidden onChange={onAvatarPick} ref={avatarInputRef} type="file" />
-              <div className="inline-form">
-                <button className="secondary-button" onClick={() => avatarInputRef.current?.click()} type="button">
-                  <Camera size={15} />
-                  {avatar ? "Change photo" : "Upload photo"}
-                </button>
-                {avatar && (
-                  <button className="ghost-button" onClick={() => setAvatar(null)} type="button">
-                    Remove
-                  </button>
-                )}
-              </div>
-              <p className="profile-hint">JPG, PNG, or GIF — resized to a 256px square.</p>
-            </div>
-          </div>
-          <label className="field">
-            <span>Name</span>
-            <input onChange={(event) => setName(event.target.value)} placeholder="Your name" value={name} />
-          </label>
-          <label className="field">
-            <span>Email</span>
-            <input disabled readOnly value={user.email} />
-          </label>
-          <button className="primary-button" disabled={savingProfile || !profileDirty} onClick={saveProfile} type="button">
-            {savingProfile ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
-            {savingProfile ? "Saving…" : "Save profile"}
+    <div className="settings-shell">
+      <nav className="settings-tabs" aria-label="Settings sections">
+        {settingsTabs.map((item) => (
+          <button
+            aria-current={tab === item.key ? "page" : undefined}
+            className={cx("settings-tab", tab === item.key && "is-active")}
+            key={item.key}
+            onClick={() => setTab(item.key)}
+            type="button"
+          >
+            <item.icon size={16} />
+            <span>{item.label}</span>
           </button>
-        </div>
-      </section>
+        ))}
+      </nav>
 
-      <section className="panel">
-        <div className="panel-header tight">
-          <div>
-            <h2>Appearance</h2>
-            <p>Workspace theme, saved on this device.</p>
-          </div>
-        </div>
-        <div className="theme-options">
-          {(Object.keys(modeSwatches) as ThemeMode[]).map((name) => (
-            <button
-              className={cx("theme-option", mode === name && "is-active")}
-              key={name}
-              onClick={() => onMode(name)}
-              type="button"
-            >
-              <span className="theme-swatch" style={{ background: modeSwatches[name][0] }}>
-                {modeSwatches[name].map((color) => (
-                  <i key={color} style={{ background: color }} />
-                ))}
-              </span>
-              {name === "dark" ? "Dark" : "Light"}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header tight">
-          <div>
-            <h2>Account</h2>
-            <p>
-              {user.name} · {user.email} · {organizationName}
-            </p>
-          </div>
-        </div>
-        <div className="settings-block">
-          <h3>Two-factor authentication</h3>
-          <p>
-            {twoFa?.enabled
-              ? `Enabled via ${twoFa.method === "email" ? "email OTP" : "Google Authenticator"}.`
-              : "Protect your account with Google Authenticator or an email OTP at every login."}
-          </p>
-          {!twoFa?.enabled && !qr && !emailPending && (
-            <div className="inline-form">
-              <button className="primary-button" disabled={busy} onClick={startTotp} type="button">
-                <ShieldCheck size={15} />
-                Google Authenticator
-              </button>
-              <button className="secondary-button" disabled={busy} onClick={startEmailOtp} type="button">
-                <Mail size={15} />
-                Email OTP
+      <div className="settings-content">
+        {tab === "profile" && (
+          <section className="panel">
+            <div className="panel-header tight">
+              <div>
+                <h2>Profile</h2>
+                <p>Your name and photo across the workspace.</p>
+              </div>
+            </div>
+            <div className="settings-block">
+              <div className="profile-row">
+                <div className="profile-avatar">
+                  {avatar ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img alt="Your profile photo" src={avatar} />
+                  ) : (
+                    <span className="profile-avatar-fallback">
+                      {initials(name || user.name)}
+                    </span>
+                  )}
+                </div>
+                <div className="profile-avatar-actions">
+                  <input
+                    accept="image/*"
+                    hidden
+                    onChange={onAvatarPick}
+                    ref={avatarInputRef}
+                    type="file"
+                  />
+                  <div className="inline-form">
+                    <button
+                      className="secondary-button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      type="button"
+                    >
+                      <Camera size={15} />
+                      {avatar ? "Change photo" : "Upload photo"}
+                    </button>
+                    {avatar && (
+                      <button
+                        className="ghost-button"
+                        onClick={() => setAvatar(null)}
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <p className="profile-hint">
+                    JPG, PNG, or GIF — resized to a 256px square.
+                  </p>
+                </div>
+              </div>
+              <label className="field">
+                <span>Name</span>
+                <input
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Your name"
+                  value={name}
+                />
+              </label>
+              <label className="field">
+                <span>Email</span>
+                <input disabled readOnly value={user.email} />
+              </label>
+              <button
+                className="primary-button"
+                disabled={savingProfile || !profileDirty}
+                onClick={saveProfile}
+                type="button"
+              >
+                {savingProfile ? (
+                  <Loader2 className="spin" size={15} />
+                ) : (
+                  <Save size={15} />
+                )}
+                {savingProfile ? "Saving…" : "Save profile"}
               </button>
             </div>
-          )}
-          {qr && (
-            <form onSubmit={confirmTotp}>
-              {qr.qrCodeDataUrl && (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img alt="Scan this QR code with Google Authenticator" className="twofa-qr" src={qr.qrCodeDataUrl} />
-              )}
-              {qr.manualEntryKey && (
-                <p style={{ fontFamily: "var(--font-mono), monospace", fontSize: 12 }}>Manual key: {qr.manualEntryKey}</p>
-              )}
-              <div className="inline-form">
-                <input
-                  aria-label="6-digit code"
-                  inputMode="numeric"
-                  maxLength={6}
-                  onChange={(event) => setCode(event.target.value)}
-                  placeholder="123456"
-                  required
-                  value={code}
-                />
-                <button className="primary-button" disabled={busy || code.length !== 6} type="submit">
-                  Verify
-                </button>
+          </section>
+        )}
+
+        {tab === "appearance" && (
+          <section className="panel">
+            <div className="panel-header tight">
+              <div>
+                <h2>Appearance</h2>
+                <p>Workspace theme, saved on this device.</p>
               </div>
-            </form>
-          )}
-          {emailPending && (
-            <form className="inline-form" onSubmit={confirmEmailOtp}>
-              <input
-                aria-label="Code from email"
-                inputMode="numeric"
-                maxLength={6}
-                onChange={(event) => setCode(event.target.value)}
-                placeholder="Code from email"
-                required
-                value={code}
-              />
-              <button className="primary-button" disabled={busy || code.length !== 6} type="submit">
-                Verify
-              </button>
-            </form>
-          )}
-        </div>
-        <div className="settings-block">
-          <h3>Password</h3>
-          <p>Change your password. Saving signs out your other devices.</p>
-          <form className="password-form" onSubmit={submitPassword}>
-            <label className="field">
-              <span>Current password</span>
-              <input
-                autoComplete="current-password"
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                required
-                type="password"
-                value={currentPassword}
-              />
-            </label>
-            <label className="field">
-              <span>New password</span>
-              <span className="pw-field">
-                <input
-                  autoComplete="new-password"
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  required
-                  type={showNewPassword ? "text" : "password"}
-                  value={newPassword}
-                />
+            </div>
+            <div className="theme-options">
+              {(Object.keys(modeSwatches) as ThemeMode[]).map((name) => (
                 <button
-                  aria-label={showNewPassword ? "Hide password" : "Show password"}
-                  className="pw-reveal"
-                  onClick={() => setShowNewPassword((visible) => !visible)}
+                  className={cx("theme-option", mode === name && "is-active")}
+                  key={name}
+                  onClick={() => onMode(name)}
                   type="button"
                 >
-                  {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  <span
+                    className="theme-swatch"
+                    style={{ background: modeSwatches[name][0] }}
+                  >
+                    {modeSwatches[name].map((color) => (
+                      <i key={color} style={{ background: color }} />
+                    ))}
+                  </span>
+                  {name === "dark" ? "Dark" : "Light"}
                 </button>
-              </span>
-            </label>
-            <label className="field">
-              <span>Confirm new password</span>
-              <input
-                autoComplete="new-password"
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                type={showNewPassword ? "text" : "password"}
-                value={confirmPassword}
-              />
-            </label>
-            {newPassword.length > 0 && (
-              <ul className="pw-reqs">
-                {passwordReqs(newPassword).map((requirement) => (
-                  <li className={cx("pw-req", requirement.met ? "met" : "unmet")} key={requirement.label}>
-                    {requirement.met ? <Check size={13} /> : <Circle size={13} />}
-                    <span>{requirement.label}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {confirmPassword.length > 0 && !passwordsMatch && <p className="pw-mismatch">Passwords do not match.</p>}
-            <button
-              className="primary-button"
-              disabled={savingPassword || !currentPassword || !newPasswordValid || !passwordsMatch}
-              type="submit"
-            >
-              {savingPassword ? <Loader2 className="spin" size={15} /> : <KeyRound size={15} />}
-              {savingPassword ? "Updating…" : "Update password"}
-            </button>
-          </form>
-        </div>
-        <div className="settings-block">
-          <h3>Session</h3>
-          <p>Sign out on this device.</p>
-          <button className="danger-button" onClick={onLogout} type="button">
-            Log out
-          </button>
-        </div>
-      </section>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === "security" && (
+          <section className="panel">
+            <div className="panel-header tight">
+              <div>
+                <h2>Two-factor authentication</h2>
+                <p>Add a second verification step at every login.</p>
+              </div>
+            </div>
+            <div className="settings-block">
+              <p>
+                {twoFa?.enabled
+                  ? `Enabled via ${twoFa.method === "email" ? "email OTP" : "Google Authenticator"}.`
+                  : "Protect your account with Google Authenticator or an email OTP at every login."}
+              </p>
+              {!twoFa?.enabled && !qr && !emailPending && (
+                <div className="inline-form">
+                  <button
+                    className="primary-button"
+                    disabled={busy}
+                    onClick={startTotp}
+                    type="button"
+                  >
+                    <ShieldCheck size={15} />
+                    Google Authenticator
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={startEmailOtp}
+                    type="button"
+                  >
+                    <Mail size={15} />
+                    Email OTP
+                  </button>
+                </div>
+              )}
+              {qr && (
+                <form onSubmit={confirmTotp}>
+                  {qr.qrCodeDataUrl && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      alt="Scan this QR code with Google Authenticator"
+                      className="twofa-qr"
+                      src={qr.qrCodeDataUrl}
+                    />
+                  )}
+                  {qr.manualEntryKey && (
+                    <p
+                      style={{
+                        fontFamily: "var(--font-mono), monospace",
+                        fontSize: 12,
+                      }}
+                    >
+                      Manual key: {qr.manualEntryKey}
+                    </p>
+                  )}
+                  <div className="inline-form">
+                    <input
+                      aria-label="6-digit code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      onChange={(event) => setCode(event.target.value)}
+                      placeholder="123456"
+                      required
+                      value={code}
+                    />
+                    <button
+                      className="primary-button"
+                      disabled={busy || code.length !== 6}
+                      type="submit"
+                    >
+                      Verify
+                    </button>
+                  </div>
+                </form>
+              )}
+              {emailPending && (
+                <form className="inline-form" onSubmit={confirmEmailOtp}>
+                  <input
+                    aria-label="Code from email"
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(event) => setCode(event.target.value)}
+                    placeholder="Code from email"
+                    required
+                    value={code}
+                  />
+                  <button
+                    className="primary-button"
+                    disabled={busy || code.length !== 6}
+                    type="submit"
+                  >
+                    Verify
+                  </button>
+                </form>
+              )}
+            </div>
+          </section>
+        )}
+
+        {tab === "password" && (
+          <section className="panel">
+            <div className="panel-header tight">
+              <div>
+                <h2>Password</h2>
+                <p>
+                  Change your password. Saving signs out your other devices.
+                </p>
+              </div>
+            </div>
+            <div className="settings-block">
+              <form className="password-form" onSubmit={submitPassword}>
+                <label className="field">
+                  <span>Current password</span>
+                  <input
+                    autoComplete="current-password"
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    required
+                    type="password"
+                    value={currentPassword}
+                  />
+                </label>
+                <label className="field">
+                  <span>New password</span>
+                  <span className="pw-field">
+                    <input
+                      autoComplete="new-password"
+                      onChange={(event) => setNewPassword(event.target.value)}
+                      required
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPassword}
+                    />
+                    <button
+                      aria-label={
+                        showNewPassword ? "Hide password" : "Show password"
+                      }
+                      className="pw-reveal"
+                      onClick={() => setShowNewPassword((visible) => !visible)}
+                      type="button"
+                    >
+                      {showNewPassword ? (
+                        <EyeOff size={15} />
+                      ) : (
+                        <Eye size={15} />
+                      )}
+                    </button>
+                  </span>
+                </label>
+                <label className="field">
+                  <span>Confirm new password</span>
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    required
+                    type={showNewPassword ? "text" : "password"}
+                    value={confirmPassword}
+                  />
+                </label>
+                {newPassword.length > 0 && (
+                  <ul className="pw-reqs">
+                    {passwordReqs(newPassword).map((requirement) => (
+                      <li
+                        className={cx(
+                          "pw-req",
+                          requirement.met ? "met" : "unmet",
+                        )}
+                        key={requirement.label}
+                      >
+                        {requirement.met ? (
+                          <Check size={13} />
+                        ) : (
+                          <Circle size={13} />
+                        )}
+                        <span>{requirement.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {confirmPassword.length > 0 && !passwordsMatch && (
+                  <p className="pw-mismatch">Passwords do not match.</p>
+                )}
+                <button
+                  className="primary-button"
+                  disabled={
+                    savingPassword ||
+                    !currentPassword ||
+                    !newPasswordValid ||
+                    !passwordsMatch
+                  }
+                  type="submit"
+                >
+                  {savingPassword ? (
+                    <Loader2 className="spin" size={15} />
+                  ) : (
+                    <KeyRound size={15} />
+                  )}
+                  {savingPassword ? "Updating…" : "Update password"}
+                </button>
+              </form>
+            </div>
+          </section>
+        )}
+
+        {tab === "session" && (
+          <section className="panel">
+            <div className="panel-header tight">
+              <div>
+                <h2>Session</h2>
+                <p>Sign out of Onshell on this device.</p>
+              </div>
+            </div>
+            <div className="settings-block">
+              <p className="settings-account-line">
+                Signed in as <strong>{user.name}</strong> · {user.email} ·{" "}
+                {organizationName}
+              </p>
+              <button
+                className="danger-button"
+                onClick={onLogout}
+                type="button"
+              >
+                <LogOut size={15} />
+                Log out
+              </button>
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   );
 }

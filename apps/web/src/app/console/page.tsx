@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Braces,
   CheckCircle2,
   ChevronRight,
@@ -364,6 +365,21 @@ export default function ConsolePage() {
       </aside>
 
       <main className="workspace">
+        <div className="console-topright">
+          {identity.user.isPlatformAdmin && (
+            <button
+              aria-label="Switch to admin panel"
+              className="console-topright-btn"
+              data-tooltip="Switch to admin panel"
+              onClick={() => {
+                window.location.href = "/admin";
+              }}
+              type="button"
+            >
+              <ArrowLeftRight size={16} />
+            </button>
+          )}
+        </div>
         <AnimatePresence mode="wait">
           <motion.div
             animate={{ opacity: 1, y: 0 }}
