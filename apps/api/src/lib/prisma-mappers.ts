@@ -102,6 +102,7 @@ export function toPublicUser(user: UserWithMembership): User {
     id: user.id,
     name: user.name,
     email: user.email,
+    avatarUrl: user.avatarUrl ?? null,
     role: membership ? roleMap[membership.role] : "developer",
     organizationId: membership?.organizationId ?? "",
     isPlatformAdmin: user.isPlatformAdmin,

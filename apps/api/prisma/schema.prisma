@@ -77,6 +77,7 @@ model User {
   email               String               @unique
   name                String
   passwordHash        String?
+  avatarUrl           String?              @db.MediumText
   isPlatformAdmin     Boolean              @default(false)
   emailVerifiedAt     DateTime?
   twoFactorEnabled    Boolean              @default(false)

@@ -1,9 +1,14 @@
 "use client";
 
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Braces,
+  Camera,
+  Check,
+  Circle,
+  Eye,
+  EyeOff,
   Inbox,
   KeyRound,
   Loader2,
@@ -12,6 +17,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Save,
   ScrollText,
   Search,
   ShieldCheck,
@@ -20,7 +26,7 @@ import {
   X
 } from "lucide-react";
 import type { AuditLog, CredentialSummary, Host, Role, Snippet, User } from "@onshell/shared";
-import { canManageHosts, canManageUsers, canOpenSession, roles } from "@onshell/shared";
+import { canManageHosts, canManageUsers, canOpenSession, passwordPolicy, roles, validatePassword } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import type { PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
@@ -835,12 +841,75 @@ const modeSwatches: Record<ThemeMode, string[]> = {
   light: ["#f4f7f1", "#e2efe0", "#1e7d3c"]
 };
 
+const AVATAR_SIZE = 256;
+
+/** Read an image file and return a centered-square 256px JPEG data URL. */
+async function fileToAvatarDataUrl(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read that image file."));
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("That file is not a valid image."));
+    img.src = dataUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_SIZE;
+  canvas.height = AVATAR_SIZE;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Image processing is not available in this browser.");
+  const side = Math.min(image.width, image.height);
+  const sx = (image.width - side) / 2;
+  const sy = (image.height - side) / 2;
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function passwordReqs(password: string): Array<{ label: string; met: boolean }> {
+  const reqs = [{ label: `At least ${passwordPolicy.minLength} characters`, met: password.length >= passwordPolicy.minLength }];
+  if (passwordPolicy.requireLowercase) reqs.push({ label: "One lowercase letter", met: /[a-z]/.test(password) });
+  if (passwordPolicy.requireUppercase) reqs.push({ label: "One uppercase letter", met: /[A-Z]/.test(password) });
+  if (passwordPolicy.requireDigit) reqs.push({ label: "One number", met: /[0-9]/.test(password) });
+  if (passwordPolicy.requireSymbol) reqs.push({ label: "One symbol (!@#?…)", met: /[^a-zA-Z0-9]/.test(password) });
+  return reqs;
+}
+
+function passwordChangeError(err: unknown): string {
+  const code = err instanceof Error ? err.message : "";
+  switch (code) {
+    case "invalid_current_password":
+      return "Your current password is incorrect.";
+    case "password_policy_violation":
+      return "The new password does not meet the requirements.";
+    case "password_reuse":
+      return "Choose a password different from your current one.";
+    case "password_not_set":
+      return "This account signs in with Google, so it has no password to change.";
+    case "unauthorized":
+      return "Your session expired. Please sign in again.";
+    default:
+      return code || "Could not update your password.";
+  }
+}
+
 export function SettingsView({
   user,
   organizationName,
   mode,
   onMode,
   onLogout,
+  onProfileUpdated,
   notify
 }: {
   user: User;
@@ -848,6 +917,7 @@ export function SettingsView({
   mode: ThemeMode;
   onMode: (mode: ThemeMode) => void;
   onLogout: () => void;
+  onProfileUpdated: (user: User) => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [twoFa, setTwoFa] = useState<{ enabled: boolean; method?: "totp" | "email" | null } | null>(null);
@@ -855,6 +925,83 @@ export function SettingsView({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [emailPending, setEmailPending] = useState(false);
+
+  /* profile */
+  const [name, setName] = useState(user.name);
+  const [avatar, setAvatar] = useState<string | null>(user.avatarUrl ?? null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  /* password */
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  const profileDirty = name.trim() !== user.name || (avatar ?? null) !== (user.avatarUrl ?? null);
+  const newPasswordValid = validatePassword(newPassword).valid;
+  const passwordsMatch = newPassword === confirmPassword;
+
+  async function onAvatarPick(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      notify("Please choose an image file.", "error");
+      return;
+    }
+    try {
+      setAvatar(await fileToAvatarDataUrl(file));
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Could not process that image.", "error");
+    }
+  }
+
+  async function saveProfile() {
+    const trimmed = name.trim();
+    if (trimmed.length < 2) {
+      notify("Name needs at least 2 characters.", "error");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const body: { name?: string; avatarUrl?: string | null } = {};
+      if (trimmed !== user.name) body.name = trimmed;
+      if ((avatar ?? null) !== (user.avatarUrl ?? null)) body.avatarUrl = avatar ?? "";
+      const { user: updated } = await consoleApi.updateProfile(body);
+      onProfileUpdated(updated);
+      notify("Profile updated.", "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Could not update your profile.", "error");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!newPasswordValid) {
+      notify("The new password does not meet the requirements.", "error");
+      return;
+    }
+    if (!passwordsMatch) {
+      notify("New password and confirmation do not match.", "error");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await consoleApi.changePassword({ currentPassword, newPassword });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      notify("Password updated. Your other sessions were signed out.", "success");
+    } catch (err) {
+      notify(passwordChangeError(err), "error");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
 
   const loadStatus = useCallback(async () => {
     try {
@@ -928,6 +1075,54 @@ export function SettingsView({
 
   return (
     <div className="settings-grid">
+      <section className="panel">
+        <div className="panel-header tight">
+          <div>
+            <h2>Profile</h2>
+            <p>Your name and photo across the workspace.</p>
+          </div>
+        </div>
+        <div className="settings-block">
+          <div className="profile-row">
+            <div className="profile-avatar">
+              {avatar ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img alt="Your profile photo" src={avatar} />
+              ) : (
+                <span className="profile-avatar-fallback">{initials(name || user.name)}</span>
+              )}
+            </div>
+            <div className="profile-avatar-actions">
+              <input accept="image/*" hidden onChange={onAvatarPick} ref={avatarInputRef} type="file" />
+              <div className="inline-form">
+                <button className="secondary-button" onClick={() => avatarInputRef.current?.click()} type="button">
+                  <Camera size={15} />
+                  {avatar ? "Change photo" : "Upload photo"}
+                </button>
+                {avatar && (
+                  <button className="ghost-button" onClick={() => setAvatar(null)} type="button">
+                    Remove
+                  </button>
+                )}
+              </div>
+              <p className="profile-hint">JPG, PNG, or GIF — resized to a 256px square.</p>
+            </div>
+          </div>
+          <label className="field">
+            <span>Name</span>
+            <input onChange={(event) => setName(event.target.value)} placeholder="Your name" value={name} />
+          </label>
+          <label className="field">
+            <span>Email</span>
+            <input disabled readOnly value={user.email} />
+          </label>
+          <button className="primary-button" disabled={savingProfile || !profileDirty} onClick={saveProfile} type="button">
+            {savingProfile ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
+            {savingProfile ? "Saving…" : "Save profile"}
+          </button>
+        </div>
+      </section>
+
       <section className="panel">
         <div className="panel-header tight">
           <div>
@@ -1023,6 +1218,71 @@ export function SettingsView({
               </button>
             </form>
           )}
+        </div>
+        <div className="settings-block">
+          <h3>Password</h3>
+          <p>Change your password. Saving signs out your other devices.</p>
+          <form className="password-form" onSubmit={submitPassword}>
+            <label className="field">
+              <span>Current password</span>
+              <input
+                autoComplete="current-password"
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                required
+                type="password"
+                value={currentPassword}
+              />
+            </label>
+            <label className="field">
+              <span>New password</span>
+              <span className="pw-field">
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                />
+                <button
+                  aria-label={showNewPassword ? "Hide password" : "Show password"}
+                  className="pw-reveal"
+                  onClick={() => setShowNewPassword((visible) => !visible)}
+                  type="button"
+                >
+                  {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </span>
+            </label>
+            <label className="field">
+              <span>Confirm new password</span>
+              <input
+                autoComplete="new-password"
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                type={showNewPassword ? "text" : "password"}
+                value={confirmPassword}
+              />
+            </label>
+            {newPassword.length > 0 && (
+              <ul className="pw-reqs">
+                {passwordReqs(newPassword).map((requirement) => (
+                  <li className={cx("pw-req", requirement.met ? "met" : "unmet")} key={requirement.label}>
+                    {requirement.met ? <Check size={13} /> : <Circle size={13} />}
+                    <span>{requirement.label}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {confirmPassword.length > 0 && !passwordsMatch && <p className="pw-mismatch">Passwords do not match.</p>}
+            <button
+              className="primary-button"
+              disabled={savingPassword || !currentPassword || !newPasswordValid || !passwordsMatch}
+              type="submit"
+            >
+              {savingPassword ? <Loader2 className="spin" size={15} /> : <KeyRound size={15} />}
+              {savingPassword ? "Updating…" : "Update password"}
+            </button>
+          </form>
         </div>
         <div className="settings-block">
           <h3>Session</h3>

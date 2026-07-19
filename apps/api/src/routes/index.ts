@@ -8,6 +8,7 @@ import { registerCredentialRoutes } from "./modules/credentials.js";
 import { registerHealthRoutes } from "./modules/health.js";
 import { registerHostRoutes } from "./modules/hosts.js";
 import { registerOrganizationRoutes } from "./modules/organizations.js";
+import { registerProfileRoutes } from "./modules/profile.js";
 import { registerSessionRoutes } from "./modules/sessions.js";
 import { registerSnippetRoutes } from "./modules/snippets.js";
 
@@ -15,6 +16,7 @@ export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig
   await registerHealthRoutes(app, config);
   await registerBillingRoutes(app, config);
   await registerAuthRoutes(app, config);
+  await registerProfileRoutes(app, config);
   await registerOrganizationRoutes(app);
   await registerHostRoutes(app);
   await registerCredentialRoutes(app);

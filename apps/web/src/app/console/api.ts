@@ -112,6 +112,10 @@ export interface LaunchedSession {
 export const consoleApi = {
   me: () => request<CurrentIdentity>("/auth/me"),
   logout: () => request<{ ok?: boolean }>("/auth/logout", { method: "POST" }),
+  updateProfile: (body: { name?: string; avatarUrl?: string | null }) =>
+    request<{ user: User }>("/profile", { method: "PATCH", body: JSON.stringify(body) }),
+  changePassword: (body: { currentPassword: string; newPassword: string }) =>
+    request<{ ok?: boolean }>("/auth/password/change", { method: "POST", body: JSON.stringify(body) }),
 
   hosts: async () => unwrapList<Host>(await request("/hosts"), "hosts"),
   createHost: (body: Record<string, unknown>) => request<unknown>("/hosts", { method: "POST", body: JSON.stringify(body) }),

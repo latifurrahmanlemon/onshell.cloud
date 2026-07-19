@@ -66,6 +66,13 @@ const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "settings", label: "Settings", icon: Settings }
 ];
 
+function avatarInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function ConsolePage() {
   const reduceMotion = useReducedMotion();
   const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
@@ -339,12 +346,19 @@ export default function ConsolePage() {
           ))}
         </nav>
         <div className="sidebar-status">
-          <div className="status-line">
-            <span>Signed in</span>
-            <strong>{identity.user.role}</strong>
-          </div>
-          <div className="status-grid">
-            <span>{identity.user.name}</span>
+          <div className="sidebar-user">
+            <div className="sidebar-avatar">
+              {identity.user.avatarUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img alt="" src={identity.user.avatarUrl} />
+              ) : (
+                <span>{avatarInitials(identity.user.name)}</span>
+              )}
+            </div>
+            <div className="sidebar-user-meta">
+              <strong>{identity.user.name}</strong>
+              <span>{identity.user.role}</span>
+            </div>
           </div>
         </div>
       </aside>
@@ -651,6 +665,7 @@ export default function ConsolePage() {
                 notify={notify}
                 onLogout={() => void logout()}
                 onMode={setMode}
+                onProfileUpdated={(user) => setIdentity((current) => (current ? { ...current, user } : current))}
                 organizationName={identity.organization?.name ?? "Workspace"}
                 user={identity.user}
               />
