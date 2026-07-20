@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { prisma } from "../../lib/prisma.js";
@@ -13,6 +14,16 @@ import { createAudit } from "./auth.js";
 const AVATAR_MAX_LENGTH = 1_500_000;
 const AVATAR_DATA_URL = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
+// Accent is a preset key (lowercase word) or a "#rrggbb" / "#rgb" hex.
+const ACCENT_PATTERN = /^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})|[a-z]{2,20})$/;
+
+const themePreferenceSchema = z
+  .object({
+    mode: z.enum(["light", "dark"]).optional(),
+    accent: z.string().regex(ACCENT_PATTERN).optional()
+  })
+  .strict();
+
 const updateProfileSchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
@@ -24,11 +35,14 @@ const updateProfileSchema = z
         message: "avatar_must_be_image_data_url"
       })
       .nullable()
-      .optional()
+      .optional(),
+    // null clears the saved theme; an object stores mode/accent.
+    themePreference: themePreferenceSchema.nullable().optional()
   })
-  .refine((body) => body.name !== undefined || body.avatarUrl !== undefined, {
-    message: "no_changes"
-  });
+  .refine(
+    (body) => body.name !== undefined || body.avatarUrl !== undefined || body.themePreference !== undefined,
+    { message: "no_changes" }
+  );
 
 export async function registerProfileRoutes(app: FastifyInstance, config: RuntimeConfig) {
   app.patch("/profile", async (request, reply) => {
@@ -38,9 +52,12 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Runtim
 
       const body = updateProfileSchema.parse(request.body);
 
-      const data: { name?: string; avatarUrl?: string | null } = {};
+      const data: Prisma.UserUpdateInput = {};
       if (body.name !== undefined) data.name = body.name;
       if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl ? body.avatarUrl : null;
+      if (body.themePreference !== undefined) {
+        data.themePreference = body.themePreference ?? Prisma.JsonNull;
+      }
 
       const updated = await prisma.user.update({
         where: { id: user.id },

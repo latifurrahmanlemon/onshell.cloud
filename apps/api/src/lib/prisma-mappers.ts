@@ -21,9 +21,20 @@ import type {
   SessionProtocol,
   SessionStatus,
   Snippet,
+  ThemePreference,
   User
 } from "@onshell/shared";
 import { prisma } from "./prisma.js";
+
+/** Coerce the free-form Json column into a validated ThemePreference. */
+function toThemePreference(value: PrismaUser["themePreference"]): ThemePreference | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const mode = record.mode === "light" || record.mode === "dark" ? record.mode : undefined;
+  const accent = typeof record.accent === "string" ? record.accent : undefined;
+  if (mode === undefined && accent === undefined) return null;
+  return { mode, accent };
+}
 
 const roleMap: Record<OrganizationMember["role"], Role> = {
   OWNER: "owner",
@@ -103,6 +114,7 @@ export function toPublicUser(user: UserWithMembership): User {
     name: user.name,
     email: user.email,
     avatarUrl: user.avatarUrl ?? null,
+    themePreference: toThemePreference(user.themePreference),
     role: membership ? roleMap[membership.role] : "developer",
     organizationId: membership?.organizationId ?? "",
     isPlatformAdmin: user.isPlatformAdmin,

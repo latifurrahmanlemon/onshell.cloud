@@ -2,6 +2,7 @@
 
 import {
   ChangeEvent,
+  CSSProperties,
   FormEvent,
   ReactNode,
   useCallback,
@@ -56,7 +57,8 @@ import {
 import { cx } from "@onshell/ui";
 import type { PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
-import type { ThemeMode } from "../theme";
+import type { AccentValue, ThemeMode } from "../theme";
+import { ACCENT_PRESETS, accentToHex, isDefaultAccent } from "../theme";
 
 /* ---------- shared bits ---------- */
 
@@ -1056,8 +1058,8 @@ export function AuditView({
 /* ---------- Settings ---------- */
 
 const modeSwatches: Record<ThemeMode, string[]> = {
-  dark: ["#111312", "#1c271c", "#65c466"],
-  light: ["#f4f7f1", "#e2efe0", "#1e7d3c"],
+  dark: ["#0a0b12", "#1c1d2b", "#818cf8"],
+  light: ["#f6f5ff", "#efeafe", "#4f46e5"],
 };
 
 const AVATAR_SIZE = 256;
@@ -1152,6 +1154,8 @@ export function SettingsView({
   organizationName,
   mode,
   onMode,
+  accent,
+  onAccent,
   onLogout,
   onProfileUpdated,
   notify,
@@ -1160,6 +1164,8 @@ export function SettingsView({
   organizationName: string;
   mode: ThemeMode;
   onMode: (mode: ThemeMode) => void;
+  accent: AccentValue;
+  onAccent: (value: AccentValue) => void;
   onLogout: () => void;
   onProfileUpdated: (user: User) => void;
   notify: (message: string, kind?: "success" | "error") => void;
@@ -1177,6 +1183,10 @@ export function SettingsView({
   const [emailPending, setEmailPending] = useState(false);
 
   const [tab, setTab] = useState<SettingsTab>("profile");
+
+  const accentIsPreset = ACCENT_PRESETS.some((preset) => preset.key === accent);
+  const accentIsCustom = !accentIsPreset && !isDefaultAccent(accent);
+  const customHex = accentToHex(accent);
 
   /* profile */
   const [name, setName] = useState(user.name);
@@ -1452,28 +1462,66 @@ export function SettingsView({
             <div className="panel-header tight">
               <div>
                 <h2>Appearance</h2>
-                <p>Workspace theme, saved on this device.</p>
+                <p>Theme and accent colour, synced to your account.</p>
               </div>
             </div>
-            <div className="theme-options">
-              {(Object.keys(modeSwatches) as ThemeMode[]).map((name) => (
-                <button
-                  className={cx("theme-option", mode === name && "is-active")}
-                  key={name}
-                  onClick={() => onMode(name)}
-                  type="button"
-                >
-                  <span
-                    className="theme-swatch"
-                    style={{ background: modeSwatches[name][0] }}
+            <div className="appearance-body">
+              <div className="appearance-group">
+                <span className="appearance-label">Mode</span>
+                <div className="theme-options">
+                  {(Object.keys(modeSwatches) as ThemeMode[]).map((name) => (
+                    <button
+                      className={cx("theme-option", mode === name && "is-active")}
+                      key={name}
+                      onClick={() => onMode(name)}
+                      type="button"
+                    >
+                      <span className="theme-swatch" style={{ background: modeSwatches[name][0] }}>
+                        {modeSwatches[name].map((color) => (
+                          <i key={color} style={{ background: color }} />
+                        ))}
+                      </span>
+                      {name === "dark" ? "Dark" : "Light"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="appearance-group">
+                <span className="appearance-label">Accent colour</span>
+                <div className="accent-grid">
+                  {ACCENT_PRESETS.map((preset) => (
+                    <button
+                      aria-label={preset.label}
+                      aria-pressed={accent === preset.key}
+                      className={cx("accent-swatch", accent === preset.key && "is-active")}
+                      key={preset.key}
+                      onClick={() => onAccent(preset.key)}
+                      style={{ "--sw": preset.hex } as CSSProperties}
+                      title={preset.label}
+                      type="button"
+                    >
+                      {accent === preset.key && <Check size={15} />}
+                    </button>
+                  ))}
+                  <label
+                    className={cx("accent-swatch accent-custom", accentIsCustom && "is-active")}
+                    style={{ "--sw": customHex } as CSSProperties}
+                    title="Custom colour"
                   >
-                    {modeSwatches[name].map((color) => (
-                      <i key={color} style={{ background: color }} />
-                    ))}
-                  </span>
-                  {name === "dark" ? "Dark" : "Light"}
-                </button>
-              ))}
+                    <Palette size={14} />
+                    <input
+                      aria-label="Custom accent colour"
+                      onChange={(event) => onAccent(event.target.value)}
+                      type="color"
+                      value={customHex}
+                    />
+                  </label>
+                </div>
+                <p className="appearance-hint">
+                  Pick a preset or choose a custom colour — the whole workspace recolours instantly.
+                </p>
+              </div>
             </div>
           </section>
         )}

@@ -19,11 +19,19 @@ export type BillingInterval = (typeof billingIntervals)[number];
 export const subscriptionStatuses = ["trialing", "active", "past_due", "canceled", "expired"] as const;
 export type SubscriptionStatus = (typeof subscriptionStatuses)[number];
 
+/** Per-user theme, synced to the account so it follows the user across devices. */
+export interface ThemePreference {
+  mode?: "light" | "dark";
+  /** Accent preset key (e.g. "violet") or a custom "#rrggbb" hex. */
+  accent?: string;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
   avatarUrl?: string | null;
+  themePreference?: ThemePreference | null;
   role: Role;
   organizationId: string;
   isPlatformAdmin: boolean;

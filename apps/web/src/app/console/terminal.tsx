@@ -15,17 +15,17 @@ interface XtermTerminalProps {
 }
 
 const terminalTheme = {
-  background: "#0a0c0a",
+  background: "#08080f",
   foreground: "#d9ead6",
-  cursor: "#65c466",
-  cursorAccent: "#0a0c0a",
-  selectionBackground: "rgba(101, 196, 102, 0.3)",
-  black: "#111312",
-  green: "#65c466",
-  brightGreen: "#8fdb90",
-  cyan: "#49b7c5",
-  red: "#e16c72",
-  yellow: "#d6a84e"
+  cursor: "#34d399",
+  cursorAccent: "#08080f",
+  selectionBackground: "rgba(52, 211, 153, 0.3)",
+  black: "#0a0b12",
+  green: "#34d399",
+  brightGreen: "#6ee7b7",
+  cyan: "#22d3ee",
+  red: "#fb7185",
+  yellow: "#fbbf24"
 };
 
 export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCommand }: XtermTerminalProps) {

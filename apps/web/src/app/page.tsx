@@ -6,7 +6,6 @@ import {
   Braces,
   Check,
   ChevronDown,
-  Cloud,
   FileLock2,
   KeyRound,
   MonitorUp,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "framer-motion";
 import { cx } from "@onshell/ui";
+import { OnshellMark } from "./brand";
 import { ThemeToggle } from "./theme";
 import "./home.css";
 
@@ -454,9 +454,7 @@ export default function PublicPage() {
       >
         <div className="lp-container lp-nav-inner">
           <a className="lp-brand" href="/" aria-label="Onshell.cloud — home">
-            <span className="brand-mark">
-              <Cloud size={18} />
-            </span>
+            <OnshellMark size={36} />
             <span className="lp-brand-text">
               <span className="brand-name">Onshell.cloud</span>
               <span className="brand-domain">Browser remote access</span>
@@ -796,9 +794,7 @@ export default function PublicPage() {
         <div className="lp-container lp-footer-grid">
           <div className="lp-footer-brand">
             <a className="lp-brand" href="/">
-              <span className="brand-mark">
-                <Cloud size={18} />
-              </span>
+              <OnshellMark size={36} />
               <span className="lp-brand-text">
                 <span className="brand-name">Onshell.cloud</span>
                 <span className="brand-domain">Browser remote access</span>

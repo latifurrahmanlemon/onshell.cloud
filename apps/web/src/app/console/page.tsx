@@ -8,29 +8,38 @@ import {
   ArrowLeftRight,
   Braces,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
-  Cloud,
   File,
   Folder,
   FolderLock,
   KeyRound,
   LayoutDashboard,
   Loader2,
+  LogOut,
+  Monitor,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   ScrollText,
   Server,
   Settings,
   SquareTerminal,
+  Sun,
   Users,
   X
 } from "lucide-react";
-import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, User } from "@onshell/shared";
+import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, gatewayBaseUrl, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
 import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
 import type { TerminalStatus } from "./terminal";
-import { ThemeToggle, useThemeMode } from "../theme";
+import { OnshellMark } from "../brand";
+import { useTheme } from "../theme";
 import "./console.css";
+
+const SIDEBAR_COLLAPSE_KEY = "onshell-sidebar-collapsed";
 
 const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
 
@@ -79,7 +88,9 @@ export default function ConsolePage() {
   const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [view, setView] = useState<ViewKey>("overview");
-  const { mode, setMode } = useThemeMode();
+  const { mode, accent, setMode, setAccent } = useTheme();
+  const [collapsed, setCollapsed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -115,6 +126,69 @@ export default function ConsolePage() {
     const timer = window.setTimeout(() => setToast(null), 4000);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // Restore the sidebar collapsed preference (per device).
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1");
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }, []);
+
+  // Persist theme changes to the account (debounced) so they follow the user
+  // across devices. The local apply is instant; the API call is best-effort.
+  const themeSaveTimer = useRef<number | null>(null);
+  const persistTheme = useCallback((pref: ThemePreference) => {
+    if (themeSaveTimer.current) window.clearTimeout(themeSaveTimer.current);
+    themeSaveTimer.current = window.setTimeout(() => {
+      void consoleApi.updateProfile({ themePreference: pref }).catch(() => undefined);
+    }, 500);
+  }, []);
+
+  const handleMode = useCallback(
+    (next: "light" | "dark") => {
+      setMode(next);
+      persistTheme({ mode: next, accent });
+    },
+    [setMode, persistTheme, accent]
+  );
+
+  const handleAccent = useCallback(
+    (next: string) => {
+      setAccent(next);
+      persistTheme({ mode, accent: next });
+    },
+    [setAccent, persistTheme, mode]
+  );
+
+  // Close the profile menu on outside click or Escape.
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onDocClick = () => setProfileOpen(false);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileOpen(false);
+    };
+    const raf = window.setTimeout(() => document.addEventListener("click", onDocClick), 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(raf);
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [profileOpen]);
 
   /* auth + data */
   const refreshAll = useCallback(async () => {
@@ -161,6 +235,10 @@ export default function ConsolePage() {
         const user = (payload as { user?: User }).user ?? (payload as unknown as User);
         const organization = (payload as { organization?: Organization }).organization;
         setIdentity({ user, organization });
+        // Account theme wins on login, syncing this device to the saved choice.
+        const pref = user.themePreference;
+        if (pref?.mode) setMode(pref.mode);
+        if (pref?.accent) setAccent(pref.accent);
         await refreshAll();
       })
       .catch((error: unknown) => {
@@ -267,6 +345,36 @@ export default function ConsolePage() {
     [activeTab, notify]
   );
 
+  // Open a terminal to the local machine over SSH (127.0.0.1), reusing a
+  // "Localhost" host or creating one on first use — no manual host setup needed.
+  const connectLocalhost = useCallback(async () => {
+    try {
+      let host = hosts.find(
+        (item) => item.type === "ssh" && (item.address === "127.0.0.1" || item.address === "localhost")
+      );
+      if (!host) {
+        await consoleApi.createHost({
+          name: "Localhost",
+          type: "ssh",
+          address: "127.0.0.1",
+          port: 22,
+          environment: "development",
+          tags: ["local"]
+        });
+        const fresh = await consoleApi.hosts();
+        setHosts(fresh);
+        host = fresh.find((item) => item.address === "127.0.0.1" || item.address === "localhost");
+      }
+      if (host) {
+        await launchSession(host, "ssh");
+      } else {
+        notify("Could not prepare a localhost host.", "error");
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not connect to localhost.", "error");
+    }
+  }, [hosts, launchSession, notify]);
+
   async function deleteHost(host: Host) {
     if (!window.confirm(`Delete host "${host.name}"?`)) return;
     try {
@@ -319,17 +427,16 @@ export default function ConsolePage() {
   const role = identity.user.role;
 
   return (
-    <div className="app-shell console-page">
+    <div className={cx("app-shell console-page", collapsed && "is-collapsed")}>
       <aside className="sidebar">
         <div className="brand-row">
-          <div className="brand-mark">
-            <Cloud size={18} />
-          </div>
-          <div>
-            <p className="brand-name">Onshell.cloud</p>
-            <p className="brand-domain">{identity.organization?.name ?? "Workspace"}</p>
-          </div>
-          <ThemeToggle className="sidebar-theme-toggle" />
+          <button className="brand-link" onClick={() => setView("overview")} type="button" title="Onshell.cloud">
+            <OnshellMark size={34} />
+            <span className="brand-copy">
+              <span className="brand-name">Onshell.cloud</span>
+              <span className="brand-domain">{identity.organization?.name ?? "Workspace"}</span>
+            </span>
+          </button>
         </div>
         <nav aria-label="Console" className="nav-list">
           {navItems.map((item) => (
@@ -337,48 +444,130 @@ export default function ConsolePage() {
               className={cx("nav-item", view === item.key && "is-active")}
               key={item.key}
               onClick={() => setView(item.key)}
+              title={collapsed ? item.label : undefined}
               type="button"
             >
-              <item.icon size={16} />
-              <span>{item.label}</span>
+              <item.icon size={18} />
+              <span className="nav-label">{item.label}</span>
               {item.key === "terminal" && tabs.length > 0 && <span className="nav-badge">{tabs.length}</span>}
               {item.key === "hosts" && hosts.length > 0 && <span className="nav-badge">{hosts.length}</span>}
             </button>
           ))}
         </nav>
-        <div className="sidebar-status">
-          <div className="sidebar-user">
-            <div className="sidebar-avatar">
-              {identity.user.avatarUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img alt="" src={identity.user.avatarUrl} />
-              ) : (
-                <span>{avatarInitials(identity.user.name)}</span>
-              )}
-            </div>
-            <div className="sidebar-user-meta">
-              <strong>{identity.user.name}</strong>
-              <span>{identity.user.role}</span>
-            </div>
-          </div>
-        </div>
+        <button
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="sidebar-collapse"
+          onClick={toggleCollapsed}
+          title={collapsed ? "Expand sidebar" : undefined}
+          type="button"
+        >
+          {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          <span className="nav-label">Collapse</span>
+        </button>
       </aside>
 
       <main className="workspace">
         <div className="console-topright">
-          {identity.user.isPlatformAdmin && (
+          <button
+            aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="console-topright-btn"
+            data-tooltip={mode === "dark" ? "Light mode" : "Dark mode"}
+            onClick={() => handleMode(mode === "dark" ? "light" : "dark")}
+            type="button"
+          >
+            {mode === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+
+          <div className="profile-menu">
             <button
-              aria-label="Switch to admin panel"
-              className="console-topright-btn"
-              data-tooltip="Switch to admin panel"
-              onClick={() => {
-                window.location.href = "/admin";
+              aria-expanded={profileOpen}
+              aria-haspopup="menu"
+              className={cx("profile-trigger", profileOpen && "is-open")}
+              onClick={(event) => {
+                event.stopPropagation();
+                setProfileOpen((open) => !open);
               }}
               type="button"
             >
-              <ArrowLeftRight size={16} />
+              <span className="profile-avatar">
+                {identity.user.avatarUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img alt="" src={identity.user.avatarUrl} />
+                ) : (
+                  <span>{avatarInitials(identity.user.name)}</span>
+                )}
+              </span>
+              <span className="profile-name">{identity.user.name.split(" ")[0]}</span>
+              <ChevronDown className="profile-chevron" size={15} />
             </button>
-          )}
+            <AnimatePresence>
+              {profileOpen && (
+                <motion.div
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  className="profile-dropdown"
+                  exit={reduceMotion ? undefined : { opacity: 0, y: -6, scale: 0.98 }}
+                  initial={reduceMotion ? false : { opacity: 0, y: -6, scale: 0.98 }}
+                  onClick={(event) => event.stopPropagation()}
+                  role="menu"
+                  transition={{ duration: 0.14, ease: "easeOut" }}
+                >
+                  <div className="profile-head">
+                    <span className="profile-avatar lg">
+                      {identity.user.avatarUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img alt="" src={identity.user.avatarUrl} />
+                      ) : (
+                        <span>{avatarInitials(identity.user.name)}</span>
+                      )}
+                    </span>
+                    <div className="profile-head-meta">
+                      <strong>{identity.user.name}</strong>
+                      <span>{identity.user.email}</span>
+                      <span className="profile-role">{identity.user.role}</span>
+                    </div>
+                  </div>
+                  <div className="profile-actions">
+                    <button
+                      onClick={() => {
+                        setView("settings");
+                        setProfileOpen(false);
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <Settings size={15} />
+                      Settings
+                    </button>
+                    {identity.user.isPlatformAdmin && (
+                      <button
+                        onClick={() => {
+                          window.location.href = "/admin";
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <ArrowLeftRight size={15} />
+                        Admin panel
+                      </button>
+                    )}
+                    <div className="profile-divider" />
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        void logout();
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <LogOut size={15} />
+                      Log out
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
         <AnimatePresence mode="wait">
           <motion.div
@@ -489,11 +678,17 @@ export default function ConsolePage() {
                   <div className="terminal-empty">
                     <SquareTerminal size={26} />
                     <strong>No open terminals</strong>
-                    <span>Pick a host and press play to open an audited SSH session in this tab.</span>
-                    <button className="primary-button" onClick={() => setView("hosts")} type="button">
-                      Browse Hosts
-                      <ChevronRight size={15} />
-                    </button>
+                    <span>Open a localhost shell, or pick a host to start an audited SSH session in this tab.</span>
+                    <div className="inline-form" style={{ justifyContent: "center" }}>
+                      <button className="primary-button" onClick={() => void connectLocalhost()} type="button">
+                        <Monitor size={15} />
+                        Localhost shell
+                      </button>
+                      <button className="secondary-button" onClick={() => setView("hosts")} type="button">
+                        Browse Hosts
+                        <ChevronRight size={15} />
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -677,10 +872,12 @@ export default function ConsolePage() {
 
             {view === "settings" && (
               <SettingsView
+                accent={accent}
                 mode={mode}
                 notify={notify}
+                onAccent={handleAccent}
                 onLogout={() => void logout()}
-                onMode={setMode}
+                onMode={handleMode}
                 onProfileUpdated={(user) => setIdentity((current) => (current ? { ...current, user } : current))}
                 organizationName={identity.organization?.name ?? "Workspace"}
                 user={identity.user}

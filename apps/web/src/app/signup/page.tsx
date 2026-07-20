@@ -7,7 +7,6 @@ import {
   Building2,
   Check,
   Circle,
-  Cloud,
   Eye,
   EyeOff,
   KeyRound,
@@ -17,6 +16,7 @@ import {
   UserPlus
 } from "lucide-react";
 import { passwordPolicy, validatePassword } from "@onshell/shared";
+import { OnshellMark } from "../brand";
 import { ThemeToggle } from "../theme";
 import "../auth.css";
 
@@ -304,9 +304,7 @@ export default function SignupPage() {
     <main className="auth-shell">
       <div className="auth-topbar">
         <Link className="auth-brand" href="/">
-          <span className="brand-mark">
-            <Cloud size={18} />
-          </span>
+          <OnshellMark size={34} />
           <span className="auth-brand-text">
             <span className="brand-name">Onshell.cloud</span>
             <span className="brand-domain">Secure remote access</span>
