@@ -7,81 +7,105 @@
 :root {
   color-scheme: dark;
 
-  --bg: #111312;
-  --surface: #181b19;
-  --surface-2: #20241f;
-  --surface-accent: #1a2118;
-  --elevated: #1d241c;
-  --field: #121511;
-  --sidebar-bg: #10120f;
-  --band: #0f110e;
-  --brand-tint: #1c271c;
+  --bg: #0a0b12;
+  --surface: #14151f;
+  --surface-2: #1c1d2b;
+  --surface-accent: #191b2e;
+  --elevated: #212338;
+  --field: #0f1018;
+  --sidebar-bg: #0b0c14;
+  --band: #0a0b11;
+  --brand-tint: #1e1b3a;
 
-  --border: #31382f;
-  --border-strong: #43503f;
+  --border: #262839;
+  --border-strong: #383b57;
 
-  --text: #f0f2ed;
-  --muted: #a8b0a1;
-  --soft: #737c70;
+  --text: #f2f2f8;
+  --muted: #a6a8c0;
+  --soft: #6f7191;
 
-  --green: #65c466;
-  --cyan: #49b7c5;
-  --amber: #d6a84e;
-  --rose: #e16c72;
-  --ink: #0a0c0a;
+  /* Emerald stays for the terminal + success/health semantics (authentic console feel). */
+  --green: #34d399;
+  --cyan: #22d3ee;
+  --amber: #fbbf24;
+  --rose: #fb7185;
+  --ink: #08080f;
 
-  --accent: #244225;
-  --accent-hover: #2b4f2c;
-  --accent-line: rgba(101, 196, 102, 0.55);
-  --on-accent: #eafff0;
-  --accent-weak: rgba(101, 196, 102, 0.12);
-  --accent-weak-border: rgba(101, 196, 102, 0.35);
+  /* Indigo → violet → fuchsia AI accent system. */
+  --accent-text: #a5b4fc;
+  --violet: #c4b5fd;
+  --fuchsia: #f0abfc;
 
-  --skeleton-hi: rgba(240, 242, 237, 0.07);
-  --hero-glow: rgba(101, 196, 102, 0.13);
-  --nav-blur-bg: rgba(17, 19, 18, 0.92);
-  --body-gradient: rgba(101, 196, 102, 0.05);
-  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --accent: #6366f1;
+  --accent-hover: #7c7ff7;
+  --accent-line: rgba(129, 140, 248, 0.55);
+  --on-accent: #ffffff;
+  --accent-weak: rgba(129, 140, 248, 0.13);
+  --accent-weak-border: rgba(129, 140, 248, 0.32);
+
+  --grad-from: #6366f1;
+  --grad-via: #a855f7;
+  --grad-to: #ec4899;
+  --brand-gradient: linear-gradient(120deg, var(--grad-from), var(--grad-via) 52%, var(--grad-to));
+  --accent-glow: 0 10px 30px rgba(99, 102, 241, 0.28);
+  --accent-glow-strong: 0 16px 44px rgba(129, 92, 246, 0.44);
+
+  --skeleton-hi: rgba(240, 242, 247, 0.07);
+  --hero-glow: rgba(124, 92, 246, 0.2);
+  --nav-blur-bg: rgba(10, 11, 18, 0.82);
+  --body-gradient: rgba(99, 102, 241, 0.07);
+  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.5);
 }
 
 :root[data-mode="light"] {
   color-scheme: light;
 
-  --bg: #f4f7f1;
+  --bg: #f6f5ff;
   --surface: #ffffff;
-  --surface-2: #eef2ea;
-  --surface-accent: #e9f4ea;
-  --elevated: #e7ede2;
+  --surface-2: #f1effb;
+  --surface-accent: #efeafe;
+  --elevated: #eae7f9;
   --field: #ffffff;
-  --sidebar-bg: #eef2ea;
-  --band: #eaf0e4;
-  --brand-tint: #e2efe0;
+  --sidebar-bg: #f1effb;
+  --band: #eee9fb;
+  --brand-tint: #e9e5fd;
 
-  --border: #dde3d6;
-  --border-strong: #c3ccb8;
+  --border: #e4e1f2;
+  --border-strong: #cdc8e8;
 
-  --text: #14180f;
-  --muted: #55604c;
-  --soft: #68735e;
+  --text: #191733;
+  --muted: #565377;
+  --soft: #6c6a8c;
 
-  --green: #1c7336;
-  --cyan: #0e7c8b;
-  --amber: #856310;
-  --rose: #c23a42;
-  --ink: #0a0c0a;
+  --green: #059669;
+  --cyan: #0891b2;
+  --amber: #b45309;
+  --rose: #e11d48;
+  --ink: #08080f;
 
-  --accent: #1e7d3c;
-  --accent-hover: #19692f;
-  --accent-line: #1e7d3c;
+  --accent-text: #4f46e5;
+  --violet: #7c3aed;
+  --fuchsia: #c026d3;
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-line: rgba(79, 70, 229, 0.5);
   --on-accent: #ffffff;
-  --accent-weak: rgba(30, 125, 60, 0.12);
-  --accent-weak-border: rgba(30, 125, 60, 0.3);
+  --accent-weak: rgba(99, 102, 241, 0.12);
+  --accent-weak-border: rgba(99, 102, 241, 0.3);
 
-  --skeleton-hi: rgba(20, 24, 15, 0.06);
-  --hero-glow: rgba(30, 125, 60, 0.12);
-  --nav-blur-bg: rgba(244, 247, 241, 0.85);
-  --body-gradient: rgba(30, 125, 60, 0.05);
-  --shadow-lg: 0 24px 60px rgba(30, 45, 25, 0.14);
+  --grad-from: #4f46e5;
+  --grad-via: #9333ea;
+  --grad-to: #db2777;
+  --brand-gradient: linear-gradient(120deg, var(--grad-from), var(--grad-via) 52%, var(--grad-to));
+  --accent-glow: 0 10px 26px rgba(79, 70, 229, 0.2);
+  --accent-glow-strong: 0 16px 40px rgba(147, 51, 234, 0.28);
+
+  --skeleton-hi: rgba(25, 23, 51, 0.06);
+  --hero-glow: rgba(147, 51, 234, 0.14);
+  --nav-blur-bg: rgba(246, 245, 255, 0.85);
+  --body-gradient: rgba(99, 102, 241, 0.05);
+  --shadow-lg: 0 24px 60px rgba(60, 45, 120, 0.14);
 }
 
 * {
@@ -115,7 +139,7 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--green);
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 
@@ -189,7 +213,7 @@ button:disabled {
   border: 1px solid var(--accent-weak-border);
   border-radius: 8px;
   background: var(--brand-tint);
-  color: var(--green);
+  color: var(--accent-text);
 }
 
 .brand-name,
@@ -290,7 +314,7 @@ button:disabled {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--green), var(--cyan));
+  background: var(--brand-gradient);
 }
 
 .status-grid {
@@ -348,14 +372,20 @@ button:disabled {
 }
 
 .primary-button {
-  border: 1px solid var(--accent-line);
-  background: var(--accent);
-  color: var(--on-accent);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  border: 1px solid transparent;
+  background: var(--brand-gradient);
+  color: #ffffff;
+  box-shadow: var(--accent-glow);
+  transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .primary-button:hover {
-  background: var(--accent-hover);
+  filter: brightness(1.07) saturate(1.05);
+  box-shadow: var(--accent-glow-strong);
+}
+
+.primary-button:active {
+  transform: translateY(1px);
 }
 
 .secondary-button,

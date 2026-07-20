@@ -22,11 +22,64 @@ const monoFont = JetBrains_Mono({
   variable: "--font-mono"
 });
 
+const siteUrl = "https://onshell.cloud";
+const title = "Onshell.cloud — Browser-based SSH, SFTP & RDP for teams";
+const description =
+  "Onshell.cloud is a browser-based remote access workspace: open audited SSH terminals, manage files over SFTP, and launch RDP sessions from one secure tab — with an encrypted credential vault, team snippets, and full session audit. No client to install.";
+
 export const metadata: Metadata = {
-  title: "Onshell.cloud — Browser-based SSH, SFTP, and RDP",
-  description:
-    "Open audited SSH terminals, manage files over SFTP, and launch RDP sessions from one secure browser workspace.",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: title,
+    template: "%s · Onshell.cloud"
+  },
+  description,
   applicationName: "Onshell.cloud",
+  keywords: [
+    "browser SSH",
+    "web SSH client",
+    "SFTP file manager",
+    "browser RDP",
+    "remote access",
+    "SSH in the browser",
+    "credential vault",
+    "session audit logs",
+    "DevOps remote access",
+    "secure shell",
+    "web-based terminal",
+    "team server access"
+  ],
+  authors: [{ name: "Onshell.cloud" }],
+  creator: "Onshell.cloud",
+  publisher: "Onshell.cloud",
+  category: "technology",
+  alternates: {
+    canonical: "/"
+  },
+  openGraph: {
+    type: "website",
+    url: siteUrl,
+    siteName: "Onshell.cloud",
+    title,
+    description,
+    locale: "en_US"
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1
+    }
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -42,8 +95,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#111312" },
-    { media: "(prefers-color-scheme: light)", color: "#f4f7f1" }
+    { media: "(prefers-color-scheme: dark)", color: "#0a0b12" },
+    { media: "(prefers-color-scheme: light)", color: "#f6f5ff" }
   ]
 };
 

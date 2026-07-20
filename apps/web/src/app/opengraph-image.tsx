@@ -1,0 +1,91 @@
+import { ImageResponse } from "next/og";
+
+export const alt = "Onshell.cloud — Browser-based SSH, SFTP & RDP";
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+
+// Branded social-share card, generated at build/request time. Kept font-free so
+// it renders with the built-in default font and needs no external assets.
+export default function OpengraphImage() {
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          padding: "72px 80px",
+          backgroundColor: "#0a0b12",
+          backgroundImage:
+            "radial-gradient(700px circle at 82% -5%, rgba(236,72,153,0.28), transparent 55%), radial-gradient(760px circle at 12% 108%, rgba(99,102,241,0.32), transparent 55%), radial-gradient(620px circle at 55% 20%, rgba(168,85,247,0.22), transparent 60%)",
+          color: "#f2f2f8"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 64,
+              height: 64,
+              borderRadius: 16,
+              fontSize: 34,
+              fontWeight: 700,
+              color: "#ffffff",
+              backgroundImage: "linear-gradient(120deg, #6366f1, #a855f7 52%, #ec4899)"
+            }}
+          >
+            {"›_"}
+          </div>
+          <div style={{ display: "flex", fontSize: 32, fontWeight: 700, letterSpacing: -0.5 }}>
+            Onshell.cloud
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              fontSize: 76,
+              fontWeight: 800,
+              lineHeight: 1.05,
+              letterSpacing: -2,
+              maxWidth: 980
+            }}
+          >
+            Secure remote access, straight from the browser.
+          </div>
+          <div style={{ display: "flex", fontSize: 30, color: "#a6a8c0", maxWidth: 900 }}>
+            Audited SSH terminals, SFTP file manager, and RDP sessions — one secure tab, no client
+            to install.
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {["SSH", "SFTP", "RDP", "Vault", "Audit"].map((tag) => (
+            <div
+              key={tag}
+              style={{
+                display: "flex",
+                padding: "10px 22px",
+                borderRadius: 999,
+                fontSize: 26,
+                fontWeight: 600,
+                color: "#c7cbf5",
+                border: "1px solid rgba(129,140,248,0.4)",
+                backgroundColor: "rgba(129,140,248,0.12)"
+              }}
+            >
+              {tag}
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+    { ...size }
+  );
+}

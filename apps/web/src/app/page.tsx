@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Braces,
   Check,
+  ChevronDown,
   Cloud,
   FileLock2,
   KeyRound,
@@ -12,7 +13,7 @@ import {
   ScrollText,
   SquareTerminal
 } from "lucide-react";
-import { motion, useReducedMotion, type Variants } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion, type Variants } from "framer-motion";
 import { cx } from "@onshell/ui";
 import { ThemeToggle } from "./theme";
 import "./home.css";
@@ -96,6 +97,51 @@ const steps = [
   }
 ];
 
+const stats = [
+  { value: "3-in-1", label: "SSH · SFTP · RDP" },
+  { value: "0", label: "Clients to install" },
+  { value: "100%", label: "Sessions audited" },
+  { value: "AES-256", label: "Vault encryption" }
+];
+
+const faqs = [
+  {
+    question: "What is Onshell.cloud?",
+    answer:
+      "Onshell.cloud is a browser-based remote access workspace. It gives your team audited SSH terminals, an SFTP file manager, RDP desktop sessions, an encrypted credential vault, and shared snippets — all behind one login, with no local client to install."
+  },
+  {
+    question: "Do I need to install any software or agents?",
+    answer:
+      "No. Everything runs in the browser through the Onshell gateway. There are no desktop clients, browser extensions, or per-host agents to deploy — you register a host and connect from any modern browser."
+  },
+  {
+    question: "How are my credentials and keys kept safe?",
+    answer:
+      "SSH keys and passwords are encrypted at rest in the credential vault. Team members connect to hosts without ever seeing the underlying secrets, and every connection is brokered through the gateway so credentials never reach the browser."
+  },
+  {
+    question: "Which protocols and platforms are supported?",
+    answer:
+      "SSH and SFTP for Linux and Unix hosts, plus RDP for Windows desktops. Sessions open in a tab with a full terminal, a file browser, or a remote desktop — whichever the host needs."
+  },
+  {
+    question: "Can I control who accesses which servers?",
+    answer:
+      "Yes. Assign roles and per-host permissions so each member only reaches the systems they should. Sign-in supports email, Google, and 2FA-protected accounts, and admins manage everything from the panel."
+  },
+  {
+    question: "What gets logged for audit and compliance?",
+    answer:
+      "Every session, file transfer, and admin change is recorded. Audit retention matches your plan — from 30 days on Starter up to custom retention on Enterprise — so you always have a complete trail."
+  },
+  {
+    question: "How does billing work?",
+    answer:
+      "Pick a package that maps to user and host limits, billed monthly or yearly (yearly includes two months free). You can upgrade, downgrade, or manage seats from the admin panel at any time."
+  }
+];
+
 const terminalScript = [
   {
     cmd: "ssh deploy@edge-01",
@@ -153,40 +199,78 @@ function itemUp(reduce: boolean): Variants {
   };
 }
 
-export default function PublicPage() {
-  const [interval, setInterval] = useState<BillingInterval>("monthly");
-  const [apiPlans, setApiPlans] = useState<ApiPlan[]>([]);
-  const [checkoutEmail, setCheckoutEmail] = useState("");
-  const [checkoutOrganization, setCheckoutOrganization] = useState("");
-  const [checkoutStatus, setCheckoutStatus] = useState("");
+/**
+ * Flips to true after the first client render. Gating an entrance `animate`
+ * target on this guarantees framer-motion sees a hidden→show change on mount,
+ * so above-the-fold intro animations fire reliably under Next.js SSR + React 19
+ * (a bare mount-time `animate` can otherwise stay stuck at its initial state).
+ */
+function useMounted() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return mounted;
+}
+
+const SITE_URL = "https://onshell.cloud";
+
+// Rich structured data so search engines and AI crawlers can understand the
+// product, its pricing, and the FAQ. Rendered as JSON-LD in the initial HTML.
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${SITE_URL}/#organization`,
+      name: "Onshell.cloud",
+      url: SITE_URL,
+      logo: `${SITE_URL}/icons/icon-512.png`,
+      description:
+        "Browser-based SSH, SFTP, and RDP with an encrypted credential vault and full session audit for teams."
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: "Onshell.cloud",
+      publisher: { "@id": `${SITE_URL}/#organization` }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}/#software`,
+      name: "Onshell.cloud",
+      applicationCategory: "SecurityApplication",
+      operatingSystem: "Web-based (any modern browser)",
+      url: SITE_URL,
+      description:
+        "Open audited SSH terminals, manage files over SFTP, and launch RDP sessions from one secure browser workspace — no client to install.",
+      featureList: featureCards.map((card) => card.title),
+      offers: plans.map((plan) => ({
+        "@type": "Offer",
+        name: plan.name,
+        price: plan.price.monthly,
+        priceCurrency: "USD",
+        description: plan.description
+      }))
+    },
+    {
+      "@type": "FAQPage",
+      "@id": `${SITE_URL}/#faq`,
+      mainEntity: faqs.map((faq) => ({
+        "@type": "Question",
+        name: faq.question,
+        acceptedAnswer: { "@type": "Answer", text: faq.answer }
+      }))
+    }
+  ]
+};
+
+/**
+ * The terminal types a character every 55ms. Keeping that high-frequency state
+ * in its own component (below the animated wrapper) means the surrounding hero —
+ * including its framer-motion entrance stagger — never re-renders on each tick.
+ */
+function TerminalBody() {
   const [terminal, setTerminal] = useState({ line: 0, chars: 0 });
-
-  const reduce = useReducedMotion() ?? false;
-  const motionVariants = useMemo(
-    () => ({
-      fade: fadeUp(reduce),
-      stagger: stagger(reduce),
-      staggerTight: stagger(reduce, 0.07),
-      item: itemUp(reduce)
-    }),
-    [reduce]
-  );
-
-  useEffect(() => {
-    let active = true;
-    fetch(`${apiBaseUrl}/plans`)
-      .then((response) => (response.ok ? response.json() : []))
-      .then((payload: ApiPlan[]) => {
-        if (active && Array.isArray(payload)) setApiPlans(payload);
-      })
-      .catch(() => {
-        if (active) setApiPlans([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -209,6 +293,97 @@ export default function PublicPage() {
     }, 55);
 
     return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <>
+      <div className="lp-terminal-bar">
+        <span className="lp-dot" />
+        <span className="lp-dot" />
+        <span className="lp-dot" />
+        <p className="lp-terminal-title">deploy@edge-01 — onshell</p>
+      </div>
+      <div className="lp-terminal-body">
+        {terminalScript.map((entry, index) => {
+          if (index > terminal.line) return null;
+          const isTyping = index === terminal.line;
+          const commandText = isTyping ? entry.cmd.slice(0, terminal.chars) : entry.cmd;
+          return (
+            <div key={entry.cmd}>
+              <p className="lp-term-line">
+                <span className="lp-term-prompt">deploy@edge-01:~$</span> {commandText}
+                {isTyping && <span className="lp-term-caret" />}
+              </p>
+              {!isTyping &&
+                entry.out.map((line) => (
+                  <p className="lp-term-output" key={line}>
+                    {line}
+                  </p>
+                ))}
+            </div>
+          );
+        })}
+        {terminal.line >= terminalScript.length && (
+          <p className="lp-term-line">
+            <span className="lp-term-prompt">deploy@edge-01:~$</span> <span className="lp-term-caret" />
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
+function HeroTerminal({ reduce }: { reduce: boolean }) {
+  const mounted = useMounted();
+  return (
+    <motion.div
+      className="lp-terminal"
+      aria-hidden="true"
+      initial={{ opacity: reduce ? 1 : 0, y: reduce ? 0 : 26 }}
+      animate={mounted || reduce ? { opacity: 1, y: 0 } : { opacity: 0, y: 26 }}
+      transition={{ duration: reduce ? 0 : 0.6, ease: EASE, delay: reduce ? 0 : 0.15 }}
+    >
+      <TerminalBody />
+    </motion.div>
+  );
+}
+
+export default function PublicPage() {
+  const [interval, setInterval] = useState<BillingInterval>("monthly");
+  const [apiPlans, setApiPlans] = useState<ApiPlan[]>([]);
+  const [checkoutEmail, setCheckoutEmail] = useState("");
+  const [checkoutOrganization, setCheckoutOrganization] = useState("");
+  const [checkoutStatus, setCheckoutStatus] = useState("");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  const mounted = useMounted();
+  const reduce = useReducedMotion() ?? false;
+  const motionVariants = useMemo(
+    () => ({
+      fade: fadeUp(reduce),
+      stagger: stagger(reduce),
+      staggerTight: stagger(reduce, 0.07),
+      item: itemUp(reduce)
+    }),
+    [reduce]
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${apiBaseUrl}/plans`)
+      .then((response) => (response.ok ? response.json() : []))
+      .then((payload: ApiPlan[]) => {
+        // Only swap in live plans when there are some — otherwise keep the
+        // built-in defaults and skip a needless re-render of the hero.
+        if (active && Array.isArray(payload) && payload.length > 0) setApiPlans(payload);
+      })
+      .catch(() => {
+        // Leave the built-in plans in place if the API is unreachable.
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const visiblePlans =
@@ -266,6 +441,10 @@ export default function PublicPage() {
 
   return (
     <main className="lp-page">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       <motion.nav
         className="lp-nav"
         aria-label="Primary"
@@ -287,6 +466,7 @@ export default function PublicPage() {
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
             <a href="#pricing">Pricing</a>
+            <a href="#faq">FAQ</a>
           </div>
           <div className="lp-nav-actions">
             <ThemeToggle />
@@ -303,13 +483,18 @@ export default function PublicPage() {
       <section className="lp-hero" aria-labelledby="lp-hero-title">
         <span className="lp-hero-glow" aria-hidden="true" />
         <div className="lp-container lp-hero-inner">
-          <motion.div className="lp-hero-copy" variants={motionVariants.stagger} initial="hidden" animate="show">
+          <motion.div
+            className="lp-hero-copy"
+            variants={motionVariants.stagger}
+            initial="hidden"
+            animate={mounted ? "show" : "hidden"}
+          >
             <motion.span className="lp-eyebrow" variants={motionVariants.fade}>
               <span className="lp-eyebrow-dot" aria-hidden="true" />
               SSH · SFTP · RDP — one browser workspace
             </motion.span>
             <motion.h1 id="lp-hero-title" variants={motionVariants.fade}>
-              Secure remote access, straight from the browser.
+              Secure remote access, <span className="lp-grad-text">straight from the browser.</span>
             </motion.h1>
             <motion.p className="lp-hero-lead" variants={motionVariants.fade}>
               Onshell.cloud gives your team audited terminals, a file manager, RDP sessions, an encrypted credential
@@ -329,45 +514,23 @@ export default function PublicPage() {
             </motion.p>
           </motion.div>
 
+          <HeroTerminal reduce={reduce} />
+        </div>
+
+        <div className="lp-container">
           <motion.div
-            className="lp-terminal"
-            aria-hidden="true"
-            initial={{ opacity: reduce ? 1 : 0, y: reduce ? 0 : 26 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: reduce ? 0 : 0.6, ease: EASE, delay: reduce ? 0 : 0.15 }}
+            className="lp-stats"
+            variants={motionVariants.staggerTight}
+            initial="hidden"
+            whileInView="show"
+            viewport={VIEWPORT}
           >
-            <div className="lp-terminal-bar">
-              <span className="lp-dot" />
-              <span className="lp-dot" />
-              <span className="lp-dot" />
-              <p className="lp-terminal-title">deploy@edge-01 — onshell</p>
-            </div>
-            <div className="lp-terminal-body">
-              {terminalScript.map((entry, index) => {
-                if (index > terminal.line) return null;
-                const isTyping = index === terminal.line;
-                const commandText = isTyping ? entry.cmd.slice(0, terminal.chars) : entry.cmd;
-                return (
-                  <div key={entry.cmd}>
-                    <p className="lp-term-line">
-                      <span className="lp-term-prompt">deploy@edge-01:~$</span> {commandText}
-                      {isTyping && <span className="lp-term-caret" />}
-                    </p>
-                    {!isTyping &&
-                      entry.out.map((line) => (
-                        <p className="lp-term-output" key={line}>
-                          {line}
-                        </p>
-                      ))}
-                  </div>
-                );
-              })}
-              {terminal.line >= terminalScript.length && (
-                <p className="lp-term-line">
-                  <span className="lp-term-prompt">deploy@edge-01:~$</span> <span className="lp-term-caret" />
-                </p>
-              )}
-            </div>
+            {stats.map((stat) => (
+              <motion.div className="lp-stat" key={stat.label} variants={motionVariants.item}>
+                <strong>{stat.value}</strong>
+                <span>{stat.label}</span>
+              </motion.div>
+            ))}
           </motion.div>
         </div>
       </section>
@@ -535,6 +698,79 @@ export default function PublicPage() {
       </motion.section>
 
       <motion.section
+        className="lp-section lp-faq"
+        id="faq"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container">
+          <motion.div className="lp-heading" variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">FAQ</span>
+            <h2>Questions teams ask before switching</h2>
+            <p>Everything you need to know about running remote access from the browser.</p>
+          </motion.div>
+          <motion.div className="lp-faq-list" variants={motionVariants.staggerTight}>
+            {faqs.map((faq, index) => {
+              const isOpen = openFaq === index;
+              const panelId = `lp-faq-panel-${index}`;
+              const buttonId = `lp-faq-button-${index}`;
+              return (
+                <motion.div
+                  className={cx("lp-faq-item", isOpen && "is-open")}
+                  key={faq.question}
+                  variants={motionVariants.item}
+                >
+                  <h3 className="lp-faq-question">
+                    <button
+                      className="lp-faq-trigger"
+                      id={buttonId}
+                      type="button"
+                      aria-expanded={isOpen}
+                      aria-controls={panelId}
+                      onClick={() => setOpenFaq(isOpen ? null : index)}
+                    >
+                      <span>{faq.question}</span>
+                      <motion.span
+                        className="lp-faq-icon"
+                        aria-hidden="true"
+                        animate={{ rotate: isOpen ? 180 : 0 }}
+                        transition={reduce ? { duration: 0 } : { duration: 0.25, ease: EASE }}
+                      >
+                        <ChevronDown size={17} />
+                      </motion.span>
+                    </button>
+                  </h3>
+                  <AnimatePresence initial={false}>
+                    {isOpen && (
+                      <motion.div
+                        className="lp-faq-answer"
+                        id={panelId}
+                        role="region"
+                        aria-labelledby={buttonId}
+                        key="content"
+                        initial="collapsed"
+                        animate="open"
+                        exit="collapsed"
+                        variants={{
+                          open: { height: "auto", opacity: 1 },
+                          collapsed: { height: 0, opacity: 0 }
+                        }}
+                        transition={reduce ? { duration: 0 } : { duration: 0.3, ease: EASE }}
+                      >
+                        <p className="lp-faq-answer-inner">{faq.answer}</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
         className="lp-section lp-cta"
         variants={motionVariants.stagger}
         initial="hidden"
@@ -575,6 +811,7 @@ export default function PublicPage() {
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
             <a href="#pricing">Pricing</a>
+            <a href="#faq">FAQ</a>
           </div>
           <div className="lp-footer-col">
             <strong>Account</strong>
