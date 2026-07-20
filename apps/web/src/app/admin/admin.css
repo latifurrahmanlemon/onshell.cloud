@@ -955,7 +955,153 @@
   font-size: 12.5px;
 }
 
-.adm-signout {
-  color: var(--rose);
-  border-color: var(--rose);
+/* Settings tab bar */
+
+.adm-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.adm-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.adm-tab:hover {
+  color: var(--text);
+  background: var(--elevated);
+}
+
+.adm-tab.is-active {
+  border-color: var(--accent-weak-border);
+  background: var(--brand-tint);
+  color: var(--accent-text);
+}
+
+.adm-tab > svg {
+  flex-shrink: 0;
+}
+
+/* Account modals (password change / profile photo) */
+
+.adm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.adm-modal {
+  width: min(100%, 460px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 0;
+}
+
+.adm-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.adm-modal-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.adm-modal-title > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent-text);
+}
+
+.adm-modal-title h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.adm-modal-title p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.adm-modal-body {
+  padding: 16px;
+}
+
+.adm-modal .form-grid {
+  grid-template-columns: 1fr;
+}
+
+/* Profile photo editor (inside the photo modal) */
+
+.adm-photo-editor {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.adm-photo-preview {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--brand-tint);
+}
+
+.adm-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.adm-photo-preview span {
+  color: var(--green);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.adm-photo-actions {
+  min-width: 0;
+}
+
+.adm-photo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }

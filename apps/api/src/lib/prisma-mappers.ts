@@ -161,7 +161,9 @@ export function toCredentialSummary(credential: CredentialWithHosts): Credential
     kind: credentialKindFromPrisma[credential.kind],
     attachedHostIds: credential.hosts.map((host) => host.id),
     rotatedAt: credential.rotatedAt?.toISOString(),
-    createdAt: credential.createdAt.toISOString()
+    lastUsedAt: credential.lastUsedAt?.toISOString(),
+    createdAt: credential.createdAt.toISOString(),
+    updatedAt: credential.updatedAt.toISOString()
   };
 }
 

@@ -2,13 +2,14 @@
 
 import "./admin.css";
 
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
   ArrowLeftRight,
+  Camera,
   CheckCircle2,
   ChevronDown,
   Circle,
@@ -33,8 +34,8 @@ import {
   Settings2,
   ShieldCheck,
   ShieldOff,
-  UserCog,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { cx } from "@onshell/ui";
@@ -187,30 +188,29 @@ interface NewSettingForm {
   isSecret: boolean;
 }
 
-type SectionId = "overview" | "packages" | "subscriptions" | "users" | "smtp" | "billing" | "settings" | "account";
+type SectionId = "overview" | "users" | "settings";
+type SettingsTab = "packages" | "subscriptions" | "smtp" | "billing" | "general";
 
 /* ------------------------------------------------------------- constants */
 
 const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "users", label: "Users", icon: Users },
+  { id: "settings", label: "Settings", icon: Settings2 }
+];
+
+const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
   { id: "packages", label: "Packages", icon: Package },
   { id: "subscriptions", label: "Subscriptions", icon: Receipt },
-  { id: "users", label: "Users", icon: Users },
   { id: "smtp", label: "SMTP", icon: Mail },
   { id: "billing", label: "Billing Provider", icon: CreditCard },
-  { id: "settings", label: "Settings", icon: Settings2 },
-  { id: "account", label: "Account", icon: UserCog }
+  { id: "general", label: "General", icon: Settings2 }
 ];
 
 const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   overview: { title: "Overview", description: "Live platform totals and delivery status across the deployment." },
-  packages: { title: "Packages", description: "Pricing and limits customers can buy from the public page." },
-  subscriptions: { title: "Subscriptions", description: "Every organization subscription with billing period and invoices." },
   users: { title: "Users", description: "All accounts across organizations, with roles and security posture." },
-  smtp: { title: "SMTP", description: "Email delivery for invitations, password resets, invoices, and alerts." },
-  billing: { title: "Billing Provider", description: "Connect Stripe, Paddle, SSLCommerz, or manual invoicing." },
-  settings: { title: "Settings", description: "Brand and platform settings stored as key-value configuration." },
-  account: { title: "Account", description: "Change your admin password and sign out of this session." }
+  settings: { title: "Settings", description: "Packages, subscriptions, email, billing, and platform configuration." }
 };
 
 const SMTP_FALLBACK: SmtpSettings = {
@@ -431,6 +431,34 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+const AVATAR_SIZE = 256;
+
+/** Read an image file and return a centered-square 256px JPEG data URL. */
+async function fileToAvatarDataUrl(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read that image file."));
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("That file is not a valid image."));
+    img.src = dataUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_SIZE;
+  canvas.height = AVATAR_SIZE;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Image processing is not available in this browser.");
+  const side = Math.min(image.width, image.height);
+  const sx = (image.width - side) / 2;
+  const sy = (image.height - side) / 2;
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
 function subscriptionTone(status: string) {
   const normalized = status.toLowerCase();
   if (normalized.includes("active")) return "green";
@@ -578,6 +606,67 @@ function PasswordChecklist({ password }: { password: string }) {
   );
 }
 
+function Modal({
+  title,
+  description,
+  icon: Icon,
+  onClose,
+  reduceMotion,
+  children
+}: {
+  title: string;
+  description?: string;
+  icon: LucideIcon;
+  onClose: () => void;
+  reduceMotion: boolean;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="adm-modal-backdrop"
+      exit={reduceMotion ? undefined : { opacity: 0 }}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      onClick={onClose}
+      transition={{ duration: 0.15 }}
+    >
+      <motion.div
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        aria-label={title}
+        aria-modal="true"
+        className="adm-modal panel"
+        exit={reduceMotion ? undefined : { opacity: 0, y: 8, scale: 0.98 }}
+        initial={reduceMotion ? false : { opacity: 0, y: 8, scale: 0.98 }}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        transition={{ duration: 0.16, ease: "easeOut" }}
+      >
+        <div className="adm-modal-head">
+          <div className="adm-modal-title">
+            <Icon size={18} />
+            <div>
+              <h2>{title}</h2>
+              {description && <p>{description}</p>}
+            </div>
+          </div>
+          <button aria-label="Close" className="icon-button compact" onClick={onClose} type="button">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="adm-modal-body">{children}</div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 /* ------------------------------------------------------------------- page */
 
 export default function AdminPage() {
@@ -593,6 +682,13 @@ function AdminPanel() {
   const reduceMotion = reduceMotionPreference ?? false;
 
   const [section, setSection] = useState<SectionId>("overview");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("packages");
+
+  /* jump straight to a settings tab (used from overview shortcuts) */
+  const goToSettingsTab = useCallback((tab: SettingsTab) => {
+    setSettingsTab(tab);
+    setSection("settings");
+  }, []);
 
   /* signed-in identity (for the sidebar) */
   const [identity, setIdentity] = useState<AdminIdentity | null>(null);
@@ -656,12 +752,21 @@ function AdminPanel() {
   const [newSetting, setNewSetting] = useState<NewSettingForm>(NEW_SETTING_DEFAULTS);
   const [savingNewSetting, setSavingNewSetting] = useState(false);
 
-  /* account */
+  /* account — password (modal) */
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+
+  /* account — profile photo (modal) */
+  const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
+  const [savingPhoto, setSavingPhoto] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  /* account — session */
   const [loggingOut, setLoggingOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -713,27 +818,35 @@ function AdminPanel() {
     return Array.from(groups.entries());
   }, [settingsRes.data]);
 
-  const sectionLoading: Record<SectionId, boolean> = {
-    overview: overviewRes.loading,
+  const settingsTabLoading: Record<SettingsTab, boolean> = {
     packages: plansRes.loading,
     subscriptions: subscriptionsRes.loading,
-    users: usersRes.loading,
     smtp: smtpRes.loading,
     billing: paymentRes.loading,
-    settings: settingsRes.loading,
-    account: false
+    general: settingsRes.loading
+  };
+
+  const sectionLoading: Record<SectionId, boolean> = {
+    overview: overviewRes.loading,
+    users: usersRes.loading,
+    settings: settingsTabLoading[settingsTab]
   };
 
   function reloadActiveSection() {
-    const reloaders: Record<SectionId, () => Promise<void>> = {
+    if (section === "settings") {
+      const tabReloaders: Record<SettingsTab, () => Promise<void>> = {
+        packages: plansRes.reload,
+        subscriptions: subscriptionsRes.reload,
+        smtp: smtpRes.reload,
+        billing: paymentRes.reload,
+        general: settingsRes.reload
+      };
+      void tabReloaders[settingsTab]();
+      return;
+    }
+    const reloaders: Record<"overview" | "users", () => Promise<void>> = {
       overview: overviewRes.reload,
-      packages: plansRes.reload,
-      subscriptions: subscriptionsRes.reload,
-      users: usersRes.reload,
-      smtp: smtpRes.reload,
-      billing: paymentRes.reload,
-      settings: settingsRes.reload,
-      account: async () => {}
+      users: usersRes.reload
     };
     void reloaders[section]();
   }
@@ -1039,11 +1152,41 @@ function AdminPanel() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setPasswordModalOpen(false);
       showToast("success", "Password updated. Your other sessions have been signed out.");
     } catch (error) {
       showToast("error", passwordChangeError(errorText(error)));
     } finally {
       setSavingPassword(false);
+    }
+  }
+
+  async function onAvatarPick(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showToast("error", "Please choose an image file.");
+      return;
+    }
+    try {
+      setAvatarDraft(await fileToAvatarDataUrl(file));
+    } catch (error) {
+      showToast("error", errorText(error));
+    }
+  }
+
+  async function savePhoto() {
+    setSavingPhoto(true);
+    try {
+      const { user } = await apiSend<{ user: AdminIdentity }>("/profile", "PATCH", { avatarUrl: avatarDraft ?? "" });
+      setIdentity((current) => (current ? { ...current, avatarUrl: user.avatarUrl } : current));
+      setPhotoModalOpen(false);
+      showToast("success", "Profile photo updated.");
+    } catch (error) {
+      showToast("error", errorText(error));
+    } finally {
+      setSavingPhoto(false);
     }
   }
 
@@ -1111,7 +1254,7 @@ function AdminPanel() {
                 <h2>Email delivery</h2>
                 <p>Global SMTP status for transactional email.</p>
               </div>
-              <button className="adm-link-button" onClick={() => setSection("smtp")} type="button">
+              <button className="adm-link-button" onClick={() => goToSettingsTab("smtp")} type="button">
                 Configure
               </button>
             </div>
@@ -1132,7 +1275,7 @@ function AdminPanel() {
                 icon={Mail}
                 title="SMTP not configured"
                 action={
-                  <button className="adm-link-button" onClick={() => setSection("smtp")} type="button">
+                  <button className="adm-link-button" onClick={() => goToSettingsTab("smtp")} type="button">
                     Set up SMTP
                   </button>
                 }
@@ -1146,7 +1289,7 @@ function AdminPanel() {
                 <h2>Billing providers</h2>
                 <p>Configured payment integrations and their mode.</p>
               </div>
-              <button className="adm-link-button" onClick={() => setSection("billing")} type="button">
+              <button className="adm-link-button" onClick={() => goToSettingsTab("billing")} type="button">
                 Configure
               </button>
             </div>
@@ -1169,7 +1312,7 @@ function AdminPanel() {
                 icon={CreditCard}
                 title="No billing provider"
                 action={
-                  <button className="adm-link-button" onClick={() => setSection("billing")} type="button">
+                  <button className="adm-link-button" onClick={() => goToSettingsTab("billing")} type="button">
                     Connect a provider
                   </button>
                 }
@@ -1359,7 +1502,7 @@ function AdminPanel() {
               icon={Inbox}
               title="No subscriptions yet"
               action={
-                <button className="adm-link-button" onClick={() => setSection("billing")} type="button">
+                <button className="adm-link-button" onClick={() => goToSettingsTab("billing")} type="button">
                   Check billing provider
                 </button>
               }
@@ -1689,7 +1832,7 @@ function AdminPanel() {
     );
   }
 
-  function renderSettings() {
+  function renderGeneralSettings() {
     const settings = settingsRes.data ?? [];
     return (
       <div className="adm-stack">
@@ -1800,112 +1943,55 @@ function AdminPanel() {
     );
   }
 
-  function renderAccount() {
+  const settingsTabRenderers: Record<SettingsTab, () => ReactNode> = {
+    packages: renderPackages,
+    subscriptions: renderSubscriptions,
+    smtp: renderSmtp,
+    billing: renderBilling,
+    general: renderGeneralSettings
+  };
+
+  function renderSettings() {
     return (
       <div className="adm-stack">
-        <div className="panel">
-          <div className="panel-header tight">
-            <div>
-              <h2>Change password</h2>
-              <p>Update the password for your admin account. Saving signs out every other device.</p>
-            </div>
-            <KeyRound size={18} />
-          </div>
-          <div className="form-grid">
-            <label className="span-two">
-              Current password
-              <input
-                autoComplete="current-password"
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                placeholder="Your current password"
-                type="password"
-                value={currentPassword}
-              />
-            </label>
-            <label>
-              New password
-              <span className="adm-pw-field">
-                <input
-                  autoComplete="new-password"
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  placeholder="New password"
-                  type={showNewPassword ? "text" : "password"}
-                  value={newPassword}
-                />
-                <button
-                  aria-label={showNewPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showNewPassword}
-                  className="adm-pw-reveal"
-                  onClick={() => setShowNewPassword((visible) => !visible)}
-                  type="button"
-                >
-                  {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </span>
-            </label>
-            <label>
-              Confirm new password
-              <input
-                autoComplete="new-password"
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder="Re-enter new password"
-                type={showNewPassword ? "text" : "password"}
-                value={confirmPassword}
-              />
-            </label>
-            {newPassword.length > 0 && (
-              <div className="span-two">
-                <PasswordChecklist password={newPassword} />
-                {confirmPassword.length > 0 && !passwordsMatch && (
-                  <p className="adm-pw-mismatch">
-                    <AlertCircle size={13} />
-                    Passwords do not match.
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="form-actions span-two">
+        <div aria-label="Settings sections" className="adm-tabs" role="tablist">
+          {settingsTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = settingsTab === tab.id;
+            return (
               <button
-                className="primary-button"
-                disabled={savingPassword || !currentPassword || !newPasswordValid || !passwordsMatch}
-                onClick={changePassword}
+                aria-selected={isActive}
+                className={cx("adm-tab", isActive && "is-active")}
+                key={tab.id}
+                onClick={() => setSettingsTab(tab.id)}
+                role="tab"
                 type="button"
               >
-                {savingPassword ? <Loader2 className="adm-spin" size={16} /> : <KeyRound size={16} />}
-                <span>{savingPassword ? "Updating..." : "Update password"}</span>
+                <Icon size={15} />
+                <span>{tab.label}</span>
               </button>
-            </div>
-          </div>
+            );
+          })}
         </div>
-
-        <div className="panel">
-          <div className="panel-header tight">
-            <div>
-              <h2>Session</h2>
-              <p>Sign out of the admin panel on this device.</p>
-            </div>
-            <LogOut size={18} />
-          </div>
-          <div className="form-actions">
-            <button className="secondary-button adm-signout" disabled={loggingOut} onClick={logout} type="button">
-              {loggingOut ? <Loader2 className="adm-spin" size={16} /> : <LogOut size={16} />}
-              <span>{loggingOut ? "Signing out..." : "Sign out"}</span>
-            </button>
-          </div>
-        </div>
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+            initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+            key={settingsTab}
+            transition={{ duration: reduceMotion ? 0 : 0.16, ease: "easeOut" }}
+          >
+            {settingsTabRenderers[settingsTab]()}
+          </motion.div>
+        </AnimatePresence>
       </div>
     );
   }
 
   const sectionRenderers: Record<SectionId, () => ReactNode> = {
     overview: renderOverview,
-    packages: renderPackages,
-    subscriptions: renderSubscriptions,
     users: renderUsers,
-    smtp: renderSmtp,
-    billing: renderBilling,
-    settings: renderSettings,
-    account: renderAccount
+    settings: renderSettings
   };
 
   /* ------------------------------------------------------------------ shell */
@@ -1961,6 +2047,17 @@ function AdminPanel() {
             >
               <RefreshCw className={cx(sectionLoading[section] && "adm-spin")} size={16} />
             </button>
+            <button
+              aria-label="Switch to user panel"
+              className="icon-button"
+              data-tooltip="Switch to user panel"
+              onClick={() => {
+                window.location.href = "/console";
+              }}
+              type="button"
+            >
+              <ArrowLeftRight size={16} />
+            </button>
             {identity && (
               <div className="profile-menu">
                 <button
@@ -2013,13 +2110,30 @@ function AdminPanel() {
                       <div className="profile-actions">
                         <button
                           onClick={() => {
-                            window.location.href = "/console";
+                            setProfileOpen(false);
+                            setCurrentPassword("");
+                            setNewPassword("");
+                            setConfirmPassword("");
+                            setShowNewPassword(false);
+                            setPasswordModalOpen(true);
                           }}
                           role="menuitem"
                           type="button"
                         >
-                          <ArrowLeftRight size={15} />
-                          Switch to user panel
+                          <KeyRound size={15} />
+                          Update password
+                        </button>
+                        <button
+                          onClick={() => {
+                            setProfileOpen(false);
+                            setAvatarDraft(identity.avatarUrl);
+                            setPhotoModalOpen(true);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Camera size={15} />
+                          Update profile photo
                         </button>
                         <div className="profile-divider" />
                         <button
@@ -2056,6 +2170,137 @@ function AdminPanel() {
           </motion.div>
         </AnimatePresence>
       </section>
+
+      <AnimatePresence>
+        {passwordModalOpen && (
+          <Modal
+            description="Saving signs out every other device."
+            icon={KeyRound}
+            key="password-modal"
+            onClose={() => setPasswordModalOpen(false)}
+            reduceMotion={reduceMotion}
+            title="Update password"
+          >
+            <div className="form-grid">
+              <label className="span-two">
+                Current password
+                <input
+                  autoComplete="current-password"
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="Your current password"
+                  type="password"
+                  value={currentPassword}
+                />
+              </label>
+              <label>
+                New password
+                <span className="adm-pw-field">
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    placeholder="New password"
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                  />
+                  <button
+                    aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showNewPassword}
+                    className="adm-pw-reveal"
+                    onClick={() => setShowNewPassword((visible) => !visible)}
+                    type="button"
+                  >
+                    {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </span>
+              </label>
+              <label>
+                Confirm new password
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Re-enter new password"
+                  type={showNewPassword ? "text" : "password"}
+                  value={confirmPassword}
+                />
+              </label>
+              {newPassword.length > 0 && (
+                <div className="span-two">
+                  <PasswordChecklist password={newPassword} />
+                  {confirmPassword.length > 0 && !passwordsMatch && (
+                    <p className="adm-pw-mismatch">
+                      <AlertCircle size={13} />
+                      Passwords do not match.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="form-actions span-two">
+                <button className="secondary-button" disabled={savingPassword} onClick={() => setPasswordModalOpen(false)} type="button">
+                  <span>Cancel</span>
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={savingPassword || !currentPassword || !newPasswordValid || !passwordsMatch}
+                  onClick={changePassword}
+                  type="button"
+                >
+                  {savingPassword ? <Loader2 className="adm-spin" size={16} /> : <KeyRound size={16} />}
+                  <span>{savingPassword ? "Updating..." : "Update password"}</span>
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+        {photoModalOpen && (
+          <Modal
+            description="JPG, PNG, or GIF — resized to a 256px square."
+            icon={Camera}
+            key="photo-modal"
+            onClose={() => setPhotoModalOpen(false)}
+            reduceMotion={reduceMotion}
+            title="Update profile photo"
+          >
+            <div className="adm-photo-editor">
+              <div className="adm-photo-preview">
+                {avatarDraft ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img alt="Your profile photo" src={avatarDraft} />
+                ) : (
+                  <span>{initials(identity?.name ?? "?")}</span>
+                )}
+              </div>
+              <div className="adm-photo-actions">
+                <input accept="image/*" hidden onChange={onAvatarPick} ref={avatarInputRef} type="file" />
+                <div className="adm-photo-buttons">
+                  <button className="secondary-button" onClick={() => avatarInputRef.current?.click()} type="button">
+                    <Camera size={15} />
+                    <span>{avatarDraft ? "Change photo" : "Upload photo"}</span>
+                  </button>
+                  {avatarDraft && (
+                    <button className="adm-link-button" onClick={() => setAvatarDraft(null)} type="button">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="form-actions">
+              <button className="secondary-button" disabled={savingPhoto} onClick={() => setPhotoModalOpen(false)} type="button">
+                <span>Cancel</span>
+              </button>
+              <button
+                className="primary-button"
+                disabled={savingPhoto || (avatarDraft ?? null) === (identity?.avatarUrl ?? null)}
+                onClick={savePhoto}
+                type="button"
+              >
+                {savingPhoto ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
+                <span>{savingPhoto ? "Saving..." : "Save photo"}</span>
+              </button>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {toast && (

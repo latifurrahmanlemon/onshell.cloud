@@ -806,6 +806,295 @@ button:disabled {
 }
 
 /* ==========================================================================
+   Reusable data table (search · sort · pagination)
+   ========================================================================== */
+
+.data-table {
+  display: grid;
+  gap: 12px;
+}
+
+.data-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.data-toolbar .search-field {
+  width: 240px;
+}
+
+.data-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.data-scroll {
+  overflow-x: auto;
+}
+
+.data-grid {
+  display: grid;
+  min-width: max-content;
+}
+
+.data-grid-row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.data-grid-row:last-child {
+  border-bottom: 0;
+}
+
+.data-grid-row:not(.is-head):hover {
+  background: var(--elevated);
+}
+
+.data-grid-row.is-head {
+  min-height: 40px;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.data-grid-row.is-head > span {
+  display: flex;
+  align-items: center;
+}
+
+.data-grid-row.is-head .col-end,
+.data-grid-row .data-cell.col-end {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.data-grid-row.is-head .col-center,
+.data-grid-row .data-cell.col-center {
+  justify-content: center;
+  text-align: center;
+}
+
+.data-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.data-sort:hover,
+.data-sort.is-active {
+  color: var(--text);
+}
+
+.data-sort-idle {
+  opacity: 0.45;
+}
+
+.data-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.data-grid-row strong {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-muted {
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.data-mono {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.data-identity-text {
+  display: grid;
+  min-width: 0;
+}
+
+.data-identity-text small {
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.data-inline-select {
+  height: 32px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.icon-button.compact.danger {
+  color: var(--rose);
+}
+
+.icon-button.compact.danger:hover {
+  border-color: rgba(225, 108, 114, 0.5);
+  background: rgba(225, 108, 114, 0.1);
+  color: var(--rose);
+}
+
+.tbl-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tbl-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---- Pagination ---- */
+.data-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+
+.pager-info {
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.data-pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.data-pager button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.data-pager button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--elevated);
+  color: var(--text);
+}
+
+.data-pager button.is-current {
+  border-color: transparent;
+  background: var(--accent-weak);
+  color: var(--text);
+}
+
+.data-pager button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pager-gap {
+  padding: 0 2px;
+  color: var(--soft);
+}
+
+/* ---- Confirmation modal ---- */
+.confirm-body {
+  display: grid;
+  gap: 18px;
+}
+
+.confirm-body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.danger-button.solid {
+  border-color: transparent;
+  background: var(--rose);
+  color: #fff;
+}
+
+.danger-button.solid:hover {
+  background: #d0555c;
+}
+
+/* ==========================================================================
    Admin base shell (extended by admin.css)
    ========================================================================== */
 

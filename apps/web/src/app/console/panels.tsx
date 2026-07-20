@@ -13,11 +13,17 @@ import {
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Braces,
   Building2,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Circle,
+  Copy,
   Eye,
   EyeOff,
   Inbox,
@@ -27,6 +33,7 @@ import {
   Mail,
   MonitorUp,
   Palette,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -36,6 +43,7 @@ import {
   ShieldCheck,
   SquareTerminal,
   Trash2,
+  UserPlus,
   UserRound,
   X,
 } from "lucide-react";
@@ -146,6 +154,325 @@ function SubmitButton({ busy, label }: { busy: boolean; label: string }) {
       {busy ? <Loader2 className="spin" size={15} /> : <Plus size={15} />}
       {label}
     </button>
+  );
+}
+
+/* ---------- Reusable data table (search · sort · pagination) ---------- */
+
+type SortDir = "asc" | "desc";
+
+interface DataColumn<T> {
+  key: string;
+  header: string;
+  /** CSS grid track for this column, e.g. "minmax(160px, 1.4fr)". */
+  width: string;
+  render: (row: T) => ReactNode;
+  /** When provided, the column header becomes a sort toggle. */
+  sortValue?: (row: T) => string | number;
+  align?: "center" | "end";
+}
+
+/** Short numeric page list with gaps, e.g. [1, "…", 4, 5, 6, "…", 20]. */
+function pageWindow(current: number, total: number): Array<number | "gap"> {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages = new Set<number>([1, total, current, current - 1, current + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const out: Array<number | "gap"> = [];
+  let prev = 0;
+  for (const page of sorted) {
+    if (page - prev > 1) out.push("gap");
+    out.push(page);
+    prev = page;
+  }
+  return out;
+}
+
+function DataTable<T>({
+  rows,
+  columns,
+  rowKey,
+  searchText,
+  searchPlaceholder = "Search…",
+  pageSize = 10,
+  defaultSort,
+  loading,
+  empty,
+  leftTools,
+  rightTools,
+}: {
+  rows: T[];
+  columns: DataColumn<T>[];
+  rowKey: (row: T) => string;
+  searchText?: (row: T) => string;
+  searchPlaceholder?: string;
+  pageSize?: number;
+  defaultSort?: { key: string; dir: SortDir };
+  loading?: boolean;
+  empty: { icon: ReactNode; title: string; hint?: string };
+  leftTools?: ReactNode;
+  rightTools?: ReactNode;
+}) {
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(defaultSort ?? null);
+  const [page, setPage] = useState(1);
+
+  const gridCols = useMemo(() => columns.map((column) => column.width).join(" "), [columns]);
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle || !searchText) return rows;
+    return rows.filter((row) => searchText(row).toLowerCase().includes(needle));
+  }, [rows, query, searchText]);
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered;
+    const column = columns.find((item) => item.key === sort.key);
+    if (!column?.sortValue) return filtered;
+    const direction = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = column.sortValue!(a);
+      const bv = column.sortValue!(b);
+      if (av < bv) return -direction;
+      if (av > bv) return direction;
+      return 0;
+    });
+  }, [filtered, sort, columns]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const pageRows = sorted.slice(start, start + pageSize);
+
+  // Snap back to the first page whenever the result set changes shape.
+  useEffect(() => {
+    setPage(1);
+  }, [query, sort, rows.length]);
+
+  const toggleSort = useCallback((key: string) => {
+    setSort((prev) =>
+      prev?.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+  }, []);
+
+  return (
+    <div className="data-table">
+      {(searchText || leftTools || rightTools) && (
+        <div className="data-toolbar">
+          {searchText && (
+            <div className="search-field">
+              <Search size={15} />
+              <input
+                aria-label={searchPlaceholder}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={searchPlaceholder}
+                value={query}
+              />
+            </div>
+          )}
+          {leftTools}
+          <span className="data-toolbar-spacer" />
+          {rightTools}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="data-grid">
+          <div className="skeleton-row" />
+          <div className="skeleton-row" />
+          <div className="skeleton-row" />
+        </div>
+      ) : rows.length === 0 ? (
+        <EmptyState hint={empty.hint} icon={empty.icon} title={empty.title} />
+      ) : sorted.length === 0 ? (
+        <EmptyState
+          hint="Try a different search term."
+          icon={<Search size={22} />}
+          title="Nothing matches your search"
+        />
+      ) : (
+        <>
+          <div className="data-scroll">
+            <div className="data-grid" style={{ "--cols": gridCols } as CSSProperties}>
+              <div className="data-grid-row is-head">
+                {columns.map((column) => {
+                  const active = sort?.key === column.key;
+                  return (
+                    <span
+                      className={cx(column.align === "end" && "col-end", column.align === "center" && "col-center")}
+                      key={column.key}
+                    >
+                      {column.sortValue ? (
+                        <button
+                          className={cx("data-sort", active && "is-active")}
+                          onClick={() => toggleSort(column.key)}
+                          type="button"
+                        >
+                          {column.header}
+                          {active ? (
+                            sort?.dir === "asc" ? (
+                              <ArrowUp size={12} />
+                            ) : (
+                              <ArrowDown size={12} />
+                            )
+                          ) : (
+                            <ArrowUpDown className="data-sort-idle" size={12} />
+                          )}
+                        </button>
+                      ) : (
+                        column.header
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+              {pageRows.map((row) => (
+                <div className="data-grid-row" key={rowKey(row)}>
+                  {columns.map((column) => (
+                    <div
+                      className={cx(
+                        "data-cell",
+                        column.align === "end" && "col-end",
+                        column.align === "center" && "col-center",
+                      )}
+                      key={column.key}
+                    >
+                      {column.render(row)}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="data-pagination">
+            <span className="pager-info">
+              {start + 1}–{Math.min(start + pageSize, sorted.length)} of {sorted.length}
+            </span>
+            {totalPages > 1 && (
+              <div className="data-pager">
+                <button
+                  aria-label="Previous page"
+                  disabled={currentPage === 1}
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                  type="button"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                {pageWindow(currentPage, totalPages).map((item, index) =>
+                  item === "gap" ? (
+                    <span className="pager-gap" key={`gap-${index}`}>
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      className={cx(item === currentPage && "is-current")}
+                      key={item}
+                      onClick={() => setPage(item)}
+                      type="button"
+                    >
+                      {item}
+                    </button>
+                  ),
+                )}
+                <button
+                  aria-label="Next page"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+                  type="button"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const AVATAR_PALETTE = ["#6366f1", "#0891b2", "#059669", "#d97706", "#db2777", "#7c3aed"];
+
+/** Small identity avatar for table rows — image when available, initials otherwise. */
+function TableAvatar({ name, url, size = 32 }: { name: string; url?: string | null; size?: number }) {
+  const initials = useMemo(() => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }, [name]);
+  const tint = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+  }, [name]);
+  return (
+    <span className="tbl-avatar" style={{ width: size, height: size, background: url ? undefined : tint }}>
+      {url ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img alt="" src={url} />
+      ) : (
+        <span>{initials}</span>
+      )}
+    </span>
+  );
+}
+
+/** Locale date like "Jul 20, 2026", or an em dash when missing. */
+function shortDate(value?: string) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** "3 days ago" style relative label, or an em dash when missing. */
+function relativeTime(value?: string) {
+  if (!value) return "—";
+  const then = new Date(value).getTime();
+  const diffMs = then - Date.now();
+  const abs = Math.abs(diffMs);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (abs < hour) return rtf.format(Math.round(diffMs / minute), "minute");
+  if (abs < day) return rtf.format(Math.round(diffMs / hour), "hour");
+  if (abs < 30 * day) return rtf.format(Math.round(diffMs / day), "day");
+  return shortDate(value);
+}
+
+/** Confirmation modal for destructive actions (delete, revoke). */
+function ConfirmModal({
+  open,
+  title,
+  message,
+  confirmLabel = "Delete",
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  message: ReactNode;
+  confirmLabel?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer onClose={onClose} open={open} title={title}>
+      <div className="confirm-body">
+        <p>{message}</p>
+        <div className="confirm-actions">
+          <button className="secondary-button" disabled={busy} onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button className="danger-button solid" disabled={busy} onClick={onConfirm} type="button">
+            {busy ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </Drawer>
   );
 }
 
@@ -446,11 +773,15 @@ export function VaultView({
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<CredentialSummary | null>(null);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<CredentialSummary | null>(null);
+  const [removingBusy, setRemovingBusy] = useState(false);
+  const manage = canManageHosts(role);
   const hostName = (id: string) =>
     hosts.find((host) => host.id === id)?.name ?? "unknown";
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     setBusy(true);
@@ -474,23 +805,133 @@ export function VaultView({
     }
   }
 
-  async function remove(credential: CredentialSummary) {
-    if (
-      !window.confirm(
-        `Delete credential "${credential.name}"? Hosts using it will need a new one.`,
-      )
-    )
-      return;
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing) return;
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
     try {
-      await consoleApi.deleteCredential(credential.id);
+      await consoleApi.updateCredential(editing.id, {
+        name: String(data.get("name") ?? ""),
+        attachedHostIds: data.getAll("attachedHostIds").map(String),
+      });
+      notify("Credential updated.", "success");
+      setEditing(null);
+      onChanged();
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Could not update credential.",
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    setRemovingBusy(true);
+    try {
+      await consoleApi.deleteCredential(deleting.id);
       notify("Credential deleted.", "success");
+      setDeleting(null);
       onChanged();
     } catch (err) {
       notify(
         err instanceof Error ? err.message : "Could not delete credential.",
         "error",
       );
+    } finally {
+      setRemovingBusy(false);
     }
+  }
+
+  const columns: DataColumn<CredentialSummary>[] = [
+    {
+      key: "name",
+      header: "Name",
+      width: "minmax(160px, 1.2fr)",
+      sortValue: (credential) => credential.name.toLowerCase(),
+      render: (credential) => (
+        <div className="data-identity">
+          <span className="data-icon">
+            <KeyRound size={15} />
+          </span>
+          <strong>{credential.name}</strong>
+        </div>
+      ),
+    },
+    {
+      key: "kind",
+      header: "Kind",
+      width: "130px",
+      sortValue: (credential) => credential.kind,
+      render: (credential) => <span className="env-pill">{credential.kind.replace("_", " ")}</span>,
+    },
+    {
+      key: "hosts",
+      header: "Hosts",
+      width: "minmax(140px, 1fr)",
+      render: (credential) => (
+        <span className="data-muted">
+          {credential.attachedHostIds.length > 0
+            ? credential.attachedHostIds.map(hostName).join(", ")
+            : "Not attached"}
+        </span>
+      ),
+    },
+    {
+      key: "lastUsed",
+      header: "Last used",
+      width: "minmax(110px, 0.7fr)",
+      sortValue: (credential) => (credential.lastUsedAt ? new Date(credential.lastUsedAt).getTime() : 0),
+      render: (credential) => <span className="data-muted">{relativeTime(credential.lastUsedAt)}</span>,
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      width: "minmax(110px, 0.7fr)",
+      sortValue: (credential) => new Date(credential.updatedAt).getTime(),
+      render: (credential) => <span className="data-muted">{shortDate(credential.updatedAt)}</span>,
+    },
+    {
+      key: "created",
+      header: "Created",
+      width: "minmax(110px, 0.7fr)",
+      sortValue: (credential) => new Date(credential.createdAt).getTime(),
+      render: (credential) => <span className="data-muted">{shortDate(credential.createdAt)}</span>,
+    },
+  ];
+
+  if (manage) {
+    columns.push({
+      key: "actions",
+      header: "Actions",
+      width: "96px",
+      align: "end",
+      render: (credential) => (
+        <div className="row-actions">
+          <button
+            aria-label={`Edit ${credential.name}`}
+            className="icon-button compact"
+            onClick={() => setEditing(credential)}
+            title="Edit credential"
+            type="button"
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            aria-label={`Delete ${credential.name}`}
+            className="icon-button compact danger"
+            onClick={() => setDeleting(credential)}
+            title="Delete credential"
+            type="button"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ),
+    });
   }
 
   return (
@@ -502,73 +943,45 @@ export function VaultView({
             Secrets are encrypted server-side and never returned after save.
           </p>
         </div>
-        {canManageHosts(role) && (
-          <button
-            className="primary-button"
-            onClick={() => setAdding(true)}
-            type="button"
-          >
-            <Plus size={15} />
-            Add Credential
-          </button>
-        )}
       </div>
+      <DataTable
+        columns={columns}
+        defaultSort={{ key: "name", dir: "asc" }}
+        empty={{
+          icon: <KeyRound size={22} />,
+          title: "Vault is empty",
+          hint: "Store a password or SSH key so sessions can connect without exposing secrets.",
+        }}
+        loading={loading}
+        rightTools={
+          manage ? (
+            <button className="primary-button" onClick={() => setAdding(true)} type="button">
+              <Plus size={15} />
+              Add Credential
+            </button>
+          ) : undefined
+        }
+        rowKey={(credential) => credential.id}
+        rows={credentials}
+        searchPlaceholder="Search credentials…"
+        searchText={(credential) =>
+          `${credential.name} ${credential.kind} ${credential.attachedHostIds.map(hostName).join(" ")}`
+        }
+      />
 
-      {loading ? (
-        <>
-          <div className="skeleton-row" />
-          <div className="skeleton-row" />
-        </>
-      ) : credentials.length === 0 ? (
-        <EmptyState
-          hint="Store a password or SSH key so sessions can connect without exposing secrets."
-          icon={<KeyRound size={22} />}
-          title="Vault is empty"
-        />
-      ) : (
-        <div className="host-table">
-          {credentials.map((credential) => (
-            <div
-              className="host-row"
-              key={credential.id}
-              style={{ cursor: "default" }}
-            >
-              <div className="host-title">
-                <KeyRound className="protocol-icon" size={16} />
-                <div>
-                  <strong>{credential.name}</strong>
-                  <small>
-                    {credential.kind.replace("_", " ")}
-                    {credential.rotatedAt
-                      ? ` · rotated ${new Date(credential.rotatedAt).toLocaleDateString()}`
-                      : ""}
-                  </small>
-                </div>
-              </div>
-              <span>
-                {credential.attachedHostIds.length > 0
-                  ? credential.attachedHostIds.map(hostName).join(", ")
-                  : "Not attached"}
-              </span>
-              <span />
-              <span />
-              <div className="row-actions">
-                {canManageHosts(role) && (
-                  <button
-                    aria-label={`Delete ${credential.name}`}
-                    className="icon-button compact"
-                    onClick={() => remove(credential)}
-                    title="Delete credential"
-                    type="button"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <ConfirmModal
+        busy={removingBusy}
+        confirmLabel="Delete credential"
+        message={
+          <>
+            Delete credential <strong>{deleting?.name}</strong>? Hosts using it will need a new one.
+          </>
+        }
+        onClose={() => setDeleting(null)}
+        onConfirm={confirmDelete}
+        open={deleting !== null}
+        title="Delete credential"
+      />
 
       <Drawer
         onClose={() => setAdding(false)}
@@ -576,7 +989,7 @@ export function VaultView({
         subtitle="The secret is encrypted with AES-256-GCM before it is stored."
         title="Add credential"
       >
-        <form className="form-grid" onSubmit={submit}>
+        <form className="form-grid" onSubmit={submitCreate}>
           <label>
             Name
             <input name="name" placeholder="deploy key" required />
@@ -616,6 +1029,43 @@ export function VaultView({
           </div>
         </form>
       </Drawer>
+
+      <Drawer
+        onClose={() => setEditing(null)}
+        open={editing !== null}
+        subtitle="Rename the credential or change which hosts it is attached to. Rotate the secret from a session."
+        title="Edit credential"
+      >
+        {editing && (
+          <form className="form-grid" onSubmit={submitEdit}>
+            <label className="span-two">
+              Name
+              <input defaultValue={editing.name} name="name" placeholder="deploy key" required />
+            </label>
+            <label className="span-two">
+              Attach to hosts
+              <select
+                defaultValue={editing.attachedHostIds}
+                multiple
+                name="attachedHostIds"
+                size={Math.min(5, Math.max(2, hosts.length))}
+              >
+                {hosts.map((host) => (
+                  <option key={host.id} value={host.id}>
+                    {host.name} ({host.address})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="form-actions span-two">
+              <button className="primary-button" disabled={busy} type="submit">
+                {busy ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
+                Save Changes
+              </button>
+            </div>
+          </form>
+        )}
+      </Drawer>
     </section>
   );
 }
@@ -639,6 +1089,8 @@ export function SnippetsView({
 }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<Snippet | null>(null);
+  const [removingBusy, setRemovingBusy] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -672,6 +1124,99 @@ export function SnippetsView({
     }
   }
 
+  async function confirmDelete() {
+    if (!deleting) return;
+    setRemovingBusy(true);
+    try {
+      await consoleApi.deleteSnippet(deleting.id);
+      notify("Snippet deleted.", "success");
+      setDeleting(null);
+      onChanged();
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Could not delete snippet.",
+        "error",
+      );
+    } finally {
+      setRemovingBusy(false);
+    }
+  }
+
+  const columns: DataColumn<Snippet>[] = [
+    {
+      key: "name",
+      header: "Name",
+      width: "minmax(160px, 1fr)",
+      sortValue: (snippet) => snippet.name.toLowerCase(),
+      render: (snippet) => (
+        <div className="data-identity">
+          <span className="data-icon">
+            <Braces size={15} />
+          </span>
+          <strong>{snippet.name}</strong>
+        </div>
+      ),
+    },
+    {
+      key: "command",
+      header: "Command",
+      width: "minmax(220px, 2fr)",
+      render: (snippet) => <span className="data-mono">{snippet.command}</span>,
+    },
+    {
+      key: "scope",
+      header: "Scope",
+      width: "110px",
+      sortValue: (snippet) => snippet.scope,
+      render: (snippet) => <span className="env-pill">{snippet.scope}</span>,
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      width: "minmax(120px, 0.7fr)",
+      sortValue: (snippet) => new Date(snippet.updatedAt).getTime(),
+      render: (snippet) => <span className="data-muted">{shortDate(snippet.updatedAt)}</span>,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      width: "128px",
+      align: "end",
+      render: (snippet) => (
+        <div className="row-actions">
+          <button
+            aria-label={`Copy ${snippet.name}`}
+            className="icon-button compact"
+            onClick={() => copy(snippet)}
+            title="Copy command"
+            type="button"
+          >
+            <Copy size={14} />
+          </button>
+          <button
+            aria-label={`Run ${snippet.name}`}
+            className="icon-button compact"
+            disabled={!hasActiveTerminal}
+            onClick={() => onRun(snippet.command)}
+            title={hasActiveTerminal ? "Run in active terminal" : "Open a terminal first"}
+            type="button"
+          >
+            <Play size={14} />
+          </button>
+          <button
+            aria-label={`Delete ${snippet.name}`}
+            className="icon-button compact danger"
+            onClick={() => setDeleting(snippet)}
+            title="Delete snippet"
+            type="button"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <section className="panel">
       <div className="panel-header">
@@ -682,71 +1227,40 @@ export function SnippetsView({
             active terminal.
           </p>
         </div>
-        <button
-          className="primary-button"
-          onClick={() => setAdding(true)}
-          type="button"
-        >
-          <Plus size={15} />
-          New Snippet
-        </button>
       </div>
+      <DataTable
+        columns={columns}
+        defaultSort={{ key: "name", dir: "asc" }}
+        empty={{
+          icon: <Braces size={22} />,
+          title: "No snippets yet",
+          hint: "Save the commands you run on every server.",
+        }}
+        loading={loading}
+        rightTools={
+          <button className="primary-button" onClick={() => setAdding(true)} type="button">
+            <Plus size={15} />
+            New Snippet
+          </button>
+        }
+        rowKey={(snippet) => snippet.id}
+        rows={snippets}
+        searchPlaceholder="Search snippets…"
+        searchText={(snippet) => `${snippet.name} ${snippet.command} ${snippet.scope}`}
+      />
 
-      {loading ? (
-        <>
-          <div className="skeleton-row" />
-          <div className="skeleton-row" />
-        </>
-      ) : snippets.length === 0 ? (
-        <EmptyState
-          hint="Save the commands you run on every server."
-          icon={<Braces size={22} />}
-          title="No snippets yet"
-        />
-      ) : (
-        <div className="snippet-list">
-          {snippets.map((snippet) => (
-            <div
-              className="snippet-row"
-              key={snippet.id}
-              style={{ cursor: "default" }}
-            >
-              <Braces size={15} />
-              <div style={{ minWidth: 0 }}>
-                <strong>{snippet.name}</strong>
-                <small style={{ fontFamily: "var(--font-mono), monospace" }}>
-                  {snippet.command}
-                </small>
-              </div>
-              <div className="row-actions">
-                <button
-                  aria-label={`Copy ${snippet.name}`}
-                  className="icon-button compact"
-                  onClick={() => copy(snippet)}
-                  title="Copy"
-                  type="button"
-                >
-                  <ScrollText size={14} />
-                </button>
-                <button
-                  aria-label={`Run ${snippet.name}`}
-                  className="icon-button compact"
-                  disabled={!hasActiveTerminal}
-                  onClick={() => onRun(snippet.command)}
-                  title={
-                    hasActiveTerminal
-                      ? "Run in active terminal"
-                      : "Open a terminal first"
-                  }
-                  type="button"
-                >
-                  <Play size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <ConfirmModal
+        busy={removingBusy}
+        message={
+          <>
+            Delete snippet <strong>{deleting?.name}</strong>? This cannot be undone.
+          </>
+        }
+        onClose={() => setDeleting(null)}
+        onConfirm={confirmDelete}
+        open={deleting !== null}
+        title="Delete snippet"
+      />
 
       <Drawer
         onClose={() => setAdding(false)}
@@ -800,6 +1314,10 @@ export function TeamView({
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [removingMember, setRemovingMember] = useState<TeamMember | null>(null);
+  const [revokingInvite, setRevokingInvite] = useState<PendingInvitation | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const manager = canManageUsers(currentUser.role);
 
   async function invite(event: FormEvent<HTMLFormElement>) {
@@ -814,6 +1332,7 @@ export function TeamView({
       });
       notify("Invitation sent by email.", "success");
       form.reset();
+      setInviting(false);
       onChanged();
     } catch (err) {
       notify(
@@ -838,32 +1357,191 @@ export function TeamView({
     }
   }
 
-  async function remove(member: TeamMember) {
-    if (!window.confirm(`Remove ${member.name} from the organization?`)) return;
+  async function confirmRemoveMember() {
+    if (!removingMember) return;
+    setConfirmBusy(true);
     try {
-      await consoleApi.removeMember(member.id);
+      await consoleApi.removeMember(removingMember.id);
       notify("Member removed.", "success");
+      setRemovingMember(null);
       onChanged();
     } catch (err) {
       notify(
         err instanceof Error ? err.message : "Could not remove member.",
         "error",
       );
+    } finally {
+      setConfirmBusy(false);
     }
   }
 
-  async function revoke(invitation: PendingInvitation) {
+  async function confirmRevoke() {
+    if (!revokingInvite) return;
+    setConfirmBusy(true);
     try {
-      await consoleApi.revokeInvitation(invitation.id);
+      await consoleApi.revokeInvitation(revokingInvite.id);
       notify("Invitation revoked.", "success");
+      setRevokingInvite(null);
       onChanged();
     } catch (err) {
       notify(
         err instanceof Error ? err.message : "Could not revoke invitation.",
         "error",
       );
+    } finally {
+      setConfirmBusy(false);
     }
   }
+
+  const memberColumns: DataColumn<TeamMember>[] = [
+    {
+      key: "member",
+      header: "Member",
+      width: "minmax(220px, 1.6fr)",
+      sortValue: (member) => member.name.toLowerCase(),
+      render: (member) => (
+        <div className="data-identity">
+          <TableAvatar name={member.name} url={member.avatarUrl} />
+          <div className="data-identity-text">
+            <strong>
+              {member.name}
+              {member.id === currentUser.id ? " (you)" : ""}
+            </strong>
+            <small>{member.email}</small>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "role",
+      header: "Role",
+      width: "150px",
+      sortValue: (member) => member.role,
+      render: (member) =>
+        manager && member.id !== currentUser.id ? (
+          <select
+            aria-label={`Role for ${member.name}`}
+            className="data-inline-select"
+            onChange={(event) => changeRole(member, event.target.value as Role)}
+            value={member.role}
+          >
+            {roles.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="env-pill">{member.role}</span>
+        ),
+    },
+    {
+      key: "twofa",
+      header: "2FA",
+      width: "110px",
+      sortValue: (member) => (member.twoFactorEnabled ? 1 : 0),
+      render: (member) => (
+        <span className={cx("env-pill", member.twoFactorEnabled && "development")}>
+          {member.twoFactorEnabled ? "2FA on" : "2FA off"}
+        </span>
+      ),
+    },
+    {
+      key: "joined",
+      header: "Joined",
+      width: "minmax(120px, 0.7fr)",
+      sortValue: (member) => (member.joinedAt ? new Date(member.joinedAt).getTime() : 0),
+      render: (member) => <span className="data-muted">{shortDate(member.joinedAt)}</span>,
+    },
+  ];
+
+  if (manager) {
+    memberColumns.push({
+      key: "actions",
+      header: "Actions",
+      width: "80px",
+      align: "end",
+      render: (member) =>
+        member.id !== currentUser.id ? (
+          <div className="row-actions">
+            <button
+              aria-label={`Remove ${member.name}`}
+              className="icon-button compact danger"
+              onClick={() => setRemovingMember(member)}
+              title="Remove member"
+              type="button"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ) : (
+          <span />
+        ),
+    });
+  }
+
+  const invitationColumns: DataColumn<PendingInvitation>[] = [
+    {
+      key: "email",
+      header: "Email",
+      width: "minmax(200px, 1.6fr)",
+      sortValue: (invitation) => invitation.email.toLowerCase(),
+      render: (invitation) => (
+        <div className="data-identity">
+          <span className="data-icon">
+            <Mail size={15} />
+          </span>
+          <strong>{invitation.email}</strong>
+        </div>
+      ),
+    },
+    {
+      key: "role",
+      header: "Role",
+      width: "130px",
+      sortValue: (invitation) => invitation.role,
+      render: (invitation) => <span className="env-pill">{invitation.role}</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "120px",
+      render: () => <span className="session-state pending">pending</span>,
+    },
+    {
+      key: "invited",
+      header: "Invited",
+      width: "minmax(120px, 0.7fr)",
+      sortValue: (invitation) => (invitation.createdAt ? new Date(invitation.createdAt).getTime() : 0),
+      render: (invitation) => <span className="data-muted">{shortDate(invitation.createdAt)}</span>,
+    },
+    {
+      key: "expires",
+      header: "Expires",
+      width: "minmax(120px, 0.7fr)",
+      sortValue: (invitation) => (invitation.expiresAt ? new Date(invitation.expiresAt).getTime() : 0),
+      render: (invitation) => <span className="data-muted">{shortDate(invitation.expiresAt)}</span>,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      width: "80px",
+      align: "end",
+      render: (invitation) => (
+        <div className="row-actions">
+          <button
+            aria-label={`Revoke invitation for ${invitation.email}`}
+            className="icon-button compact danger"
+            onClick={() => setRevokingInvite(invitation)}
+            title="Revoke invitation"
+            type="button"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="main-column">
@@ -874,126 +1552,116 @@ export function TeamView({
             <p>Roles control what each member can see and open.</p>
           </div>
         </div>
-        {loading ? (
-          <>
-            <div className="skeleton-row" />
-            <div className="skeleton-row" />
-          </>
-        ) : (
-          members.map((member) => (
-            <div className="member-row" key={member.id}>
-              <div>
-                <strong>
-                  {member.name}
-                  {member.id === currentUser.id ? " (you)" : ""}
-                </strong>
-                <small>{member.email}</small>
-              </div>
-              <span
-                className={cx(
-                  "env-pill",
-                  member.twoFactorEnabled && "development",
-                )}
-              >
-                {member.twoFactorEnabled ? "2FA on" : "2FA off"}
-              </span>
-              {manager && member.id !== currentUser.id ? (
-                <select
-                  aria-label={`Role for ${member.name}`}
-                  onChange={(event) =>
-                    changeRole(member, event.target.value as Role)
-                  }
-                  value={member.role}
-                >
-                  {roles.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="env-pill">{member.role}</span>
-              )}
-              {manager && member.id !== currentUser.id ? (
-                <button
-                  aria-label={`Remove ${member.name}`}
-                  className="danger-button"
-                  onClick={() => remove(member)}
-                  type="button"
-                >
-                  <Trash2 size={13} />
-                </button>
-              ) : (
-                <span />
-              )}
-            </div>
-          ))
-        )}
+        <DataTable
+          columns={memberColumns}
+          defaultSort={{ key: "member", dir: "asc" }}
+          empty={{ icon: <UserRound size={22} />, title: "No members yet" }}
+          loading={loading}
+          rightTools={
+            manager ? (
+              <button className="primary-button" onClick={() => setInviting(true)} type="button">
+                <UserPlus size={15} />
+                Invite Member
+              </button>
+            ) : undefined
+          }
+          rowKey={(member) => member.id}
+          rows={members}
+          searchPlaceholder="Search members…"
+          searchText={(member) => `${member.name} ${member.email} ${member.role}`}
+        />
       </section>
 
       {manager && (
         <section className="panel">
           <div className="panel-header tight">
             <div>
-              <h2>Invite Member</h2>
-              <p>They will receive an email link to join this workspace.</p>
+              <h2>Pending Invitations</h2>
+              <p>People who have been invited but have not joined yet.</p>
             </div>
           </div>
-          <div className="settings-block">
-            <form className="inline-form" onSubmit={invite}>
-              <input
-                aria-label="Email address"
-                name="email"
-                placeholder="teammate@company.com"
-                required
-                style={{ flex: "1 1 220px" }}
-                type="email"
-              />
-              <select aria-label="Role" defaultValue="developer" name="role">
-                {roles.map((role) => (
-                  <option key={role} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
-              <button className="primary-button" disabled={busy} type="submit">
-                {busy ? (
-                  <Loader2 className="spin" size={15} />
-                ) : (
-                  <Mail size={15} />
-                )}
-                Send Invite
-              </button>
-            </form>
-          </div>
-          {invitations.length > 0 && (
-            <div className="host-table">
-              {invitations.map((invitation) => (
-                <div className="member-row" key={invitation.id}>
-                  <div>
-                    <strong>{invitation.email}</strong>
-                    <small>
-                      pending · {invitation.role}
-                      {invitation.expiresAt
-                        ? ` · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`
-                        : ""}
-                    </small>
-                  </div>
-                  <span />
-                  <span />
-                  <button
-                    className="danger-button"
-                    onClick={() => revoke(invitation)}
-                    type="button"
-                  >
-                    Revoke
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <DataTable
+            columns={invitationColumns}
+            defaultSort={{ key: "invited", dir: "desc" }}
+            empty={{
+              icon: <Mail size={22} />,
+              title: "No pending invitations",
+              hint: "Invite a teammate to see them listed here.",
+            }}
+            loading={loading}
+            rowKey={(invitation) => invitation.id}
+            rows={invitations}
+            searchPlaceholder="Search invitations…"
+            searchText={(invitation) => `${invitation.email} ${invitation.role}`}
+          />
         </section>
       )}
+
+      <Drawer
+        onClose={() => setInviting(false)}
+        open={inviting}
+        subtitle="They will receive an email link to join this workspace."
+        title="Invite member"
+      >
+        <form className="form-grid" onSubmit={invite}>
+          <label className="span-two">
+            Email
+            <input
+              aria-label="Email address"
+              name="email"
+              placeholder="teammate@company.com"
+              required
+              type="email"
+            />
+          </label>
+          <label className="span-two">
+            Role
+            <select aria-label="Role" defaultValue="developer" name="role">
+              {roles.map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="form-actions span-two">
+            <button className="primary-button" disabled={busy} type="submit">
+              {busy ? <Loader2 className="spin" size={15} /> : <Mail size={15} />}
+              Send Invite
+            </button>
+          </div>
+        </form>
+      </Drawer>
+
+      <ConfirmModal
+        busy={confirmBusy}
+        confirmLabel="Remove member"
+        message={
+          <>
+            Remove <strong>{removingMember?.name}</strong> from the organization? They will lose access
+            immediately.
+          </>
+        }
+        onClose={() => setRemovingMember(null)}
+        onConfirm={confirmRemoveMember}
+        open={removingMember !== null}
+        title="Remove member"
+      />
+
+      <ConfirmModal
+        busy={confirmBusy}
+        confirmLabel="Revoke invitation"
+        message={
+          <>
+            Revoke the invitation for <strong>{revokingInvite?.email}</strong>? The invite link will stop
+            working.
+          </>
+        }
+        onClose={() => setRevokingInvite(null)}
+        onConfirm={confirmRevoke}
+        open={revokingInvite !== null}
+        title="Revoke invitation"
+      />
     </div>
   );
 }
@@ -1009,50 +1677,92 @@ export function AuditView({
   loading: boolean;
   memberNames: Map<string, string>;
 }) {
+  const actorName = useCallback(
+    (log: AuditLog) => memberNames.get(log.actorId) ?? "system",
+    [memberNames],
+  );
+
+  const columns = useMemo<DataColumn<AuditLog>[]>(
+    () => [
+      {
+        key: "date",
+        header: "Date",
+        width: "minmax(110px, 0.7fr)",
+        sortValue: (log) => new Date(log.createdAt).getTime(),
+        render: (log) => <span className="data-muted">{shortDate(log.createdAt)}</span>,
+      },
+      {
+        key: "time",
+        header: "Time",
+        width: "minmax(90px, 0.5fr)",
+        sortValue: (log) => new Date(log.createdAt).getTime(),
+        render: (log) => (
+          <span className="data-muted">
+            {new Date(log.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        ),
+      },
+      {
+        key: "action",
+        header: "Action",
+        width: "minmax(180px, 1.4fr)",
+        sortValue: (log) => log.action,
+        render: (log) => <strong>{log.action.replaceAll(".", " · ")}</strong>,
+      },
+      {
+        key: "actor",
+        header: "Actor",
+        width: "minmax(140px, 1fr)",
+        sortValue: actorName,
+        render: (log) => <span>{actorName(log)}</span>,
+      },
+      {
+        key: "target",
+        header: "Target",
+        width: "minmax(140px, 1fr)",
+        sortValue: (log) => log.targetType,
+        render: (log) => (
+          <span className="data-muted">
+            {log.targetType}
+            {log.targetId ? ` · ${log.targetId.slice(0, 8)}` : ""}
+          </span>
+        ),
+      },
+      {
+        key: "ip",
+        header: "IP",
+        width: "minmax(110px, 0.6fr)",
+        sortValue: (log) => log.ipAddress ?? "",
+        render: (log) => <span className="data-mono">{log.ipAddress ?? "—"}</span>,
+      },
+    ],
+    [actorName],
+  );
+
   return (
     <section className="panel">
       <div className="panel-header">
         <div>
           <h2>Audit Log</h2>
-          <p>
-            Every session, credential, and admin action in this organization.
-          </p>
+          <p>Every session, credential, and admin action in this organization.</p>
         </div>
       </div>
-      {loading ? (
-        <>
-          <div className="skeleton-row" />
-          <div className="skeleton-row" />
-          <div className="skeleton-row" />
-        </>
-      ) : logs.length === 0 ? (
-        <EmptyState
-          hint="Activity will appear here as your team works."
-          icon={<ScrollText size={22} />}
-          title="No audit events yet"
-        />
-      ) : (
-        <div className="audit-list">
-          {logs.map((log) => (
-            <div className="audit-row" key={log.id}>
-              <span>
-                {new Date(log.createdAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-              <div>
-                <strong>{log.action.replaceAll(".", " · ")}</strong>
-                <small>
-                  {memberNames.get(log.actorId) ?? "system"} · {log.targetType}
-                  {log.targetId ? ` · ${log.targetId.slice(0, 8)}` : ""} ·{" "}
-                  {new Date(log.createdAt).toLocaleDateString()}
-                </small>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        defaultSort={{ key: "date", dir: "desc" }}
+        empty={{
+          icon: <ScrollText size={22} />,
+          title: "No audit events yet",
+          hint: "Activity will appear here as your team works.",
+        }}
+        loading={loading}
+        rowKey={(log) => log.id}
+        rows={logs}
+        searchPlaceholder="Search actions, actors, targets…"
+        searchText={(log) =>
+          `${log.action} ${actorName(log)} ${log.targetType} ${log.targetId ?? ""} ${log.ipAddress ?? ""} ${shortDate(log.createdAt)}`
+        }
+      />
     </section>
   );
 }

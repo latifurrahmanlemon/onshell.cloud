@@ -91,6 +91,7 @@ export interface TeamMember {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string | null;
   role: Role;
   joinedAt?: string;
   twoFactorEnabled?: boolean;
@@ -127,6 +128,8 @@ export const consoleApi = {
   credentials: async () => unwrapList<CredentialSummary>(await request("/credentials"), "credentials"),
   createCredential: (body: Record<string, unknown>) =>
     request<unknown>("/credentials", { method: "POST", body: JSON.stringify(body) }),
+  updateCredential: (id: string, body: { name?: string; attachedHostIds?: string[] }) =>
+    request<unknown>(`/credentials/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   rotateCredential: (id: string, secret: string) =>
     request<unknown>(`/credentials/${id}/rotate`, { method: "POST", body: JSON.stringify({ secret }) }),
   deleteCredential: (id: string) => request<unknown>(`/credentials/${id}`, { method: "DELETE" }),

@@ -120,7 +120,9 @@ export const store: {
       kind: "ssh_key",
       attachedHostIds: ["host_prod_bastion"],
       rotatedAt: createdAt,
-      createdAt
+      lastUsedAt: createdAt,
+      createdAt,
+      updatedAt: createdAt
     }
   ],
   sessions: [],

@@ -115,6 +115,7 @@ export async function registerOrganizationRoutes(
           id: membership.userId,
           name: membership.user.name,
           email: membership.user.email,
+          avatarUrl: membership.user.avatarUrl ?? null,
           role: roleToPublic[membership.role],
           joinedAt: membership.createdAt.toISOString(),
           twoFactorEnabled: membership.user.twoFactorEnabled

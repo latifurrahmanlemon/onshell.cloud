@@ -72,7 +72,9 @@ export interface CredentialSummary {
   kind: "password" | "ssh_key" | "rdp_password";
   attachedHostIds: string[];
   rotatedAt?: string;
+  lastUsedAt?: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface RemoteSession {

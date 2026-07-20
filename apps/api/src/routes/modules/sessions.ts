@@ -87,6 +87,11 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
           : reply.code(400).send({ error: "no_credential_for_host" });
       }
 
+      // Record when this credential was last used to open a session (best-effort).
+      void prisma.credential
+        .update({ where: { id: credential.id }, data: { lastUsedAt: new Date() } })
+        .catch(() => undefined);
+
       const subscription = await prisma.subscription.findFirst({
         where: {
           organizationId: actor.organizationId,
