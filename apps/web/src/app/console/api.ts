@@ -149,6 +149,11 @@ export const consoleApi = {
   audit: async (limit = 50) => unwrapList<AuditLog>(await request(`/audit?limit=${limit}`), "logs"),
 
   organization: () => request<Record<string, unknown>>("/organizations/current"),
+  updateOrganization: (body: { name: string }) =>
+    request<{ organization: Organization }>("/organizations/current", {
+      method: "PATCH",
+      body: JSON.stringify(body)
+    }),
   invite: (body: { email: string; role: Role }) =>
     request<unknown>("/organizations/current/invitations", { method: "POST", body: JSON.stringify(body) }),
   invitations: async () =>

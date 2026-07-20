@@ -12,7 +12,7 @@
 }
 
 .admin-shell .nav-item.is-active {
-  box-shadow: inset 2px 0 0 var(--green);
+  box-shadow: inset 2px 0 0 var(--accent-text);
 }
 
 .adm-sidebar-foot {
@@ -378,7 +378,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--green);
+  color: var(--accent-text);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
@@ -388,7 +388,7 @@
 }
 
 .adm-link-button:hover {
-  color: var(--green);
+  color: var(--accent-hover);
 }
 
 /* Overview status rows */
@@ -622,7 +622,7 @@
 
 .adm-setting-row input:not([type="checkbox"]):focus,
 .adm-setting-row textarea:focus {
-  border-color: rgba(101, 196, 102, 0.6);
+  border-color: var(--accent-line);
 }
 
 .adm-setting-row textarea {
@@ -658,7 +658,7 @@
 .admin-shell .form-grid input:focus,
 .admin-shell .form-grid select:focus,
 .admin-shell .form-grid textarea:focus {
-  border-color: rgba(101, 196, 102, 0.6);
+  border-color: var(--accent-line);
 }
 
 .admin-shell .primary-button,
@@ -791,7 +791,7 @@
   border: 1px solid var(--accent-weak-border);
   border-radius: 12px;
   background: var(--brand-tint);
-  color: var(--green);
+  color: var(--accent-text);
 }
 .admin-gate-head h1 {
   margin: 0;
@@ -856,7 +856,7 @@
 }
 .admin-gate-note svg {
   flex-shrink: 0;
-  color: var(--green);
+  color: var(--accent-text);
 }
 .admin-gate-error {
   display: flex;
@@ -874,7 +874,7 @@
   padding: 4px 2px;
   border: 0;
   background: transparent;
-  color: var(--green);
+  color: var(--accent-text);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;

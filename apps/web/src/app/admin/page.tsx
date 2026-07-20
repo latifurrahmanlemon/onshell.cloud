@@ -10,6 +10,7 @@ import {
   AlertCircle,
   ArrowLeftRight,
   CheckCircle2,
+  ChevronDown,
   Circle,
   CreditCard,
   Database,
@@ -29,7 +30,6 @@ import {
   Save,
   Search,
   Send,
-  ServerCog,
   Settings2,
   ShieldCheck,
   ShieldOff,
@@ -39,6 +39,7 @@ import {
 import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import AdminGate from "./gate";
+import { OnshellMark } from "../brand";
 import { ThemeToggle } from "../theme";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -662,6 +663,22 @@ function AdminPanel() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onDocClick = () => setProfileOpen(false);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileOpen(false);
+    };
+    const raf = window.setTimeout(() => document.addEventListener("click", onDocClick), 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(raf);
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [profileOpen]);
 
   useEffect(() => {
     if (smtpRes.data) setSmtpForm(smtpToForm(smtpRes.data));
@@ -1897,9 +1914,7 @@ function AdminPanel() {
     <main className="admin-shell">
       <aside className="admin-sidebar">
         <div className="brand-row">
-          <div className="brand-mark">
-            <ServerCog size={18} />
-          </div>
+          <OnshellMark size={34} />
           <div>
             <p className="brand-name">Admin Panel</p>
             <p className="brand-domain">Onshell.cloud</p>
@@ -1924,22 +1939,6 @@ function AdminPanel() {
           })}
         </nav>
         <div className="adm-sidebar-foot">
-          {identity && (
-            <div className="adm-identity">
-              <span className="adm-identity-avatar">
-                {identity.avatarUrl ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img alt="" src={identity.avatarUrl} />
-                ) : (
-                  <span>{initials(identity.name)}</span>
-                )}
-              </span>
-              <span className="adm-identity-meta">
-                <strong>{identity.name}</strong>
-                <small>{identity.email || identity.role}</small>
-              </span>
-            </div>
-          )}
           <span className="adm-sidebar-hint">Every change here is audit-logged.</span>
         </div>
       </aside>
@@ -1962,27 +1961,86 @@ function AdminPanel() {
             >
               <RefreshCw className={cx(sectionLoading[section] && "adm-spin")} size={16} />
             </button>
-            <button
-              aria-label="Switch to user panel"
-              className="icon-button"
-              data-tooltip="Switch to user panel"
-              onClick={() => {
-                window.location.href = "/console";
-              }}
-              type="button"
-            >
-              <ArrowLeftRight size={16} />
-            </button>
-            <button
-              aria-label="Sign out"
-              className="icon-button"
-              data-tooltip="Sign out"
-              disabled={loggingOut}
-              onClick={logout}
-              type="button"
-            >
-              <LogOut className={cx(loggingOut && "adm-spin")} size={16} />
-            </button>
+            {identity && (
+              <div className="profile-menu">
+                <button
+                  aria-expanded={profileOpen}
+                  aria-haspopup="menu"
+                  className={cx("profile-trigger", profileOpen && "is-open")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setProfileOpen((open) => !open);
+                  }}
+                  type="button"
+                >
+                  <span className="pf-avatar">
+                    {identity.avatarUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img alt="" src={identity.avatarUrl} />
+                    ) : (
+                      <span>{initials(identity.name)}</span>
+                    )}
+                  </span>
+                  <span className="profile-name">{identity.name.split(" ")[0]}</span>
+                  <ChevronDown className="profile-chevron" size={15} />
+                </button>
+                <AnimatePresence>
+                  {profileOpen && (
+                    <motion.div
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      className="profile-dropdown"
+                      exit={reduceMotion ? undefined : { opacity: 0, y: -6, scale: 0.98 }}
+                      initial={reduceMotion ? false : { opacity: 0, y: -6, scale: 0.98 }}
+                      onClick={(event) => event.stopPropagation()}
+                      role="menu"
+                      transition={{ duration: 0.14, ease: "easeOut" }}
+                    >
+                      <div className="profile-head">
+                        <span className="pf-avatar lg">
+                          {identity.avatarUrl ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img alt="" src={identity.avatarUrl} />
+                          ) : (
+                            <span>{initials(identity.name)}</span>
+                          )}
+                        </span>
+                        <div className="profile-head-meta">
+                          <strong>{identity.name}</strong>
+                          <span>{identity.email}</span>
+                          <span className="profile-role">Platform admin</span>
+                        </div>
+                      </div>
+                      <div className="profile-actions">
+                        <button
+                          onClick={() => {
+                            window.location.href = "/console";
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <ArrowLeftRight size={15} />
+                          Switch to user panel
+                        </button>
+                        <div className="profile-divider" />
+                        <button
+                          className="danger"
+                          disabled={loggingOut}
+                          onClick={() => {
+                            setProfileOpen(false);
+                            logout();
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <LogOut size={15} />
+                          Sign out
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </div>
         </header>
 

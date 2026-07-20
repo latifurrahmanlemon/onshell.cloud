@@ -57,6 +57,10 @@ const updateMemberSchema = z.object({
   role: z.enum(["owner", "admin", "devops", "developer", "auditor"])
 });
 
+const updateOrganizationSchema = z.object({
+  name: z.string().trim().min(2).max(120)
+});
+
 function toInvitationSummary(invitation: {
   id: string;
   email: string;
@@ -115,6 +119,41 @@ export async function registerOrganizationRoutes(
           joinedAt: membership.createdAt.toISOString(),
           twoFactorEnabled: membership.user.twoFactorEnabled
         }))
+      };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.patch("/organizations/current", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+      if (!canManageUsers(actor.role)) return reply.code(403).send({ error: "forbidden" });
+
+      const body = updateOrganizationSchema.parse(request.body);
+      const organization = await prisma.organization.update({
+        where: { id: actor.organizationId },
+        data: { name: body.name }
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "organization.update",
+        targetType: "organization",
+        targetId: organization.id,
+        ipAddress: request.ip,
+        metadata: { name: body.name }
+      });
+
+      return {
+        organization: {
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          createdAt: organization.createdAt.toISOString()
+        }
       };
     } catch (error) {
       return handleRouteError(reply, error);

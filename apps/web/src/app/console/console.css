@@ -45,15 +45,40 @@
   min-width: 0;
 }
 
-/* Top-right workspace toolbar */
+/* Sticky workspace top bar — reserves a strip at the top of every view so the
+   theme toggle + profile menu never overlap page content, and stays in reach on
+   scroll. Full-bleed via negative margins that cancel the workspace padding. */
 .console-topright {
-  position: fixed;
-  top: 16px;
-  right: 16px;
+  position: sticky;
+  top: 0;
   z-index: 55;
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
+  height: 56px;
+  margin: -22px -22px 16px;
+  padding: 0 22px;
+  background: var(--nav-blur-bg);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+/* On stacked (mobile) layouts the sidebar is a top bar, so keep this in-flow
+   rather than sticky to avoid covering it. */
+@media (max-width: 860px) {
+  .console-topright {
+    position: static;
+  }
+}
+
+@media (max-width: 520px) {
+  .console-topright {
+    height: 52px;
+    margin: -14px -14px 12px;
+    padding: 0 14px;
+  }
 }
 
 .console-topright-btn {
@@ -398,7 +423,7 @@
 .settings-tab:focus-visible {
   outline: none;
   color: var(--text);
-  border-left-color: var(--green);
+  border-left-color: var(--accent-text);
 }
 
 .settings-tab svg {
@@ -406,7 +431,7 @@
 }
 
 .settings-tab.is-active {
-  border-left-color: var(--green);
+  border-left-color: var(--accent-text);
   border-radius: 0 8px 8px 0;
   background: var(--surface-2);
   color: var(--text);
@@ -414,6 +439,76 @@
 
 .settings-content {
   min-width: 0;
+}
+
+/* Full-width page header above the tabs — mirrors the admin section headers. */
+.settings-header {
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+}
+
+.settings-header h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.settings-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Organization summary card */
+.org-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.org-summary-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: var(--brand-gradient);
+  color: #fff;
+}
+
+.org-summary-meta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.org-summary-meta strong {
+  font-size: 15px;
+}
+
+.org-summary-meta span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.org-summary-role {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
 }
 
 .settings-account-line {
@@ -1103,183 +1198,5 @@
   .app-shell.is-collapsed .sidebar-collapse {
     justify-content: center;
     padding: 0;
-  }
-}
-
-/* ==========================================================================
-   Professional top-right cluster (theme + profile)
-   ========================================================================== */
-
-.profile-menu {
-  position: relative;
-}
-
-.profile-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 10px 0 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text);
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.profile-trigger:hover,
-.profile-trigger.is-open {
-  border-color: var(--accent-weak-border);
-  background: var(--surface);
-}
-
-.profile-avatar {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 27px;
-  height: 27px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: var(--brand-gradient);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.profile-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.profile-avatar.lg {
-  width: 40px;
-  height: 40px;
-  font-size: 15px;
-}
-
-.profile-name {
-  font-size: 13px;
-  font-weight: 650;
-  max-width: 120px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.profile-chevron {
-  color: var(--muted);
-}
-
-.profile-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 70;
-  width: 244px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: var(--shadow-lg);
-  transform-origin: top right;
-}
-
-.profile-head {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 8px 8px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.profile-head-meta {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.profile-head-meta strong {
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.profile-head-meta span {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.profile-role {
-  width: fit-content;
-  margin-top: 3px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--accent-weak);
-  color: var(--accent-text) !important;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: capitalize;
-}
-
-.profile-actions {
-  display: grid;
-  gap: 2px;
-  padding-top: 6px;
-}
-
-.profile-actions button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 550;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.profile-actions button svg {
-  color: var(--muted);
-}
-
-.profile-actions button:hover {
-  background: var(--elevated);
-}
-
-.profile-actions button.danger {
-  color: var(--rose);
-}
-
-.profile-actions button.danger svg {
-  color: var(--rose);
-}
-
-.profile-actions button.danger:hover {
-  background: rgba(225, 108, 114, 0.12);
-}
-
-.profile-divider {
-  height: 1px;
-  margin: 6px 4px;
-  background: var(--border);
-}
-
-@media (max-width: 560px) {
-  .profile-name {
-    display: none;
   }
 }

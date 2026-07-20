@@ -14,6 +14,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Braces,
+  Building2,
   Camera,
   Check,
   Circle,
@@ -42,6 +43,7 @@ import type {
   AuditLog,
   CredentialSummary,
   Host,
+  Organization,
   Role,
   Snippet,
   User,
@@ -1141,6 +1143,7 @@ function passwordChangeError(err: unknown): string {
 
 const settingsTabs = [
   { key: "profile", label: "Profile", icon: UserRound },
+  { key: "organization", label: "Organization", icon: Building2 },
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "security", label: "Two-Factor", icon: ShieldCheck },
   { key: "password", label: "Password", icon: KeyRound },
@@ -1152,6 +1155,8 @@ type SettingsTab = (typeof settingsTabs)[number]["key"];
 export function SettingsView({
   user,
   organizationName,
+  organization,
+  onOrgUpdated,
   mode,
   onMode,
   accent,
@@ -1162,6 +1167,8 @@ export function SettingsView({
 }: {
   user: User;
   organizationName: string;
+  organization?: Organization | null;
+  onOrgUpdated?: (organization: Organization) => void;
   mode: ThemeMode;
   onMode: (mode: ThemeMode) => void;
   accent: AccentValue;
@@ -1187,6 +1194,29 @@ export function SettingsView({
   const accentIsPreset = ACCENT_PRESETS.some((preset) => preset.key === accent);
   const accentIsCustom = !accentIsPreset && !isDefaultAccent(accent);
   const customHex = accentToHex(accent);
+
+  const currentOrgName = organization?.name ?? organizationName ?? "";
+  const [orgName, setOrgName] = useState(currentOrgName);
+  const [savingOrg, setSavingOrg] = useState(false);
+  useEffect(() => {
+    setOrgName(currentOrgName);
+  }, [currentOrgName]);
+  const canEditOrg = canManageUsers(user.role);
+  const orgDirty = orgName.trim().length >= 2 && orgName.trim() !== currentOrgName.trim();
+
+  async function saveOrganization() {
+    if (!orgDirty) return;
+    setSavingOrg(true);
+    try {
+      const { organization: updated } = await consoleApi.updateOrganization({ name: orgName.trim() });
+      onOrgUpdated?.(updated);
+      notify("Organization updated.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not update organization.", "error");
+    } finally {
+      setSavingOrg(false);
+    }
+  }
 
   /* profile */
   const [name, setName] = useState(user.name);
@@ -1360,6 +1390,10 @@ export function SettingsView({
 
   return (
     <div className="settings-shell">
+      <div className="settings-header">
+        <h1>Settings</h1>
+        <p>Manage your profile, organization, and workspace preferences.</p>
+      </div>
       <nav className="settings-tabs" aria-label="Settings sections">
         {settingsTabs.map((item) => (
           <button
@@ -1453,6 +1487,58 @@ export function SettingsView({
                 )}
                 {savingProfile ? "Saving…" : "Save profile"}
               </button>
+            </div>
+          </section>
+        )}
+
+        {tab === "organization" && (
+          <section className="panel">
+            <div className="panel-header tight">
+              <div>
+                <h2>Organization</h2>
+                <p>Your workspace name and details.</p>
+              </div>
+            </div>
+            <div className="settings-block">
+              <div className="org-summary">
+                <span className="org-summary-mark">
+                  <Building2 size={20} />
+                </span>
+                <div className="org-summary-meta">
+                  <strong>{currentOrgName || "Workspace"}</strong>
+                  <span>{organization?.slug ? `Workspace · ${organization.slug}` : "Your team workspace"}</span>
+                </div>
+                <span className="org-summary-role">{user.role}</span>
+              </div>
+              <label className="field">
+                <span>Organization name</span>
+                <input
+                  disabled={!canEditOrg || savingOrg}
+                  maxLength={120}
+                  onChange={(event) => setOrgName(event.target.value)}
+                  placeholder="Organization name"
+                  value={orgName}
+                />
+              </label>
+              {organization?.slug && (
+                <label className="field">
+                  <span>Workspace slug</span>
+                  <input disabled readOnly value={organization.slug} />
+                </label>
+              )}
+              {canEditOrg ? (
+                <button
+                  className="primary-button"
+                  disabled={savingOrg || !orgDirty}
+                  onClick={saveOrganization}
+                  type="button"
+                >
+                  {savingOrg ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
+                  {savingOrg ? "Saving…" : "Save organization"}
+                </button>
+              ) : (
+                <p className="profile-hint">Only owners and admins can change organization details.</p>
+              )}
             </div>
           </section>
         )}

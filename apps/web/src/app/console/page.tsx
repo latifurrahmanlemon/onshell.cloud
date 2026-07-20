@@ -489,7 +489,7 @@ export default function ConsolePage() {
               }}
               type="button"
             >
-              <span className="profile-avatar">
+              <span className="pf-avatar">
                 {identity.user.avatarUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img alt="" src={identity.user.avatarUrl} />
@@ -512,7 +512,7 @@ export default function ConsolePage() {
                   transition={{ duration: 0.14, ease: "easeOut" }}
                 >
                   <div className="profile-head">
-                    <span className="profile-avatar lg">
+                    <span className="pf-avatar lg">
                       {identity.user.avatarUrl ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img alt="" src={identity.user.avatarUrl} />
@@ -878,7 +878,11 @@ export default function ConsolePage() {
                 onAccent={handleAccent}
                 onLogout={() => void logout()}
                 onMode={handleMode}
+                onOrgUpdated={(organization) =>
+                  setIdentity((current) => (current ? { ...current, organization } : current))
+                }
                 onProfileUpdated={(user) => setIdentity((current) => (current ? { ...current, user } : current))}
+                organization={identity.organization}
                 organizationName={identity.organization?.name ?? "Workspace"}
                 user={identity.user}
               />
