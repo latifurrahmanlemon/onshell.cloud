@@ -478,6 +478,20 @@ export default function ConsolePage() {
             {mode === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
 
+          {identity.user.isPlatformAdmin && (
+            <button
+              aria-label="Switch to admin panel"
+              className="console-topright-btn"
+              data-tooltip="Switch to admin panel"
+              onClick={() => {
+                window.location.href = "/admin";
+              }}
+              type="button"
+            >
+              <ArrowLeftRight size={16} />
+            </button>
+          )}
+
           <div className="profile-menu">
             <button
               aria-expanded={profileOpen}

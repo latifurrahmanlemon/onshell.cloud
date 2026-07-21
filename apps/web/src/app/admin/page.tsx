@@ -2,16 +2,21 @@
 
 import "./admin.css";
 
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   AlertCircle,
   ArrowLeftRight,
   Camera,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
   Circle,
   CreditCard,
   Database,
@@ -24,16 +29,22 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MailCheck,
   Package,
+  PieChart,
   Plus,
   Receipt,
   RefreshCw,
   Save,
   Search,
   Send,
+  Server,
   Settings2,
   ShieldCheck,
   ShieldOff,
+  TrendingUp,
+  UserCog,
+  UserPlus,
   Users,
   X
 } from "lucide-react";
@@ -47,6 +58,11 @@ const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:400
 
 /* ------------------------------------------------------------------ types */
 
+interface TrendPoint {
+  date: string;
+  count: number;
+}
+
 interface Overview {
   totals: {
     users: number;
@@ -54,6 +70,15 @@ interface Overview {
     hosts: number;
     activeSubscriptions: number;
     plans: number;
+  };
+  series?: {
+    days: number;
+    users: TrendPoint[];
+    hosts: TrendPoint[];
+    cumulativeUsers: TrendPoint[];
+  };
+  breakdown?: {
+    plans: Array<{ name: string; count: number }>;
   };
   smtp?: {
     enabled: boolean;
@@ -89,8 +114,10 @@ interface AdminUser {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string | null;
   role: string;
   organizationId?: string;
+  organizationName?: string | null;
   isPlatformAdmin: boolean;
   twoFactorEnabled: boolean;
   emailVerifiedAt?: string | null;
@@ -189,7 +216,40 @@ interface NewSettingForm {
 }
 
 type SectionId = "overview" | "users" | "settings";
-type SettingsTab = "packages" | "subscriptions" | "smtp" | "billing" | "general";
+type SettingsTab = "packages" | "smtp" | "billing" | "general";
+
+type UserSortKey = "name" | "email" | "role" | "created";
+type UserRoleFilter = "all" | "platform" | "owner" | "admin" | "devops" | "developer" | "auditor";
+type UserStatusFilter = "all" | "verified" | "unverified";
+type UserView = "directory" | "history";
+
+const USERS_PAGE_SIZE = 8;
+
+const USER_ROLE_OPTIONS: Array<{ value: "owner" | "admin" | "devops" | "developer" | "auditor"; label: string }> = [
+  { value: "owner", label: "Owner" },
+  { value: "admin", label: "Admin" },
+  { value: "devops", label: "DevOps" },
+  { value: "developer", label: "Developer" },
+  { value: "auditor", label: "Auditor" }
+];
+
+interface NewUserForm {
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "devops" | "developer" | "auditor";
+  isPlatformAdmin: boolean;
+  sendInvite: boolean;
+  password: string;
+}
+
+const NEW_USER_DEFAULTS: NewUserForm = {
+  name: "",
+  email: "",
+  role: "owner",
+  isPlatformAdmin: false,
+  sendInvite: false,
+  password: ""
+};
 
 /* ------------------------------------------------------------- constants */
 
@@ -201,7 +261,6 @@ const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
 
 const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
   { id: "packages", label: "Packages", icon: Package },
-  { id: "subscriptions", label: "Subscriptions", icon: Receipt },
   { id: "smtp", label: "SMTP", icon: Mail },
   { id: "billing", label: "Billing Provider", icon: CreditCard },
   { id: "general", label: "General", icon: Settings2 }
@@ -210,7 +269,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> 
 const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   overview: { title: "Overview", description: "Live platform totals and delivery status across the deployment." },
   users: { title: "Users", description: "All accounts across organizations, with roles and security posture." },
-  settings: { title: "Settings", description: "Packages, subscriptions, email, billing, and platform configuration." }
+  settings: { title: "Settings", description: "Packages, email, billing, and platform configuration." }
 };
 
 const SMTP_FALLBACK: SmtpSettings = {
@@ -365,6 +424,43 @@ function requiredInt(value: string, fallback: number) {
 
 function sortPlans(plans: AdminPlan[]) {
   return [...plans].sort((left, right) => left.displayOrder - right.displayOrder || left.name.localeCompare(right.name));
+}
+
+type PackageSortKey = "name" | "price" | "users" | "hosts" | "status";
+type SortDir = "asc" | "desc";
+
+const PACKAGES_PAGE_SIZE = 8;
+
+function comparePlans(left: AdminPlan, right: AdminPlan, key: PackageSortKey): number {
+  switch (key) {
+    case "name":
+      return left.name.localeCompare(right.name);
+    case "price":
+      return left.priceMonthlyCents - right.priceMonthlyCents;
+    case "users":
+      return (left.maxUsers ?? Number.POSITIVE_INFINITY) - (right.maxUsers ?? Number.POSITIVE_INFINITY);
+    case "hosts":
+      return (left.maxHosts ?? Number.POSITIVE_INFINITY) - (right.maxHosts ?? Number.POSITIVE_INFINITY);
+    case "status":
+      return Number(right.isActive) - Number(left.isActive);
+    default:
+      return 0;
+  }
+}
+
+function compareUsers(left: AdminUser, right: AdminUser, key: UserSortKey): number {
+  switch (key) {
+    case "name":
+      return left.name.localeCompare(right.name);
+    case "email":
+      return left.email.localeCompare(right.email);
+    case "role":
+      return left.role.localeCompare(right.role);
+    case "created":
+      return new Date(left.createdAt ?? 0).getTime() - new Date(right.createdAt ?? 0).getTime();
+    default:
+      return 0;
+  }
 }
 
 function emptyPackageForm(displayOrder = "0"): PackageForm {
@@ -584,6 +680,147 @@ function EmptyState({ icon: Icon, title, body, action }: { icon: LucideIcon; tit
   );
 }
 
+/* --------------------------------------------------------------- charts */
+
+/** Parse a "YYYY-MM-DD" key into a local Date, then format it compactly. */
+function shortDay(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Single-series area chart with a hover crosshair + tooltip. The card title names
+ * the series, so no legend is needed. `tone` is any CSS color (e.g. var(--accent)).
+ */
+function TrendChart({
+  title,
+  icon: Icon,
+  points,
+  tone,
+  unit
+}: {
+  title: string;
+  icon: LucideIcon;
+  points: TrendPoint[];
+  tone: string;
+  unit: string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const width = 720;
+  const height = 200;
+  const padX = 6;
+  const padTop = 16;
+  const padBottom = 24;
+  const count = points.length;
+  const max = Math.max(1, ...points.map((point) => point.count));
+  const total = points.reduce((sum, point) => sum + point.count, 0);
+
+  const xAt = (index: number) => padX + (index * (width - padX * 2)) / Math.max(1, count - 1);
+  const yAt = (value: number) => padTop + (1 - value / max) * (height - padTop - padBottom);
+
+  const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xAt(index).toFixed(1)} ${yAt(point.count).toFixed(1)}`).join(" ");
+  const areaPath =
+    count > 0
+      ? `${linePath} L ${xAt(count - 1).toFixed(1)} ${(height - padBottom).toFixed(1)} L ${xAt(0).toFixed(1)} ${(height - padBottom).toFixed(1)} Z`
+      : "";
+
+  const gradientId = `trend-grad-${title.replace(/\W/g, "")}`;
+  const gridValues = [0, Math.round(max / 2), max];
+
+  function onMove(event: ReactMouseEvent<HTMLDivElement>) {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect || count === 0) return;
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const index = Math.round(ratio * (count - 1));
+    setHover(Math.max(0, Math.min(count - 1, index)));
+  }
+
+  const active = hover !== null ? points[hover] : null;
+
+  return (
+    <div className="panel adm-chart-card">
+      <div className="adm-chart-head">
+        <div className="adm-chart-title">
+          <Icon size={16} />
+          <div>
+            <h2>{title}</h2>
+            <p>Last {count} days</p>
+          </div>
+        </div>
+        <div className="adm-chart-total">
+          <strong>{total.toLocaleString()}</strong>
+          <span>{unit}</span>
+        </div>
+      </div>
+
+      <div className="adm-chart-plot" onMouseLeave={() => setHover(null)} onMouseMove={onMove} ref={wrapRef}>
+        <svg preserveAspectRatio="none" role="img" aria-label={title} viewBox={`0 0 ${width} ${height}`}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={tone} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={tone} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          {gridValues.map((value) => (
+            <line
+              className="adm-chart-grid"
+              key={value}
+              x1={padX}
+              x2={width - padX}
+              y1={yAt(value)}
+              y2={yAt(value)}
+            />
+          ))}
+          {areaPath && <path d={areaPath} fill={`url(#${gradientId})`} />}
+          {linePath && <path d={linePath} fill="none" stroke={tone} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
+          {active && hover !== null && (
+            <g>
+              <line className="adm-chart-cursor" x1={xAt(hover)} x2={xAt(hover)} y1={padTop} y2={height - padBottom} />
+              <circle cx={xAt(hover)} cy={yAt(active.count)} fill={tone} r={4} stroke="var(--surface)" strokeWidth={2} />
+            </g>
+          )}
+        </svg>
+        {active && hover !== null && (
+          <div
+            className="adm-chart-tooltip"
+            style={{ left: `${(xAt(hover) / width) * 100}%`, top: `${(yAt(active.count) / height) * 100}%` }}
+          >
+            <strong>{active.count.toLocaleString()}</strong>
+            <span>{shortDay(active.date)}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="adm-chart-axis">
+        <span>{count > 0 ? shortDay(points[0].date) : ""}</span>
+        <span>{count > 0 ? shortDay(points[count - 1].date) : ""}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Horizontal magnitude bars — one hue, ranked longest first. */
+function PlanBreakdown({ items }: { items: Array<{ name: string; count: number }> }) {
+  const max = Math.max(1, ...items.map((item) => item.count));
+  return (
+    <div className="adm-breakdown">
+      {items.map((item) => (
+        <div className="adm-breakdown-row" key={item.name}>
+          <span className="adm-breakdown-label" title={item.name}>
+            {item.name}
+          </span>
+          <div className="adm-breakdown-track">
+            <div className="adm-breakdown-fill" style={{ width: `${Math.max(4, (item.count / max) * 100)}%` }} />
+          </div>
+          <span className="adm-breakdown-value">{item.count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function passwordRequirements(password: string): Array<{ label: string; met: boolean }> {
   const reqs = [{ label: `At least ${passwordPolicy.minLength} characters`, met: password.length >= passwordPolicy.minLength }];
   if (passwordPolicy.requireLowercase) reqs.push({ label: "One lowercase letter", met: /[a-z]/.test(password) });
@@ -730,9 +967,35 @@ function AdminPanel() {
   /* packages */
   const [packageForm, setPackageForm] = useState<PackageForm>(() => emptyPackageForm());
   const [savingPackage, setSavingPackage] = useState(false);
+  const [packageModalOpen, setPackageModalOpen] = useState(false);
+  const [packageQuery, setPackageQuery] = useState("");
+  const [packageSort, setPackageSort] = useState<{ key: PackageSortKey; dir: SortDir }>({ key: "name", dir: "asc" });
+  const [packagePage, setPackagePage] = useState(1);
 
   /* users */
+  const [userView, setUserView] = useState<UserView>("directory");
   const [userQuery, setUserQuery] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>("all");
+  const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>("all");
+  const [userSort, setUserSort] = useState<{ key: UserSortKey; dir: SortDir }>({ key: "created", dir: "desc" });
+  const [userPage, setUserPage] = useState(1);
+
+  /* users — create modal */
+  const [newUserModalOpen, setNewUserModalOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState<NewUserForm>(NEW_USER_DEFAULTS);
+  const [creatingUser, setCreatingUser] = useState(false);
+
+  /* users — manage modal */
+  const [manageUser, setManageUser] = useState<AdminUser | null>(null);
+  const [manageRole, setManageRole] = useState<NewUserForm["role"]>("owner");
+  const [managePlatformAdmin, setManagePlatformAdmin] = useState(false);
+  const [managePlanId, setManagePlanId] = useState("");
+  const [managePlanInterval, setManagePlanInterval] = useState<"monthly" | "yearly">("monthly");
+  const [manageNewPassword, setManageNewPassword] = useState("");
+  const [savingUserAccess, setSavingUserAccess] = useState(false);
+  const [savingUserVerify, setSavingUserVerify] = useState(false);
+  const [savingUserPlan, setSavingUserPlan] = useState(false);
+  const [savingUserPassword, setSavingUserPassword] = useState(false);
 
   /* smtp */
   const [smtpForm, setSmtpForm] = useState<SmtpFormState>(SMTP_FORM_DEFAULTS);
@@ -796,17 +1059,64 @@ function AdminPanel() {
 
   const plans = useMemo(() => sortPlans(plansRes.data ?? []), [plansRes.data]);
 
+  const visiblePlans = useMemo(() => {
+    const query = packageQuery.trim().toLowerCase();
+    const filtered = query
+      ? plans.filter(
+          (plan) =>
+            plan.name.toLowerCase().includes(query) ||
+            plan.code.toLowerCase().includes(query) ||
+            plan.description.toLowerCase().includes(query)
+        )
+      : plans;
+    const factor = packageSort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((left, right) => factor * comparePlans(left, right, packageSort.key));
+  }, [plans, packageQuery, packageSort]);
+
+  const packageTotalPages = Math.max(1, Math.ceil(visiblePlans.length / PACKAGES_PAGE_SIZE));
+  const packagePageSafe = Math.min(packagePage, packageTotalPages);
+  const pagedPlans = useMemo(
+    () => visiblePlans.slice((packagePageSafe - 1) * PACKAGES_PAGE_SIZE, packagePageSafe * PACKAGES_PAGE_SIZE),
+    [visiblePlans, packagePageSafe]
+  );
+
+  /* keep the current page in range as the filter/sort narrows the list */
+  useEffect(() => {
+    setPackagePage(1);
+  }, [packageQuery, packageSort]);
+
   const filteredUsers = useMemo(() => {
     const list = usersRes.data ?? [];
     const query = userQuery.trim().toLowerCase();
-    if (!query) return list;
-    return list.filter(
-      (user) =>
-        user.name.toLowerCase().includes(query) ||
-        user.email.toLowerCase().includes(query) ||
-        user.role.toLowerCase().includes(query)
-    );
-  }, [usersRes.data, userQuery]);
+    const matched = list.filter((user) => {
+      if (query) {
+        const haystack = `${user.name} ${user.email} ${user.role} ${user.organizationName ?? ""}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      if (userRoleFilter === "platform") {
+        if (!user.isPlatformAdmin) return false;
+      } else if (userRoleFilter !== "all") {
+        if (user.role !== userRoleFilter) return false;
+      }
+      if (userStatusFilter === "verified" && !user.emailVerifiedAt) return false;
+      if (userStatusFilter === "unverified" && user.emailVerifiedAt) return false;
+      return true;
+    });
+    const factor = userSort.dir === "asc" ? 1 : -1;
+    return [...matched].sort((left, right) => factor * compareUsers(left, right, userSort.key));
+  }, [usersRes.data, userQuery, userRoleFilter, userStatusFilter, userSort]);
+
+  const userTotalPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE));
+  const userPageSafe = Math.min(userPage, userTotalPages);
+  const pagedUsers = useMemo(
+    () => filteredUsers.slice((userPageSafe - 1) * USERS_PAGE_SIZE, userPageSafe * USERS_PAGE_SIZE),
+    [filteredUsers, userPageSafe]
+  );
+
+  /* keep the current page in range as filters/sort narrow the list */
+  useEffect(() => {
+    setUserPage(1);
+  }, [userQuery, userRoleFilter, userStatusFilter, userSort]);
 
   const groupedSettings = useMemo(() => {
     const groups = new Map<string, AppSetting[]>();
@@ -820,7 +1130,6 @@ function AdminPanel() {
 
   const settingsTabLoading: Record<SettingsTab, boolean> = {
     packages: plansRes.loading,
-    subscriptions: subscriptionsRes.loading,
     smtp: smtpRes.loading,
     billing: paymentRes.loading,
     general: settingsRes.loading
@@ -836,7 +1145,6 @@ function AdminPanel() {
     if (section === "settings") {
       const tabReloaders: Record<SettingsTab, () => Promise<void>> = {
         packages: plansRes.reload,
-        subscriptions: subscriptionsRes.reload,
         smtp: smtpRes.reload,
         billing: paymentRes.reload,
         general: settingsRes.reload
@@ -844,21 +1152,30 @@ function AdminPanel() {
       void tabReloaders[settingsTab]();
       return;
     }
-    const reloaders: Record<"overview" | "users", () => Promise<void>> = {
-      overview: overviewRes.reload,
-      users: usersRes.reload
-    };
-    void reloaders[section]();
+    if (section === "users") {
+      void usersRes.reload();
+      void subscriptionsRes.reload();
+      return;
+    }
+    void overviewRes.reload();
   }
 
   /* -------------------------------------------------------- package actions */
 
   function newPackage() {
     setPackageForm(emptyPackageForm(String(plans.length + 1)));
+    setPackageModalOpen(true);
   }
 
   function editPlan(plan: AdminPlan) {
     setPackageForm(planToForm(plan));
+    setPackageModalOpen(true);
+  }
+
+  function togglePackageSort(key: PackageSortKey) {
+    setPackageSort((current) =>
+      current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
+    );
   }
 
   function updatePackageForm<K extends keyof PackageForm>(field: K, value: PackageForm[K]) {
@@ -913,11 +1230,190 @@ function AdminPanel() {
         return sortPlans(wasEdit ? list.map((plan) => (plan.id === saved.id ? saved : plan)) : [...list, saved]);
       });
       setPackageForm(planToForm(saved));
+      setPackageModalOpen(false);
       showToast("success", `Package "${saved.name}" ${wasEdit ? "updated" : "created"}.`);
     } catch (error) {
       showToast("error", errorText(error));
     } finally {
       setSavingPackage(false);
+    }
+  }
+
+  /* ---------------------------------------------------------- user actions */
+
+  function toggleUserSort(key: UserSortKey) {
+    setUserSort((current) =>
+      current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
+    );
+  }
+
+  function updateNewUser<K extends keyof NewUserForm>(field: K, value: NewUserForm[K]) {
+    setNewUserForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function openNewUser() {
+    setNewUserForm(NEW_USER_DEFAULTS);
+    setNewUserModalOpen(true);
+  }
+
+  function openManageUser(user: AdminUser) {
+    setManageUser(user);
+    setManageRole((user.role as NewUserForm["role"]) ?? "developer");
+    setManagePlatformAdmin(user.isPlatformAdmin);
+    const current = user.organizationId
+      ? (subscriptionsRes.data ?? []).find((sub) => sub.organization?.id === user.organizationId)
+      : undefined;
+    setManagePlanId(current?.plan?.id ?? "");
+    setManagePlanInterval(current?.billingInterval?.toLowerCase() === "yearly" ? "yearly" : "monthly");
+    setManageNewPassword("");
+  }
+
+  /* replace a user in the cached list, preserving the client-only org name */
+  function patchUserInList(updated: AdminUser) {
+    usersRes.setData((current) =>
+      (current ?? []).map((user) =>
+        user.id === updated.id ? { ...updated, organizationName: user.organizationName ?? updated.organizationName } : user
+      )
+    );
+    setManageUser((current) =>
+      current && current.id === updated.id ? { ...updated, organizationName: current.organizationName } : current
+    );
+  }
+
+  async function createUser() {
+    if (newUserForm.name.trim().length < 2) {
+      showToast("error", "Enter a name with at least 2 characters.");
+      return;
+    }
+    if (!newUserForm.email.includes("@")) {
+      showToast("error", "Enter a valid email address.");
+      return;
+    }
+    if (!newUserForm.sendInvite && !validatePassword(newUserForm.password).valid) {
+      showToast("error", "Set a password that meets the requirements, or switch to send invite.");
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      const created = await apiSend<AdminUser>("/admin/users", "POST", {
+        name: newUserForm.name.trim(),
+        email: newUserForm.email.trim().toLowerCase(),
+        role: newUserForm.role,
+        isPlatformAdmin: newUserForm.isPlatformAdmin,
+        sendInvite: newUserForm.sendInvite,
+        password: newUserForm.sendInvite ? undefined : newUserForm.password
+      });
+      usersRes.setData((current) => [
+        { ...created, organizationName: `${newUserForm.name.trim()}'s Organization` },
+        ...(current ?? [])
+      ]);
+      setNewUserModalOpen(false);
+      showToast("success", `User "${created.name}" created.`);
+    } catch (error) {
+      showToast("error", errorText(error));
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  async function saveUserAccess() {
+    if (!manageUser) return;
+    const roleChanged = manageRole !== manageUser.role;
+    const adminChanged = managePlatformAdmin !== manageUser.isPlatformAdmin;
+    if (!roleChanged && !adminChanged) {
+      showToast("error", "No access changes to save.");
+      return;
+    }
+    if (
+      adminChanged &&
+      !window.confirm(
+        managePlatformAdmin
+          ? `Grant platform admin access to ${manageUser.name}? They will be able to manage the whole platform.`
+          : `Revoke platform admin access from ${manageUser.name}?`
+      )
+    ) {
+      return;
+    }
+    setSavingUserAccess(true);
+    try {
+      const updated = await apiSend<AdminUser>(`/admin/users/${manageUser.id}`, "PATCH", {
+        ...(roleChanged ? { role: manageRole } : {}),
+        ...(adminChanged ? { isPlatformAdmin: managePlatformAdmin } : {})
+      });
+      patchUserInList(updated);
+      showToast("success", "Access updated.");
+    } catch (error) {
+      showToast("error", errorText(error));
+    } finally {
+      setSavingUserAccess(false);
+    }
+  }
+
+  async function markUserVerified() {
+    if (!manageUser) return;
+    setSavingUserVerify(true);
+    try {
+      const updated = await apiSend<AdminUser>(`/admin/users/${manageUser.id}`, "PATCH", { emailVerified: true });
+      patchUserInList(updated);
+      showToast("success", "Email marked as verified.");
+    } catch (error) {
+      showToast("error", errorText(error));
+    } finally {
+      setSavingUserVerify(false);
+    }
+  }
+
+  async function assignUserPlan() {
+    if (!manageUser) return;
+    if (!managePlanId) {
+      showToast("error", "Choose a plan to assign.");
+      return;
+    }
+    const plan = plans.find((item) => item.id === managePlanId);
+    if (
+      !window.confirm(
+        `Assign "${plan?.name ?? "plan"}" (${managePlanInterval}) to ${manageUser.name}'s organization? This changes their active subscription.`
+      )
+    ) {
+      return;
+    }
+    setSavingUserPlan(true);
+    try {
+      const saved = await apiSend<AdminSubscription>(`/admin/users/${manageUser.id}/plan`, "PATCH", {
+        planId: managePlanId,
+        billingInterval: managePlanInterval
+      });
+      subscriptionsRes.setData((current) => {
+        const list = current ?? [];
+        const exists = list.some((sub) => sub.id === saved.id);
+        return exists ? list.map((sub) => (sub.id === saved.id ? saved : sub)) : [saved, ...list];
+      });
+      showToast("success", `Plan assigned to ${saved.organization?.name ?? "organization"}.`);
+    } catch (error) {
+      showToast("error", errorText(error));
+    } finally {
+      setSavingUserPlan(false);
+    }
+  }
+
+  async function setUserPassword() {
+    if (!manageUser) return;
+    if (!validatePassword(manageNewPassword).valid) {
+      showToast("error", "The new password does not meet the requirements.");
+      return;
+    }
+    if (!window.confirm(`Set a new password for ${manageUser.name}? Their other sessions will be signed out.`)) {
+      return;
+    }
+    setSavingUserPassword(true);
+    try {
+      await apiSend(`/admin/users/${manageUser.id}/password`, "POST", { password: manageNewPassword });
+      setManageNewPassword("");
+      showToast("success", "Password updated.");
+    } catch (error) {
+      showToast("error", errorText(error));
+    } finally {
+      setSavingUserPassword(false);
     }
   }
 
@@ -1208,44 +1704,84 @@ function AdminPanel() {
     const totals = overviewRes.data?.totals;
     const providers = overviewRes.data?.paymentProviders ?? [];
     const smtpStatus = overviewRes.data?.smtp;
+    const series = overviewRes.data?.series;
+    const planBreakdown = overviewRes.data?.breakdown?.plans ?? [];
+    const windowDays = series?.days ?? 30;
+    const newUsers = series ? series.users.reduce((sum, point) => sum + point.count, 0) : 0;
+    const newHosts = series ? series.hosts.reduce((sum, point) => sum + point.count, 0) : 0;
+    const loadingFirst = overviewRes.loading && !overviewRes.data;
 
     return (
       <div className="adm-stack">
         {overviewRes.error && <ErrorBanner message={overviewRes.error} onRetry={overviewRes.reload} retrying={overviewRes.loading} />}
-        {overviewRes.loading && !overviewRes.data ? (
+        {loadingFirst ? (
           <SkeletonTiles />
         ) : (
           <div className="metrics-grid">
             <MetricTile
-              detail={totals ? `${totals.organizations} organization${totals.organizations === 1 ? "" : "s"}` : "No data yet"}
+              detail={series ? `+${newUsers} in ${windowDays}d` : totals ? `${totals.organizations} organization${totals.organizations === 1 ? "" : "s"}` : "No data yet"}
               icon={Users}
               label="Users"
               tone="green"
-              value={totals ? String(totals.users) : "—"}
+              value={totals ? totals.users.toLocaleString() : "—"}
             />
             <MetricTile
-              detail={totals ? "Published offers" : "No data yet"}
-              icon={Package}
-              label="Packages"
-              tone="cyan"
-              value={totals ? String(totals.plans) : "—"}
-            />
-            <MetricTile
-              detail={totals ? "Currently active" : "No data yet"}
-              icon={Receipt}
-              label="Subscriptions"
-              tone="amber"
-              value={totals ? String(totals.activeSubscriptions) : "—"}
-            />
-            <MetricTile
-              detail={totals ? "Registered endpoints" : "No data yet"}
+              detail={series ? `+${newHosts} in ${windowDays}d` : totals ? "Registered endpoints" : "No data yet"}
               icon={Database}
               label="Hosts"
               tone="rose"
-              value={totals ? String(totals.hosts) : "—"}
+              value={totals ? totals.hosts.toLocaleString() : "—"}
+            />
+            <MetricTile
+              detail={totals ? `${totals.plans} package${totals.plans === 1 ? "" : "s"}` : "No data yet"}
+              icon={Receipt}
+              label="Active subscriptions"
+              tone="amber"
+              value={totals ? totals.activeSubscriptions.toLocaleString() : "—"}
+            />
+            <MetricTile
+              detail={totals ? "Across the platform" : "No data yet"}
+              icon={LayoutDashboard}
+              label="Organizations"
+              tone="cyan"
+              value={totals ? totals.organizations.toLocaleString() : "—"}
             />
           </div>
         )}
+
+        {loadingFirst ? (
+          <div className="panel adm-chart-card adm-chart-skeleton">
+            <div className="adm-skeleton adm-skeleton-line short" />
+            <div className="adm-skeleton adm-chart-skeleton-plot" />
+          </div>
+        ) : series ? (
+          <>
+            <TrendChart icon={UserPlus} points={series.users} title="New users" tone="var(--accent)" unit={`new in ${windowDays} days`} />
+            <div className="adm-two-col">
+              <TrendChart icon={Server} points={series.hosts} title="New hosts" tone="var(--cyan)" unit={`new in ${windowDays} days`} />
+              <div className="panel adm-chart-card">
+                <div className="adm-chart-head">
+                  <div className="adm-chart-title">
+                    <PieChart size={16} />
+                    <div>
+                      <h2>Active plans</h2>
+                      <p>Subscriptions by package</p>
+                    </div>
+                  </div>
+                </div>
+                {planBreakdown.length > 0 ? (
+                  <PlanBreakdown items={planBreakdown} />
+                ) : (
+                  <EmptyState
+                    body="No active subscriptions yet. They appear here once organizations subscribe to a package."
+                    icon={Inbox}
+                    title="No active plans"
+                  />
+                )}
+              </div>
+            </div>
+          </>
+        ) : null}
 
         <div className="adm-two-col">
           <div className="panel">
@@ -1324,7 +1860,31 @@ function AdminPanel() {
     );
   }
 
+  function packageSortHead(label: string, key: PackageSortKey) {
+    const active = packageSort.key === key;
+    return (
+      <button
+        aria-label={`Sort by ${label}${active ? (packageSort.dir === "asc" ? " descending" : " ascending") : ""}`}
+        className={cx("adm-sort-head", active && "is-active")}
+        onClick={() => togglePackageSort(key)}
+        type="button"
+      >
+        <span>{label}</span>
+        {active ? (
+          packageSort.dir === "asc" ? (
+            <ChevronUp size={13} />
+          ) : (
+            <ChevronDown size={13} />
+          )
+        ) : (
+          <ChevronsUpDown className="adm-sort-idle" size={13} />
+        )}
+      </button>
+    );
+  }
+
   function renderPackages() {
+    const total = plans.length;
     return (
       <div className="adm-stack">
         {plansRes.error && <ErrorBanner message={plansRes.error} onRetry={plansRes.reload} retrying={plansRes.loading} />}
@@ -1334,292 +1894,425 @@ function AdminPanel() {
               <h2>Packages</h2>
               <p>Pricing and limits customers can buy from the public page.</p>
             </div>
-            <button className="secondary-button" onClick={newPackage} type="button">
-              <Plus size={16} />
-              <span>New Package</span>
-            </button>
+            <div className="adm-users-toolbar">
+              <div className="search-field">
+                <Search size={15} />
+                <input
+                  aria-label="Search packages"
+                  onChange={(event) => setPackageQuery(event.target.value)}
+                  placeholder="Search name, code..."
+                  value={packageQuery}
+                />
+              </div>
+              <span className="adm-count">{plansRes.data ? `${visiblePlans.length} of ${total}` : ""}</span>
+              <button className="secondary-button" onClick={newPackage} type="button">
+                <Plus size={16} />
+                <span>New Package</span>
+              </button>
+            </div>
           </div>
 
           {plansRes.loading && !plansRes.data ? (
             <SkeletonRows rows={3} />
-          ) : plans.length === 0 ? (
+          ) : total === 0 ? (
             <EmptyState
-              body="Create your first package below. Active packages show up on the public pricing page immediately."
+              body="Create your first package to get started. Active packages show up on the public pricing page immediately."
               icon={Package}
               title="No packages yet"
+              action={
+                <button className="secondary-button" onClick={newPackage} type="button">
+                  <Plus size={16} />
+                  <span>New Package</span>
+                </button>
+              }
+            />
+          ) : visiblePlans.length === 0 ? (
+            <EmptyState
+              body={`Nothing matches "${packageQuery}". Try a different name or code.`}
+              icon={Search}
+              title="No matching packages"
+              action={
+                <button className="adm-link-button" onClick={() => setPackageQuery("")} type="button">
+                  Clear search
+                </button>
+              }
             />
           ) : (
-            <div className="admin-table">
-              <div className="admin-row table-head">
-                <span>Name</span>
-                <span>Price</span>
-                <span>Users</span>
-                <span>Hosts</span>
-                <span>Status</span>
-                <span>Edit</span>
-              </div>
-              {plans.map((plan) => (
-                <div className="admin-row" key={plan.id}>
-                  <strong>{plan.name}</strong>
-                  <span>${Math.round(plan.priceMonthlyCents / 100)}/mo</span>
-                  <span>{plan.maxUsers?.toString() ?? "Custom"}</span>
-                  <span>{plan.maxHosts?.toString() ?? "Custom"}</span>
-                  <span className={cx("session-state", !plan.isActive && "pending")}>{plan.isActive ? "active" : "hidden"}</span>
-                  <button
-                    aria-label={`Edit ${plan.name}`}
-                    className="icon-button compact"
-                    onClick={() => editPlan(plan)}
-                    title={`Edit ${plan.name}`}
-                    type="button"
-                  >
-                    <Edit3 size={14} />
-                  </button>
+            <>
+              <div className="admin-table">
+                <div className="admin-row table-head">
+                  {packageSortHead("Name", "name")}
+                  {packageSortHead("Price", "price")}
+                  {packageSortHead("Users", "users")}
+                  {packageSortHead("Hosts", "hosts")}
+                  {packageSortHead("Status", "status")}
+                  <span>Edit</span>
                 </div>
-              ))}
-            </div>
-          )}
-
-          <div className="package-editor">
-            <div className="adm-editor-head">
-              <span>{packageForm.id ? `Editing: ${packageForm.name || "package"}` : "New package"}</span>
-              {packageForm.id && (
-                <button className="adm-link-button" onClick={newPackage} type="button">
-                  Start a new package instead
-                </button>
-              )}
-            </div>
-            <div className="form-grid">
-              <label>
-                Code
-                <input onChange={(event) => updatePackageForm("code", event.target.value)} placeholder="business" value={packageForm.code} />
-              </label>
-              <label>
-                Name
-                <input onChange={(event) => updatePackageForm("name", event.target.value)} placeholder="Business" value={packageForm.name} />
-              </label>
-              <label className="span-two">
-                Description
-                <input
-                  onChange={(event) => updatePackageForm("description", event.target.value)}
-                  placeholder="Package description (at least 10 characters)"
-                  value={packageForm.description}
-                />
-              </label>
-              <label>
-                Monthly Price
-                <input inputMode="decimal" onChange={(event) => updatePackageForm("monthlyPrice", event.target.value)} value={packageForm.monthlyPrice} />
-              </label>
-              <label>
-                Yearly Price
-                <input inputMode="decimal" onChange={(event) => updatePackageForm("yearlyPrice", event.target.value)} value={packageForm.yearlyPrice} />
-              </label>
-              <label>
-                Currency
-                <input maxLength={3} onChange={(event) => updatePackageForm("currency", event.target.value)} value={packageForm.currency} />
-              </label>
-              <label>
-                Display Order
-                <input inputMode="numeric" onChange={(event) => updatePackageForm("displayOrder", event.target.value)} value={packageForm.displayOrder} />
-              </label>
-              <label>
-                Max Users
-                <input
-                  inputMode="numeric"
-                  onChange={(event) => updatePackageForm("maxUsers", event.target.value)}
-                  placeholder="Blank for custom"
-                  value={packageForm.maxUsers}
-                />
-              </label>
-              <label>
-                Max Hosts
-                <input
-                  inputMode="numeric"
-                  onChange={(event) => updatePackageForm("maxHosts", event.target.value)}
-                  placeholder="Blank for custom"
-                  value={packageForm.maxHosts}
-                />
-              </label>
-              <label>
-                Concurrent Sessions
-                <input
-                  inputMode="numeric"
-                  onChange={(event) => updatePackageForm("maxConcurrentSessions", event.target.value)}
-                  placeholder="Blank for custom"
-                  value={packageForm.maxConcurrentSessions}
-                />
-              </label>
-              <label>
-                Audit Retention Days
-                <input inputMode="numeric" onChange={(event) => updatePackageForm("auditRetentionDays", event.target.value)} value={packageForm.auditRetentionDays} />
-              </label>
-              <label className="span-two">
-                Features (one per line)
-                <textarea onChange={(event) => updatePackageForm("featuresText", event.target.value)} rows={4} value={packageForm.featuresText} />
-              </label>
-              <label className="toggle-line package-toggle">
-                <input checked={packageForm.isActive} onChange={(event) => updatePackageForm("isActive", event.target.checked)} type="checkbox" />
-                <span>Active on public pricing</span>
-              </label>
-              <div className="form-actions">
-                <button className="primary-button" disabled={savingPackage} onClick={savePackage} type="button">
-                  {savingPackage ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
-                  <span>{savingPackage ? "Saving..." : "Save Package"}</span>
-                </button>
-                <button className="secondary-button" disabled={savingPackage} onClick={newPackage} type="button">
-                  <Plus size={16} />
-                  <span>Clear</span>
-                </button>
+                {pagedPlans.map((plan) => (
+                  <div className="admin-row" key={plan.id}>
+                    <strong>{plan.name}</strong>
+                    <span>${Math.round(plan.priceMonthlyCents / 100)}/mo</span>
+                    <span>{plan.maxUsers?.toString() ?? "Custom"}</span>
+                    <span>{plan.maxHosts?.toString() ?? "Custom"}</span>
+                    <span className={cx("session-state", !plan.isActive && "pending")}>{plan.isActive ? "active" : "hidden"}</span>
+                    <button
+                      aria-label={`Edit ${plan.name}`}
+                      className="icon-button compact"
+                      onClick={() => editPlan(plan)}
+                      title={`Edit ${plan.name}`}
+                      type="button"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                  </div>
+                ))}
               </div>
-            </div>
-          </div>
+
+              {packageTotalPages > 1 && (
+                <div className="adm-pagination">
+                  <span className="adm-pagination-info">
+                    Page {packagePageSafe} of {packageTotalPages}
+                  </span>
+                  <div className="adm-pagination-controls">
+                    <button
+                      aria-label="Previous page"
+                      className="icon-button compact"
+                      disabled={packagePageSafe <= 1}
+                      onClick={() => setPackagePage((page) => Math.max(1, page - 1))}
+                      type="button"
+                    >
+                      <ChevronLeft size={15} />
+                    </button>
+                    <button
+                      aria-label="Next page"
+                      className="icon-button compact"
+                      disabled={packagePageSafe >= packageTotalPages}
+                      onClick={() => setPackagePage((page) => Math.min(packageTotalPages, page + 1))}
+                      type="button"
+                    >
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     );
   }
 
-  function renderSubscriptions() {
-    const subscriptions = subscriptionsRes.data ?? [];
+  function userSortHead(label: string, key: UserSortKey) {
+    const active = userSort.key === key;
     return (
-      <div className="adm-stack">
-        {subscriptionsRes.error && (
-          <ErrorBanner message={subscriptionsRes.error} onRetry={subscriptionsRes.reload} retrying={subscriptionsRes.loading} />
-        )}
-        <div className="panel">
-          <div className="panel-header tight">
-            <div>
-              <h2>Subscriptions</h2>
-              <p>Read-only view of every organization subscription.</p>
-            </div>
-            <span className="adm-count">
-              {subscriptionsRes.data ? `${subscriptions.length} total` : ""}
-            </span>
-          </div>
-          {subscriptionsRes.loading && !subscriptionsRes.data ? (
-            <SkeletonRows rows={4} />
-          ) : subscriptions.length === 0 ? (
-            <EmptyState
-              body="Subscriptions appear here as soon as an organization signs up for a package. Make sure a billing provider is enabled."
-              icon={Inbox}
-              title="No subscriptions yet"
-              action={
-                <button className="adm-link-button" onClick={() => goToSettingsTab("billing")} type="button">
-                  Check billing provider
-                </button>
-              }
-            />
+      <button
+        aria-label={`Sort by ${label}${active ? (userSort.dir === "asc" ? " descending" : " ascending") : ""}`}
+        className={cx("adm-sort-head", active && "is-active")}
+        onClick={() => toggleUserSort(key)}
+        type="button"
+      >
+        <span>{label}</span>
+        {active ? (
+          userSort.dir === "asc" ? (
+            <ChevronUp size={13} />
           ) : (
-            <div>
-              <div className="adm-sub-row table-head">
-                <span>Organization</span>
-                <span>Plan</span>
-                <span>Status</span>
-                <span>Interval</span>
-                <span>Period ends</span>
-                <span>Invoices</span>
-              </div>
-              {subscriptions.map((subscription) => (
-                <div className="adm-sub-row" key={subscription.id}>
-                  <div>
-                    <strong>{subscription.organization?.name ?? "Unknown org"}</strong>
-                    <small>Since {formatDate(subscription.createdAt)}</small>
-                  </div>
-                  <span data-label="Plan">{subscription.plan?.name ?? "—"}</span>
-                  <span className={cx("adm-badge", subscriptionTone(subscription.status))} data-label="Status">
-                    {subscription.status.toLowerCase().replace(/_/g, " ")}
-                  </span>
-                  <span data-label="Interval">{subscription.billingInterval.toLowerCase()}</span>
-                  <span data-label="Period ends">{formatDate(subscription.currentPeriodEnd)}</span>
-                  <span data-label="Invoices" title="Latest invoices on record">
-                    {subscription.invoices.length}
-                    {subscription.invoices.length === 5 ? "+" : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+            <ChevronDown size={13} />
+          )
+        ) : (
+          <ChevronsUpDown className="adm-sort-idle" size={13} />
+        )}
+      </button>
+    );
+  }
+
+  function renderPurchaseHistory() {
+    const subscriptions = subscriptionsRes.data ?? [];
+    const memberCounts = new Map<string, number>();
+    for (const user of usersRes.data ?? []) {
+      if (user.organizationId) memberCounts.set(user.organizationId, (memberCounts.get(user.organizationId) ?? 0) + 1);
+    }
+    return (
+      <div className="panel">
+        <div className="panel-header tight">
+          <div>
+            <h2>Purchase history</h2>
+            <p>Which organization bought which package, its status, and when.</p>
+          </div>
+          <span className="adm-count">{subscriptionsRes.data ? `${subscriptions.length} total` : ""}</span>
         </div>
+        {subscriptionsRes.loading && !subscriptionsRes.data ? (
+          <SkeletonRows rows={4} />
+        ) : subscriptions.length === 0 ? (
+          <EmptyState
+            body="Purchases appear here as soon as an organization is assigned a package. Assign one from a user's manage panel, or wait for a checkout."
+            icon={Receipt}
+            title="No purchases yet"
+          />
+        ) : (
+          <div>
+            <div className="adm-hist-row table-head">
+              <span>Organization</span>
+              <span>Plan</span>
+              <span>Status</span>
+              <span>Interval</span>
+              <span>Current period</span>
+              <span>Purchased</span>
+            </div>
+            {subscriptions.map((subscription) => (
+              <div className="adm-hist-row" key={subscription.id}>
+                <div>
+                  <strong>{subscription.organization?.name ?? "Unknown org"}</strong>
+                  <small>
+                    {memberCounts.get(subscription.organization?.id ?? "") ?? 0} member
+                    {(memberCounts.get(subscription.organization?.id ?? "") ?? 0) === 1 ? "" : "s"}
+                  </small>
+                </div>
+                <span data-label="Plan">{subscription.plan?.name ?? "—"}</span>
+                <span className={cx("adm-badge", subscriptionTone(subscription.status))} data-label="Status">
+                  {subscription.status.toLowerCase().replace(/_/g, " ")}
+                </span>
+                <span data-label="Interval">{subscription.billingInterval.toLowerCase()}</span>
+                <span data-label="Current period">
+                  {formatDate(subscription.currentPeriodStart)} – {formatDate(subscription.currentPeriodEnd)}
+                </span>
+                <span data-label="Purchased">{formatDate(subscription.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
   function renderUsers() {
     const total = usersRes.data?.length ?? 0;
+    const filtersActive = userQuery.trim() !== "" || userRoleFilter !== "all" || userStatusFilter !== "all";
     return (
       <div className="adm-stack">
-        {usersRes.error && <ErrorBanner message={usersRes.error} onRetry={usersRes.reload} retrying={usersRes.loading} />}
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Users</h2>
-              <p>All accounts across organizations. Read-only directory.</p>
-            </div>
-            <div className="adm-users-toolbar">
-              <div className="search-field">
-                <Search size={15} />
-                <input
-                  aria-label="Search users"
-                  onChange={(event) => setUserQuery(event.target.value)}
-                  placeholder="Search name, email, role..."
-                  value={userQuery}
-                />
-              </div>
-              <span className="adm-count">
-                {usersRes.data ? `${filteredUsers.length} of ${total}` : ""}
-              </span>
-            </div>
-          </div>
-          {usersRes.loading && !usersRes.data ? (
-            <SkeletonRows rows={4} />
-          ) : total === 0 ? (
-            <EmptyState
-              body="No accounts exist yet. Users appear here after they sign up or are invited into an organization."
-              icon={Users}
-              title="No users yet"
-            />
-          ) : filteredUsers.length === 0 ? (
-            <EmptyState
-              body={`Nothing matches "${userQuery}". Try a different name, email, or role.`}
-              icon={Search}
-              title="No matching users"
-              action={
-                <button className="adm-link-button" onClick={() => setUserQuery("")} type="button">
-                  Clear search
-                </button>
-              }
-            />
-          ) : (
-            filteredUsers.map((user) => (
-              <div className="adm-user-row" key={user.id}>
-                <div>
-                  <strong>{user.name}</strong>
-                  <small>{user.email}</small>
-                </div>
-                <div className="adm-user-badges">
-                  <span className="adm-badge">{user.role.replace(/_/g, " ")}</span>
-                  {user.isPlatformAdmin && (
-                    <span className="adm-badge amber">
-                      <ShieldCheck size={12} />
-                      Platform Admin
-                    </span>
-                  )}
-                  {user.twoFactorEnabled ? (
-                    <span className="adm-badge green">
-                      <ShieldCheck size={12} />
-                      2FA on
-                    </span>
-                  ) : (
-                    <span className="adm-badge soft">
-                      <ShieldOff size={12} />
-                      2FA off
-                    </span>
-                  )}
-                  {!user.emailVerifiedAt && <span className="adm-badge rose">Email unverified</span>}
-                </div>
-                <span className="adm-user-joined">Joined {formatDate(user.createdAt)}</span>
-              </div>
-            ))
-          )}
+        <div aria-label="Users views" className="adm-segmented" role="tablist">
+          <button
+            aria-selected={userView === "directory"}
+            className={cx("adm-segment", userView === "directory" && "is-active")}
+            onClick={() => setUserView("directory")}
+            role="tab"
+            type="button"
+          >
+            <Users size={15} />
+            <span>Directory</span>
+          </button>
+          <button
+            aria-selected={userView === "history"}
+            className={cx("adm-segment", userView === "history" && "is-active")}
+            onClick={() => setUserView("history")}
+            role="tab"
+            type="button"
+          >
+            <Receipt size={15} />
+            <span>Purchase history</span>
+          </button>
         </div>
+
+        {userView === "history" ? (
+          <>
+            {subscriptionsRes.error && (
+              <ErrorBanner message={subscriptionsRes.error} onRetry={subscriptionsRes.reload} retrying={subscriptionsRes.loading} />
+            )}
+            {renderPurchaseHistory()}
+          </>
+        ) : (
+          <>
+            {usersRes.error && <ErrorBanner message={usersRes.error} onRetry={usersRes.reload} retrying={usersRes.loading} />}
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Directory</h2>
+                  <p>Every account across organizations, with roles and security posture.</p>
+                </div>
+                <div className="adm-users-toolbar">
+                  <div className="search-field">
+                    <Search size={15} />
+                    <input
+                      aria-label="Search users"
+                      onChange={(event) => setUserQuery(event.target.value)}
+                      placeholder="Search name, email, org..."
+                      value={userQuery}
+                    />
+                  </div>
+                  <select
+                    aria-label="Filter by role"
+                    className="adm-filter"
+                    onChange={(event) => setUserRoleFilter(event.target.value as UserRoleFilter)}
+                    value={userRoleFilter}
+                  >
+                    <option value="all">All roles</option>
+                    <option value="platform">Platform admins</option>
+                    {USER_ROLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter by email status"
+                    className="adm-filter"
+                    onChange={(event) => setUserStatusFilter(event.target.value as UserStatusFilter)}
+                    value={userStatusFilter}
+                  >
+                    <option value="all">Any status</option>
+                    <option value="verified">Email verified</option>
+                    <option value="unverified">Email unverified</option>
+                  </select>
+                  <span className="adm-count">{usersRes.data ? `${filteredUsers.length} of ${total}` : ""}</span>
+                  <button className="secondary-button" onClick={openNewUser} type="button">
+                    <UserPlus size={16} />
+                    <span>New User</span>
+                  </button>
+                </div>
+              </div>
+
+              {usersRes.loading && !usersRes.data ? (
+                <SkeletonRows rows={4} />
+              ) : total === 0 ? (
+                <EmptyState
+                  body="No accounts exist yet. Create one with New User, or wait for people to sign up or be invited."
+                  icon={Users}
+                  title="No users yet"
+                  action={
+                    <button className="secondary-button" onClick={openNewUser} type="button">
+                      <UserPlus size={16} />
+                      <span>New User</span>
+                    </button>
+                  }
+                />
+              ) : filteredUsers.length === 0 ? (
+                <EmptyState
+                  body="No users match the current search and filters. Try widening them."
+                  icon={Search}
+                  title="No matching users"
+                  action={
+                    filtersActive ? (
+                      <button
+                        className="adm-link-button"
+                        onClick={() => {
+                          setUserQuery("");
+                          setUserRoleFilter("all");
+                          setUserStatusFilter("all");
+                        }}
+                        type="button"
+                      >
+                        Clear filters
+                      </button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <>
+                  <div className="admin-table">
+                    <div className="adm-dir-row table-head">
+                      {userSortHead("Name", "name")}
+                      {userSortHead("Email", "email")}
+                      {userSortHead("Role", "role")}
+                      <span>Security</span>
+                      {userSortHead("Created", "created")}
+                      <span>Manage</span>
+                    </div>
+                    {pagedUsers.map((user) => (
+                      <div className="adm-dir-row" key={user.id}>
+                        <div className="adm-dir-user">
+                          <span className="pf-avatar">
+                            {user.avatarUrl ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img alt="" src={user.avatarUrl} />
+                            ) : (
+                              <span>{initials(user.name)}</span>
+                            )}
+                          </span>
+                          <div className="adm-dir-user-meta">
+                            <strong>{user.name}</strong>
+                            <small>{user.organizationName ?? "No organization"}</small>
+                          </div>
+                        </div>
+                        <span className="adm-dir-email" data-label="Email">
+                          {user.email}
+                        </span>
+                        <span className="adm-dir-badges" data-label="Role">
+                          <span className="adm-badge">{user.role.replace(/_/g, " ")}</span>
+                          {user.isPlatformAdmin && (
+                            <span className="adm-badge amber">
+                              <ShieldCheck size={12} />
+                              Admin
+                            </span>
+                          )}
+                        </span>
+                        <span className="adm-dir-badges" data-label="Security">
+                          {user.twoFactorEnabled ? (
+                            <span className="adm-badge green">
+                              <ShieldCheck size={12} />
+                              2FA
+                            </span>
+                          ) : (
+                            <span className="adm-badge soft">
+                              <ShieldOff size={12} />
+                              2FA
+                            </span>
+                          )}
+                          {user.emailVerifiedAt ? (
+                            <span className="adm-badge green">
+                              <MailCheck size={12} />
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="adm-badge rose">Unverified</span>
+                          )}
+                        </span>
+                        <span className="adm-dir-joined" data-label="Created">
+                          {formatDate(user.createdAt)}
+                        </span>
+                        <button
+                          aria-label={`Manage ${user.name}`}
+                          className="icon-button compact"
+                          onClick={() => openManageUser(user)}
+                          title={`Manage ${user.name}`}
+                          type="button"
+                        >
+                          <UserCog size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {userTotalPages > 1 && (
+                    <div className="adm-pagination">
+                      <span className="adm-pagination-info">
+                        Page {userPageSafe} of {userTotalPages}
+                      </span>
+                      <div className="adm-pagination-controls">
+                        <button
+                          aria-label="Previous page"
+                          className="icon-button compact"
+                          disabled={userPageSafe <= 1}
+                          onClick={() => setUserPage((page) => Math.max(1, page - 1))}
+                          type="button"
+                        >
+                          <ChevronLeft size={15} />
+                        </button>
+                        <button
+                          aria-label="Next page"
+                          className="icon-button compact"
+                          disabled={userPageSafe >= userTotalPages}
+                          onClick={() => setUserPage((page) => Math.min(userTotalPages, page + 1))}
+                          type="button"
+                        >
+                          <ChevronRight size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -1945,7 +2638,6 @@ function AdminPanel() {
 
   const settingsTabRenderers: Record<SettingsTab, () => ReactNode> = {
     packages: renderPackages,
-    subscriptions: renderSubscriptions,
     smtp: renderSmtp,
     billing: renderBilling,
     general: renderGeneralSettings
@@ -2172,6 +2864,99 @@ function AdminPanel() {
       </section>
 
       <AnimatePresence>
+        {packageModalOpen && (
+          <Modal
+            description={packageForm.id ? "Update pricing, limits, and visibility." : "Active packages show on the public pricing page immediately."}
+            icon={Package}
+            key="package-modal"
+            onClose={() => setPackageModalOpen(false)}
+            reduceMotion={reduceMotion}
+            title={packageForm.id ? `Edit: ${packageForm.name || "package"}` : "New package"}
+          >
+            <div className="form-grid">
+              <label>
+                Code
+                <input onChange={(event) => updatePackageForm("code", event.target.value)} placeholder="business" value={packageForm.code} />
+              </label>
+              <label>
+                Name
+                <input onChange={(event) => updatePackageForm("name", event.target.value)} placeholder="Business" value={packageForm.name} />
+              </label>
+              <label className="span-two">
+                Description
+                <input
+                  onChange={(event) => updatePackageForm("description", event.target.value)}
+                  placeholder="Package description (at least 10 characters)"
+                  value={packageForm.description}
+                />
+              </label>
+              <label>
+                Monthly Price
+                <input inputMode="decimal" onChange={(event) => updatePackageForm("monthlyPrice", event.target.value)} value={packageForm.monthlyPrice} />
+              </label>
+              <label>
+                Yearly Price
+                <input inputMode="decimal" onChange={(event) => updatePackageForm("yearlyPrice", event.target.value)} value={packageForm.yearlyPrice} />
+              </label>
+              <label>
+                Currency
+                <input maxLength={3} onChange={(event) => updatePackageForm("currency", event.target.value)} value={packageForm.currency} />
+              </label>
+              <label>
+                Display Order
+                <input inputMode="numeric" onChange={(event) => updatePackageForm("displayOrder", event.target.value)} value={packageForm.displayOrder} />
+              </label>
+              <label>
+                Max Users
+                <input
+                  inputMode="numeric"
+                  onChange={(event) => updatePackageForm("maxUsers", event.target.value)}
+                  placeholder="Blank for custom"
+                  value={packageForm.maxUsers}
+                />
+              </label>
+              <label>
+                Max Hosts
+                <input
+                  inputMode="numeric"
+                  onChange={(event) => updatePackageForm("maxHosts", event.target.value)}
+                  placeholder="Blank for custom"
+                  value={packageForm.maxHosts}
+                />
+              </label>
+              <label>
+                Concurrent Sessions
+                <input
+                  inputMode="numeric"
+                  onChange={(event) => updatePackageForm("maxConcurrentSessions", event.target.value)}
+                  placeholder="Blank for custom"
+                  value={packageForm.maxConcurrentSessions}
+                />
+              </label>
+              <label>
+                Audit Retention Days
+                <input inputMode="numeric" onChange={(event) => updatePackageForm("auditRetentionDays", event.target.value)} value={packageForm.auditRetentionDays} />
+              </label>
+              <label className="span-two">
+                Features (one per line)
+                <textarea onChange={(event) => updatePackageForm("featuresText", event.target.value)} rows={4} value={packageForm.featuresText} />
+              </label>
+              <label className="toggle-line package-toggle span-two">
+                <input checked={packageForm.isActive} onChange={(event) => updatePackageForm("isActive", event.target.checked)} type="checkbox" />
+                <span>Active on public pricing</span>
+              </label>
+              <div className="form-actions span-two">
+                <button className="secondary-button" disabled={savingPackage} onClick={() => setPackageModalOpen(false)} type="button">
+                  <span>Cancel</span>
+                </button>
+                <button className="primary-button" disabled={savingPackage} onClick={savePackage} type="button">
+                  {savingPackage ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
+                  <span>{savingPackage ? "Saving..." : "Save Package"}</span>
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
         {passwordModalOpen && (
           <Modal
             description="Saving signs out every other device."
@@ -2297,6 +3082,229 @@ function AdminPanel() {
                 {savingPhoto ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
                 <span>{savingPhoto ? "Saving..." : "Save photo"}</span>
               </button>
+            </div>
+          </Modal>
+        )}
+        {newUserModalOpen && (
+          <Modal
+            description="Creates the account and its own organization. Active packages can be assigned afterwards."
+            icon={UserPlus}
+            key="new-user-modal"
+            onClose={() => setNewUserModalOpen(false)}
+            reduceMotion={reduceMotion}
+            title="New user"
+          >
+            <div className="form-grid">
+              <label>
+                Name
+                <input onChange={(event) => updateNewUser("name", event.target.value)} placeholder="Jane Doe" value={newUserForm.name} />
+              </label>
+              <label>
+                Email
+                <input
+                  autoComplete="off"
+                  onChange={(event) => updateNewUser("email", event.target.value)}
+                  placeholder="jane@example.com"
+                  type="email"
+                  value={newUserForm.email}
+                />
+              </label>
+              <label>
+                Role
+                <select onChange={(event) => updateNewUser("role", event.target.value as NewUserForm["role"])} value={newUserForm.role}>
+                  {USER_ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="toggle-line package-toggle">
+                <input
+                  checked={newUserForm.isPlatformAdmin}
+                  onChange={(event) => updateNewUser("isPlatformAdmin", event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Platform admin</span>
+              </label>
+              <label className="toggle-line package-toggle span-two">
+                <input
+                  checked={newUserForm.sendInvite}
+                  onChange={(event) => updateNewUser("sendInvite", event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Send invite instead of setting a password (no password stored)</span>
+              </label>
+              {!newUserForm.sendInvite && (
+                <label className="span-two">
+                  Password
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) => updateNewUser("password", event.target.value)}
+                    placeholder="Temporary password"
+                    type="text"
+                    value={newUserForm.password}
+                  />
+                  {newUserForm.password.length > 0 && <PasswordChecklist password={newUserForm.password} />}
+                </label>
+              )}
+              <div className="form-actions span-two">
+                <button className="secondary-button" disabled={creatingUser} onClick={() => setNewUserModalOpen(false)} type="button">
+                  <span>Cancel</span>
+                </button>
+                <button className="primary-button" disabled={creatingUser} onClick={createUser} type="button">
+                  {creatingUser ? <Loader2 className="adm-spin" size={16} /> : <UserPlus size={16} />}
+                  <span>{creatingUser ? "Creating..." : "Create User"}</span>
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+        {manageUser && (
+          <Modal
+            description={manageUser.email}
+            icon={UserCog}
+            key="manage-user-modal"
+            onClose={() => setManageUser(null)}
+            reduceMotion={reduceMotion}
+            title={`Manage ${manageUser.name}`}
+          >
+            <div className="adm-manage">
+              <div className="adm-manage-head">
+                <span className="pf-avatar lg">
+                  {manageUser.avatarUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img alt="" src={manageUser.avatarUrl} />
+                  ) : (
+                    <span>{initials(manageUser.name)}</span>
+                  )}
+                </span>
+                <div className="adm-manage-meta">
+                  <strong>{manageUser.name}</strong>
+                  <span>{manageUser.email}</span>
+                  <div className="adm-user-badges">
+                    <span className="adm-badge">{manageUser.role.replace(/_/g, " ")}</span>
+                    {manageUser.isPlatformAdmin && (
+                      <span className="adm-badge amber">
+                        <ShieldCheck size={12} />
+                        Platform Admin
+                      </span>
+                    )}
+                    {manageUser.emailVerifiedAt ? (
+                      <span className="adm-badge green">
+                        <MailCheck size={12} />
+                        Verified
+                      </span>
+                    ) : (
+                      <span className="adm-badge rose">Unverified</span>
+                    )}
+                  </div>
+                  <small>{manageUser.organizationName ?? "No organization"}</small>
+                </div>
+              </div>
+
+              <div className="adm-manage-section">
+                <p className="adm-manage-title">Access</p>
+                <div className="form-grid">
+                  <label>
+                    Role
+                    <select onChange={(event) => setManageRole(event.target.value as NewUserForm["role"])} value={manageRole}>
+                      {USER_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="toggle-line package-toggle">
+                    <input
+                      checked={managePlatformAdmin}
+                      onChange={(event) => setManagePlatformAdmin(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>Platform admin</span>
+                  </label>
+                  <div className="form-actions span-two">
+                    <button className="primary-button" disabled={savingUserAccess} onClick={saveUserAccess} type="button">
+                      {savingUserAccess ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
+                      <span>{savingUserAccess ? "Saving..." : "Save access"}</span>
+                    </button>
+                    {!manageUser.emailVerifiedAt && (
+                      <button className="secondary-button" disabled={savingUserVerify} onClick={markUserVerified} type="button">
+                        {savingUserVerify ? <Loader2 className="adm-spin" size={16} /> : <MailCheck size={16} />}
+                        <span>Mark email verified</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="adm-manage-section">
+                <p className="adm-manage-title">Subscription plan</p>
+                <div className="form-grid">
+                  <label>
+                    Plan
+                    <select onChange={(event) => setManagePlanId(event.target.value)} value={managePlanId}>
+                      <option value="">Select a plan…</option>
+                      {plans.map((plan) => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name}
+                          {plan.isActive ? "" : " (hidden)"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Billing interval
+                    <select
+                      onChange={(event) => setManagePlanInterval(event.target.value as "monthly" | "yearly")}
+                      value={managePlanInterval}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                  </label>
+                  <div className="form-actions span-two">
+                    <button
+                      className="secondary-button"
+                      disabled={savingUserPlan || !managePlanId}
+                      onClick={assignUserPlan}
+                      type="button"
+                    >
+                      {savingUserPlan ? <Loader2 className="adm-spin" size={16} /> : <CreditCard size={16} />}
+                      <span>{savingUserPlan ? "Assigning..." : "Assign plan"}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="adm-manage-section">
+                <p className="adm-manage-title">Set password</p>
+                <div className="form-grid">
+                  <label className="span-two">
+                    New password
+                    <input
+                      autoComplete="new-password"
+                      onChange={(event) => setManageNewPassword(event.target.value)}
+                      placeholder="New password for this user"
+                      type="text"
+                      value={manageNewPassword}
+                    />
+                    {manageNewPassword.length > 0 && <PasswordChecklist password={manageNewPassword} />}
+                  </label>
+                  <div className="form-actions span-two">
+                    <button
+                      className="secondary-button"
+                      disabled={savingUserPassword || !validatePassword(manageNewPassword).valid}
+                      onClick={setUserPassword}
+                      type="button"
+                    >
+                      {savingUserPassword ? <Loader2 className="adm-spin" size={16} /> : <KeyRound size={16} />}
+                      <span>{savingUserPassword ? "Saving..." : "Set password"}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </Modal>
         )}

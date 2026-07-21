@@ -578,6 +578,7 @@ button:disabled {
 /* ---- Tables + rows ---- */
 .host-table {
   display: grid;
+  padding-bottom: 6px;
 }
 
 .host-row {
@@ -596,18 +597,25 @@ button:disabled {
   border-bottom: 0;
 }
 
+.host-row:not(.table-head):nth-child(odd) {
+  background: var(--surface-2);
+}
+
 .host-row:not(.table-head):hover,
 .host-row.is-selected {
   background: var(--elevated);
 }
 
 .host-row.table-head {
-  min-height: 36px;
-  color: var(--soft);
+  min-height: 40px;
+  color: var(--muted);
   cursor: default;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .host-title {
@@ -812,6 +820,7 @@ button:disabled {
 .data-table {
   display: grid;
   gap: 12px;
+  padding: 12px 0 14px;
 }
 
 .data-toolbar {
@@ -819,6 +828,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 0 14px;
 }
 
 .data-toolbar .search-field {
@@ -853,17 +863,23 @@ button:disabled {
   border-bottom: 0;
 }
 
+.data-grid-row:not(.is-head):nth-child(odd) {
+  background: var(--surface-2);
+}
+
 .data-grid-row:not(.is-head):hover {
   background: var(--elevated);
 }
 
 .data-grid-row.is-head {
   min-height: 40px;
-  color: var(--soft);
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .data-grid-row.is-head > span {
@@ -1012,7 +1028,7 @@ button:disabled {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  padding-top: 2px;
+  padding: 8px 14px 0;
 }
 
 .pager-info {

@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
-import { canManagePlatform } from "@onshell/shared";
+import { canManagePlatform, normalizeSlug, validatePassword } from "@onshell/shared";
 import prismaPkg, { type Prisma } from "@prisma/client";
-const { PaymentProvider } = prismaPkg;
+const { PaymentProvider, Role, SubscriptionStatus, BillingInterval } = prismaPkg;
 type PaymentProvider = (typeof PaymentProvider)[keyof typeof PaymentProvider];
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
@@ -60,6 +62,52 @@ const smtpTestSchema = z.object({
   recipient: z.string().email()
 });
 
+const publicRoleEnum = z.enum(["owner", "admin", "devops", "developer", "auditor"]);
+
+const createUserSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  role: publicRoleEnum.default("owner"),
+  isPlatformAdmin: z.boolean().default(false),
+  password: z.string().optional(),
+  sendInvite: z.boolean().default(false)
+});
+
+const updateUserSchema = z.object({
+  name: z.string().min(2).optional(),
+  role: publicRoleEnum.optional(),
+  isPlatformAdmin: z.boolean().optional(),
+  emailVerified: z.boolean().optional()
+});
+
+const setPasswordSchema = z.object({
+  password: z.string().min(1)
+});
+
+const assignPlanSchema = z.object({
+  planId: z.string().min(1),
+  billingInterval: z.enum(["monthly", "yearly"]).default("monthly")
+});
+
+const roleToPrisma = {
+  owner: Role.OWNER,
+  admin: Role.ADMIN,
+  devops: Role.DEVOPS,
+  developer: Role.DEVELOPER,
+  auditor: Role.AUDITOR
+} satisfies Record<z.infer<typeof publicRoleEnum>, (typeof Role)[keyof typeof Role]>;
+
+async function uniqueOrganizationSlug(name: string) {
+  const base = normalizeSlug(name) || "org";
+  let slug = base;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const existing = await prisma.organization.findUnique({ where: { slug } });
+    if (!existing) return slug;
+    slug = `${base}-${randomUUID().slice(0, 6)}`;
+  }
+  return `${base}-${randomUUID().slice(0, 12)}`;
+}
+
 function toPrismaPaymentProvider(provider: z.infer<typeof paymentSettingSchema>["provider"]) {
   const map = {
     stripe: PaymentProvider.STRIPE,
@@ -108,15 +156,78 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     const actor = await requirePlatformAdmin(request, config);
     if (!actor) return reply.code(403).send({ error: "forbidden" });
 
-    const [users, organizations, hosts, activeSubscriptions, plans, smtp, paymentProviders] = await Promise.all([
+    const trendDays = 30;
+    const trendStart = new Date();
+    trendStart.setHours(0, 0, 0, 0);
+    trendStart.setDate(trendStart.getDate() - (trendDays - 1));
+
+    const [
+      users,
+      organizations,
+      hosts,
+      activeSubscriptions,
+      plans,
+      smtp,
+      paymentProviders,
+      usersBeforeWindow,
+      recentUsers,
+      recentHosts,
+      activeSubs
+    ] = await Promise.all([
       prisma.user.count(),
       prisma.organization.count(),
       prisma.host.count(),
       prisma.subscription.count({ where: { status: "ACTIVE" } }),
       prisma.plan.count(),
       prisma.smtpSetting.findUnique({ where: { id: "global" } }),
-      prisma.paymentSetting.findMany()
+      prisma.paymentSetting.findMany(),
+      prisma.user.count({ where: { createdAt: { lt: trendStart } } }),
+      prisma.user.findMany({ where: { createdAt: { gte: trendStart } }, select: { createdAt: true } }),
+      prisma.host.findMany({ where: { createdAt: { gte: trendStart } }, select: { createdAt: true } }),
+      prisma.subscription.findMany({ where: { status: "ACTIVE" }, select: { plan: { select: { name: true } } } })
     ]);
+
+    const dayKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const bucketDaily = (rows: Array<{ createdAt: Date }>) => {
+      const counts = new Map<string, number>();
+      for (const row of rows) {
+        const key = dayKey(row.createdAt);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      const out: Array<{ date: string; count: number }> = [];
+      for (let index = 0; index < trendDays; index += 1) {
+        const date = new Date(trendStart);
+        date.setDate(trendStart.getDate() + index);
+        const key = dayKey(date);
+        out.push({ date: key, count: counts.get(key) ?? 0 });
+      }
+      return out;
+    };
+
+    const dailyUsers = bucketDaily(recentUsers);
+    const dailyHosts = bucketDaily(recentHosts);
+
+    /* cumulative user total across the window, seeded by everyone before it */
+    let runningUsers = usersBeforeWindow;
+    const cumulativeUsers = dailyUsers.map((point) => {
+      runningUsers += point.count;
+      return { date: point.date, count: runningUsers };
+    });
+
+    const planCounts = new Map<string, number>();
+    for (const sub of activeSubs) {
+      const name = sub.plan?.name ?? "Unknown";
+      planCounts.set(name, (planCounts.get(name) ?? 0) + 1);
+    }
+    const planBreakdown = Array.from(planCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((left, right) => right.count - left.count);
 
     return {
       totals: {
@@ -125,6 +236,15 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
         hosts,
         activeSubscriptions,
         plans
+      },
+      series: {
+        days: trendDays,
+        users: dailyUsers,
+        hosts: dailyHosts,
+        cumulativeUsers
+      },
+      breakdown: {
+        plans: planBreakdown
       },
       smtp: smtp
         ? {
@@ -150,11 +270,236 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     if (!actor) return reply.code(403).send({ error: "forbidden" });
 
     const users = await prisma.user.findMany({
-      include: { memberships: true },
+      include: { memberships: { include: { organization: true } } },
       orderBy: { createdAt: "desc" }
     });
 
-    return users.map(toPublicUser);
+    return users.map((user) => ({
+      ...toPublicUser(user),
+      organizationName: user.memberships[0]?.organization?.name ?? null
+    }));
+  });
+
+  app.post("/admin/users", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const body = createUserSchema.parse(request.body);
+      const email = body.email.trim().toLowerCase();
+
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) return reply.code(409).send({ error: "email_already_registered" });
+
+      let passwordHash: string | null = null;
+      if (!body.sendInvite) {
+        if (!body.password) return reply.code(400).send({ error: "password_required" });
+        const passwordCheck = validatePassword(body.password);
+        if (!passwordCheck.valid) {
+          return reply.code(400).send({ error: "password_policy_violation", errors: passwordCheck.errors });
+        }
+        passwordHash = await bcrypt.hash(body.password, 12);
+      }
+
+      const slug = await uniqueOrganizationSlug(body.name);
+      const prismaUser = await prisma.$transaction(async (tx) => {
+        const organization = await tx.organization.create({
+          data: { name: `${body.name}'s Organization`, slug }
+        });
+        return tx.user.create({
+          data: {
+            name: body.name,
+            email,
+            passwordHash,
+            isPlatformAdmin: body.isPlatformAdmin,
+            memberships: {
+              create: { organizationId: organization.id, role: roleToPrisma[body.role] }
+            }
+          },
+          include: { memberships: true }
+        });
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.user.create",
+        targetType: "user",
+        targetId: prismaUser.id,
+        ipAddress: request.ip,
+        metadata: { email, role: body.role, isPlatformAdmin: body.isPlatformAdmin, invited: body.sendInvite }
+      });
+
+      return reply.code(201).send(toPublicUser(prismaUser));
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.patch("/admin/users/:userId", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { userId } = z.object({ userId: z.string() }).parse(request.params);
+      const body = updateUserSchema.parse(request.body);
+
+      const target = await prisma.user.findUnique({ where: { id: userId }, include: { memberships: true } });
+      if (!target) return reply.code(404).send({ error: "user_not_found" });
+
+      if (userId === actor.id && body.isPlatformAdmin === false) {
+        return reply.code(400).send({ error: "cannot_demote_self" });
+      }
+
+      const data: Prisma.UserUpdateInput = {};
+      if (body.name !== undefined) data.name = body.name;
+      if (body.isPlatformAdmin !== undefined) data.isPlatformAdmin = body.isPlatformAdmin;
+      if (body.emailVerified !== undefined) data.emailVerifiedAt = body.emailVerified ? new Date() : null;
+
+      if (body.role !== undefined) {
+        const membership = target.memberships[0];
+        if (membership) {
+          await prisma.organizationMember.update({
+            where: { id: membership.id },
+            data: { role: roleToPrisma[body.role] }
+          });
+        }
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data,
+        include: { memberships: true }
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.user.update",
+        targetType: "user",
+        targetId: userId,
+        ipAddress: request.ip,
+        metadata: {
+          ...(body.role !== undefined ? { role: body.role } : {}),
+          ...(body.isPlatformAdmin !== undefined ? { isPlatformAdmin: body.isPlatformAdmin } : {}),
+          ...(body.emailVerified !== undefined ? { emailVerified: body.emailVerified } : {}),
+          ...(body.name !== undefined ? { renamed: true } : {})
+        }
+      });
+
+      return toPublicUser(updated);
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.post("/admin/users/:userId/password", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { userId } = z.object({ userId: z.string() }).parse(request.params);
+      const body = setPasswordSchema.parse(request.body);
+
+      const target = await prisma.user.findUnique({ where: { id: userId } });
+      if (!target) return reply.code(404).send({ error: "user_not_found" });
+
+      const passwordCheck = validatePassword(body.password);
+      if (!passwordCheck.valid) {
+        return reply.code(400).send({ error: "password_policy_violation", errors: passwordCheck.errors });
+      }
+
+      const passwordHash = await bcrypt.hash(body.password, 12);
+      await prisma.$transaction([
+        prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+        prisma.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() }
+        })
+      ]);
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.user.password.set",
+        targetType: "user",
+        targetId: userId,
+        ipAddress: request.ip
+      });
+
+      return { ok: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.patch("/admin/users/:userId/plan", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { userId } = z.object({ userId: z.string() }).parse(request.params);
+      const body = assignPlanSchema.parse(request.body);
+
+      const target = await prisma.user.findUnique({ where: { id: userId }, include: { memberships: true } });
+      if (!target) return reply.code(404).send({ error: "user_not_found" });
+
+      const organizationId = target.memberships[0]?.organizationId;
+      if (!organizationId) return reply.code(400).send({ error: "user_has_no_organization" });
+
+      const plan = await prisma.plan.findUnique({ where: { id: body.planId } });
+      if (!plan) return reply.code(404).send({ error: "plan_not_found" });
+
+      const interval = body.billingInterval === "yearly" ? BillingInterval.YEARLY : BillingInterval.MONTHLY;
+      const periodStart = new Date();
+      const periodEnd = new Date(periodStart);
+      if (body.billingInterval === "yearly") periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+      else periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+      const existing = await prisma.subscription.findFirst({
+        where: { organizationId },
+        orderBy: { createdAt: "desc" }
+      });
+
+      const subscription = existing
+        ? await prisma.subscription.update({
+            where: { id: existing.id },
+            data: {
+              planId: plan.id,
+              billingInterval: interval,
+              status: SubscriptionStatus.ACTIVE,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+              cancelAt: null
+            },
+            include: { organization: true, plan: true, invoices: { orderBy: { createdAt: "desc" }, take: 5 } }
+          })
+        : await prisma.subscription.create({
+            data: {
+              organizationId,
+              planId: plan.id,
+              billingInterval: interval,
+              status: SubscriptionStatus.ACTIVE,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd
+            },
+            include: { organization: true, plan: true, invoices: { orderBy: { createdAt: "desc" }, take: 5 } }
+          });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.user.plan.assign",
+        targetType: "subscription",
+        targetId: subscription.id,
+        ipAddress: request.ip,
+        metadata: { userId, organizationId, planCode: plan.code, billingInterval: body.billingInterval }
+      });
+
+      return subscription;
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
   });
 
   app.get("/admin/plans", async (request, reply) => {

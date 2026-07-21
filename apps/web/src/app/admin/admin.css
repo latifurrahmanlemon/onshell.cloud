@@ -526,6 +526,238 @@
   white-space: nowrap;
 }
 
+/* Users — segmented view toggle */
+
+.adm-segmented {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  width: fit-content;
+}
+
+.adm-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.adm-segment:hover {
+  color: var(--text);
+}
+
+.adm-segment.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.adm-segment > svg {
+  flex-shrink: 0;
+}
+
+/* Users — toolbar filter selects */
+
+.adm-filter {
+  height: 36px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.adm-filter:focus {
+  border-color: var(--accent-line);
+  outline: none;
+}
+
+/* Users — directory table */
+
+.adm-dir-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.6fr) minmax(150px, 1.4fr) 150px minmax(140px, 1fr) 96px 44px;
+  gap: 10px;
+  align-items: center;
+  min-height: 62px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.adm-dir-row:last-child {
+  border-bottom: 0;
+}
+
+.adm-dir-row.table-head {
+  min-height: 36px;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.adm-dir-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.adm-dir-user-meta {
+  min-width: 0;
+}
+
+.adm-dir-user-meta strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-dir-user-meta small {
+  display: block;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-dir-email {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-dir-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.adm-dir-joined {
+  color: var(--soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Users — purchase history table */
+
+.adm-hist-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) minmax(110px, 1fr) 118px 96px minmax(150px, 1.2fr) 110px;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.adm-hist-row:last-child {
+  border-bottom: 0;
+}
+
+.adm-hist-row.table-head {
+  min-height: 36px;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.adm-hist-row strong {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-hist-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--soft);
+  font-size: 11px;
+}
+
+/* Users — manage modal */
+
+.adm-manage {
+  display: grid;
+  gap: 18px;
+  padding: 4px 2px;
+}
+
+.adm-manage-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.adm-manage-meta {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.adm-manage-meta strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.adm-manage-meta > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.adm-manage-meta small {
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.adm-manage-section {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.adm-manage-title {
+  padding: 0 14px;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.adm-manage-section .form-grid {
+  padding-bottom: 0;
+}
+
 /* Billing provider list */
 
 .adm-provider-row {
@@ -653,6 +885,228 @@
   text-transform: uppercase;
 }
 
+/* Sortable table headers */
+
+.adm-sort-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.adm-sort-head:hover,
+.adm-sort-head.is-active {
+  color: var(--text);
+}
+
+.adm-sort-head .adm-sort-idle {
+  opacity: 0.45;
+}
+
+/* Table pagination bar */
+
+.adm-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.adm-pagination-info {
+  color: var(--soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.adm-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Dashboard charts */
+
+.adm-chart-card {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.adm-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.adm-chart-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.adm-chart-title > svg {
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+
+.adm-chart-title h2 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.adm-chart-title p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--soft);
+}
+
+.adm-chart-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  text-align: right;
+}
+
+.adm-chart-total strong {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.adm-chart-total span {
+  font-size: 11px;
+  color: var(--soft);
+}
+
+.adm-chart-plot {
+  position: relative;
+  width: 100%;
+}
+
+.adm-chart-plot svg {
+  display: block;
+  width: 100%;
+  height: 200px;
+  overflow: visible;
+}
+
+.adm-chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.adm-chart-cursor {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.adm-chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 12px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.adm-chart-tooltip strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.adm-chart-tooltip span {
+  font-size: 11px;
+  color: var(--soft);
+}
+
+.adm-chart-axis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--soft);
+}
+
+.adm-chart-skeleton-plot {
+  height: 200px;
+  border-radius: 12px;
+}
+
+/* Ranked magnitude bars */
+
+.adm-breakdown {
+  display: grid;
+  gap: 12px;
+}
+
+.adm-breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 130px) 1fr 40px;
+  align-items: center;
+  gap: 12px;
+}
+
+.adm-breakdown-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-breakdown-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.adm-breakdown-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+}
+
+.adm-breakdown-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: right;
+}
+
+@media (max-width: 720px) {
+  .adm-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Form input focus polish inside the admin shell */
 
 .admin-shell .form-grid input:focus,
@@ -726,6 +1180,36 @@
 
   .adm-user-joined {
     text-align: left;
+  }
+
+  .adm-dir-row.table-head,
+  .adm-hist-row.table-head {
+    display: none;
+  }
+
+  .adm-dir-row,
+  .adm-hist-row {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    padding: 12px 14px;
+    row-gap: 8px;
+  }
+
+  .adm-dir-row [data-label]::before,
+  .adm-hist-row [data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--soft);
+    font-size: 11px;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+
+  .adm-dir-row > .icon-button {
+    justify-self: start;
+  }
+
+  .adm-filter {
+    width: 100%;
   }
 
   .adm-setting-row {
