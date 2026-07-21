@@ -139,7 +139,7 @@ export async function issueTokens(reply: FastifyReply, config: RuntimeConfig, us
     sameSite: "lax",
     secure,
     path: "/",
-    maxAge: 15 * 60
+    maxAge: 12 * 60 * 60
   });
   reply.setCookie("refresh_token", refreshToken, {
     httpOnly: true,

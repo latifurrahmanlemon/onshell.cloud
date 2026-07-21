@@ -486,6 +486,7 @@ const protocolIcons = {
 
 export function HostsView({
   hosts,
+  credentials,
   role,
   loading,
   error,
@@ -493,9 +494,11 @@ export function HostsView({
   onDelete,
   onRefresh,
   onCreated,
+  onCredentialsChanged,
   notify,
 }: {
   hosts: Host[];
+  credentials: CredentialSummary[];
   role: Role;
   loading: boolean;
   error: string | null;
@@ -503,6 +506,7 @@ export function HostsView({
   onDelete: (host: Host) => void;
   onRefresh: () => void;
   onCreated: () => void;
+  onCredentialsChanged: () => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [query, setQuery] = useState("");
@@ -510,7 +514,12 @@ export function HostsView({
     "all",
   );
   const [adding, setAdding] = useState(false);
+  const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The vault credential (if any) currently attached to a host.
+  const credentialForHost = (hostId: string) =>
+    credentials.find((credential) => credential.attachedHostIds.includes(hostId)) ?? null;
 
   const filtered = useMemo(
     () =>
@@ -523,12 +532,30 @@ export function HostsView({
     [hosts, query, typeFilter],
   );
 
+  // Attach a vault credential to a host without disturbing its other hosts.
+  async function attachCredential(credentialId: string, hostId: string) {
+    const credential = credentials.find((item) => item.id === credentialId);
+    if (!credential || credential.attachedHostIds.includes(hostId)) return;
+    await consoleApi.updateCredential(credentialId, {
+      attachedHostIds: [...credential.attachedHostIds, hostId],
+    });
+  }
+
+  async function detachCredential(credentialId: string, hostId: string) {
+    const credential = credentials.find((item) => item.id === credentialId);
+    if (!credential) return;
+    await consoleApi.updateCredential(credentialId, {
+      attachedHostIds: credential.attachedHostIds.filter((id) => id !== hostId),
+    });
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const credentialId = String(data.get("credentialId") ?? "");
     setBusy(true);
     try {
-      await consoleApi.createHost({
+      const created = (await consoleApi.createHost({
         name: String(data.get("name") ?? ""),
         type: String(data.get("type") ?? "ssh"),
         address: String(data.get("address") ?? ""),
@@ -540,13 +567,57 @@ export function HostsView({
           .split(",")
           .map((tag) => tag.trim())
           .filter(Boolean),
-      });
+      })) as { id?: string };
+      if (credentialId && created?.id) {
+        await attachCredential(credentialId, created.id);
+        onCredentialsChanged();
+      }
       notify("Host added.", "success");
       setAdding(false);
       onCreated();
     } catch (err) {
       notify(
         err instanceof Error ? err.message : "Could not add host.",
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingHost) return;
+    const host = editingHost;
+    const data = new FormData(event.currentTarget);
+    const credentialId = String(data.get("credentialId") ?? "");
+    const current = credentialForHost(host.id);
+    setBusy(true);
+    try {
+      await consoleApi.updateHost(host.id, {
+        name: String(data.get("name") ?? ""),
+        type: String(data.get("type") ?? "ssh"),
+        address: String(data.get("address") ?? ""),
+        port: Number(data.get("port") ?? 22),
+        username: String(data.get("username") ?? "") || undefined,
+        environment: String(data.get("environment") ?? "development"),
+        group: String(data.get("group") ?? "") || null,
+        tags: String(data.get("tags") ?? "")
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      });
+      if ((current?.id ?? "") !== credentialId) {
+        if (current) await detachCredential(current.id, host.id);
+        if (credentialId) await attachCredential(credentialId, host.id);
+        onCredentialsChanged();
+      }
+      notify("Host updated.", "success");
+      setEditingHost(null);
+      onCreated();
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Could not update host.",
         "error",
       );
     } finally {
@@ -631,6 +702,7 @@ export function HostsView({
             <span>Address</span>
             <span>Environment</span>
             <span>Health</span>
+            <span>Last session</span>
             <span />
           </div>
           {filtered.map((host) => {
@@ -657,6 +729,9 @@ export function HostsView({
                 <span className={cx("health-badge", host.health)}>
                   {host.health}
                 </span>
+                <span className="data-muted">
+                  {host.lastSessionAt ? relativeTime(host.lastSessionAt) : "Never"}
+                </span>
                 <div className="row-actions">
                   {canOpenSession(role) && (
                     <button
@@ -669,6 +744,17 @@ export function HostsView({
                       type="button"
                     >
                       <Play size={14} />
+                    </button>
+                  )}
+                  {canManageHosts(role) && (
+                    <button
+                      aria-label={`Edit ${host.name}`}
+                      className="icon-button compact"
+                      onClick={() => setEditingHost(host)}
+                      title="Edit host"
+                      type="button"
+                    >
+                      <Pencil size={14} />
                     </button>
                   )}
                   {canManageHosts(role) && (
@@ -746,10 +832,98 @@ export function HostsView({
             Tags (comma separated)
             <input name="tags" placeholder="nginx, dhaka-dc" />
           </label>
+          <label className="span-two">
+            Credential (from Vault)
+            <select defaultValue="" name="credentialId">
+              <option value="">— None (attach later) —</option>
+              {credentials.map((credential) => (
+                <option key={credential.id} value={credential.id}>
+                  {credential.name} · {credential.kind.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="form-actions span-two">
             <SubmitButton busy={busy} label="Add Host" />
           </div>
         </form>
+      </Drawer>
+
+      <Drawer
+        onClose={() => setEditingHost(null)}
+        open={editingHost !== null}
+        subtitle="Update connection details or the attached vault credential."
+        title={editingHost ? `Edit ${editingHost.name}` : "Edit host"}
+      >
+        {editingHost && (
+          <form className="form-grid" key={editingHost.id} onSubmit={submitEdit}>
+            <label>
+              Name
+              <input defaultValue={editingHost.name} name="name" placeholder="edge-01" required />
+            </label>
+            <label>
+              Type
+              <select defaultValue={editingHost.type} name="type">
+                <option value="ssh">SSH</option>
+                <option value="rdp">RDP</option>
+                <option value="vnc">VNC</option>
+              </select>
+            </label>
+            <label>
+              Address
+              <input
+                defaultValue={editingHost.address}
+                name="address"
+                placeholder="203.0.113.10 or host.example.com"
+                required
+              />
+            </label>
+            <label>
+              Port
+              <input
+                defaultValue={editingHost.port}
+                name="port"
+                type="number"
+                min={1}
+                max={65535}
+              />
+            </label>
+            <label>
+              Username
+              <input defaultValue={editingHost.username ?? ""} name="username" placeholder="root" />
+            </label>
+            <label>
+              Environment
+              <select defaultValue={editingHost.environment} name="environment">
+                <option value="production">Production</option>
+                <option value="staging">Staging</option>
+                <option value="development">Development</option>
+              </select>
+            </label>
+            <label>
+              Group
+              <input defaultValue={editingHost.group ?? ""} name="group" placeholder="web-servers" />
+            </label>
+            <label>
+              Tags (comma separated)
+              <input defaultValue={editingHost.tags.join(", ")} name="tags" placeholder="nginx, dhaka-dc" />
+            </label>
+            <label className="span-two">
+              Credential (from Vault)
+              <select defaultValue={credentialForHost(editingHost.id)?.id ?? ""} name="credentialId">
+                <option value="">— None —</option>
+                {credentials.map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.name} · {credential.kind.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="form-actions span-two">
+              <SubmitButton busy={busy} label="Save Changes" />
+            </div>
+          </form>
+        )}
       </Drawer>
     </section>
   );
@@ -837,10 +1011,13 @@ export function VaultView({
       setDeleting(null);
       onChanged();
     } catch (err) {
-      notify(
-        err instanceof Error ? err.message : "Could not delete credential.",
-        "error",
-      );
+      const message =
+        err instanceof Error && err.message === "credential_in_use"
+          ? "This credential is attached to a host. Detach it first, then delete."
+          : err instanceof Error
+            ? err.message
+            : "Could not delete credential.";
+      notify(message, "error");
     } finally {
       setRemovingBusy(false);
     }
@@ -923,8 +1100,19 @@ export function VaultView({
           <button
             aria-label={`Delete ${credential.name}`}
             className="icon-button compact danger"
-            onClick={() => setDeleting(credential)}
-            title="Delete credential"
+            onClick={() =>
+              credential.attachedHostIds.length > 0
+                ? notify(
+                    `"${credential.name}" is attached to ${credential.attachedHostIds.length} host${credential.attachedHostIds.length > 1 ? "s" : ""}. Detach it from every host before deleting.`,
+                    "error",
+                  )
+                : setDeleting(credential)
+            }
+            title={
+              credential.attachedHostIds.length > 0
+                ? "Detach from all hosts before deleting"
+                : "Delete credential"
+            }
             type="button"
           >
             <Trash2 size={14} />

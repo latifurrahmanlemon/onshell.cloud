@@ -583,7 +583,7 @@ button:disabled {
 
 .host-row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.3fr) minmax(135px, 0.9fr) 108px 118px 78px;
+  grid-template-columns: minmax(190px, 1.3fr) minmax(135px, 0.9fr) 108px 118px minmax(120px, 0.8fr) 112px;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -1362,12 +1362,13 @@ button:disabled {
 
   .host-row > span:nth-child(2),
   .host-row > span:nth-child(3),
-  .host-row > span:nth-child(4) {
+  .host-row > span:nth-child(4),
+  .host-row > span:nth-child(5) {
     grid-column: 1 / 2;
   }
 
   .row-actions {
-    grid-row: 1 / 5;
+    grid-row: 1 / 6;
     grid-column: 2;
   }
 }

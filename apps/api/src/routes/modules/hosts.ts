@@ -71,7 +71,17 @@ export async function registerHostRoutes(app: FastifyInstance) {
         orderBy: { createdAt: "desc" }
       });
 
-      return hosts.map(toHost);
+      // Most recent session per host — surfaced as "last session" in the hosts table.
+      const lastSessions = hosts.length
+        ? await prisma.session.groupBy({
+            by: ["hostId"],
+            where: { organizationId: user.organizationId, hostId: { in: hosts.map((host) => host.id) } },
+            _max: { startedAt: true }
+          })
+        : [];
+      const lastSessionByHost = new Map(lastSessions.map((row) => [row.hostId, row._max.startedAt]));
+
+      return hosts.map((host) => toHost(host, lastSessionByHost.get(host.id)));
     } catch (error) {
       return handleRouteError(reply, error);
     }

@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Columns2,
   File,
   Folder,
   FolderLock,
@@ -17,10 +18,15 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
+  Maximize2,
+  Minimize2,
   Monitor,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRight,
+  PanelRightClose,
+  Play,
   ScrollText,
   Server,
   Settings,
@@ -83,6 +89,25 @@ function avatarInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/** Turns a raw open-session error code into an actionable message. */
+function sessionErrorMessage(error: unknown): string {
+  const code = error instanceof ApiError ? error.message : "";
+  switch (code) {
+    case "no_credential_for_host":
+      return "This host has no credential attached. Add an SSH key or password in the Vault and attach it to this host, then try again.";
+    case "credential_not_found":
+      return "The selected credential no longer exists. Pick another one in the Vault.";
+    case "host_not_found":
+      return "That host no longer exists. Refresh the hosts list.";
+    case "concurrent_session_limit_reached":
+      return "You've reached your plan's limit of concurrent sessions. Close an open session or upgrade your plan.";
+    case "forbidden":
+      return "Your role can't open sessions. Ask an admin for access.";
+    default:
+      return error instanceof Error && error.message ? error.message : "Could not open the session.";
+  }
+}
+
 export default function ConsolePage() {
   const reduceMotion = useReducedMotion();
   const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
@@ -107,6 +132,9 @@ export default function ConsolePage() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [injected, setInjected] = useState<{ id: number; command: string } | null>(null);
   const injectedCounter = useRef(0);
+  const [terminalLayout, setTerminalLayout] = useState<"single" | "split">("single");
+  const [terminalFullscreen, setTerminalFullscreen] = useState(false);
+  const [snippetsPanelOpen, setSnippetsPanelOpen] = useState(false);
 
   const [sftp, setSftp] = useState<{
     gatewaySessionId: string;
@@ -317,7 +345,7 @@ export default function ConsolePage() {
         }
         void consoleApi.sessions().then(setSessions).catch(() => undefined);
       } catch (error) {
-        notify(error instanceof Error ? error.message : "Could not open the session.", "error");
+        notify(sessionErrorMessage(error), "error");
       }
     },
     [notify, browseSftp]
@@ -668,92 +696,18 @@ export default function ConsolePage() {
 
             {view === "hosts" && (
               <HostsView
+                credentials={credentials}
                 error={loadError}
                 hosts={hosts}
                 loading={loading}
                 notify={notify}
                 onCreated={() => void consoleApi.hosts().then(setHosts)}
+                onCredentialsChanged={() => void consoleApi.credentials().then(setCredentials)}
                 onDelete={deleteHost}
                 onLaunch={launchSession}
                 onRefresh={() => void consoleApi.hosts().then(setHosts).catch(() => notify("Refresh failed.", "error"))}
                 role={role}
               />
-            )}
-
-            {view === "terminal" && (
-              <section className="panel">
-                <div className="panel-header tight">
-                  <div>
-                    <h2>Terminal</h2>
-                    <p>Live SSH over the Onshell gateway — every session is audited.</p>
-                  </div>
-                </div>
-                {tabs.length === 0 ? (
-                  <div className="terminal-empty">
-                    <SquareTerminal size={26} />
-                    <strong>No open terminals</strong>
-                    <span>Open a localhost shell, or pick a host to start an audited SSH session in this tab.</span>
-                    <div className="inline-form" style={{ justifyContent: "center" }}>
-                      <button className="primary-button" onClick={() => void connectLocalhost()} type="button">
-                        <Monitor size={15} />
-                        Localhost shell
-                      </button>
-                      <button className="secondary-button" onClick={() => setView("hosts")} type="button">
-                        Browse Hosts
-                        <ChevronRight size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="terminal-tabs" role="tablist">
-                      {tabs.map((tab) => (
-                        <div
-                          aria-selected={activeTab === tab.key}
-                          className={cx("terminal-tab", activeTab === tab.key && "is-active")}
-                          data-status={tab.status}
-                          key={tab.key}
-                          onClick={() => setActiveTab(tab.key)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") setActiveTab(tab.key);
-                          }}
-                          role="tab"
-                          tabIndex={0}
-                        >
-                          <span aria-hidden="true" className="tab-dot" />
-                          {tab.hostName}
-                          <button
-                            aria-label={`Close ${tab.hostName}`}
-                            className="tab-close"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              closeTab(tab);
-                            }}
-                            type="button"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="terminal-stage">
-                      {tabs.map((tab) => (
-                        <div key={tab.key} style={{ display: activeTab === tab.key ? "block" : "none" }}>
-                          <XtermTerminal
-                            injectedCommand={activeTab === tab.key ? injected : null}
-                            onStatusChange={(status) =>
-                              setTabs((current) =>
-                                current.map((item) => (item.key === tab.key ? { ...item, status } : item))
-                              )
-                            }
-                            websocketUrl={tab.websocketUrl}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </section>
             )}
 
             {view === "sftp" && (
@@ -903,6 +857,159 @@ export default function ConsolePage() {
             )}
           </motion.div>
         </AnimatePresence>
+
+        {/* Terminal workspace stays mounted across view switches so open
+            sessions (and their WebSockets) survive navigating to other menus. */}
+        <section
+          className={cx("panel", "terminal-workspace", terminalFullscreen && "is-fullscreen")}
+          style={view === "terminal" ? undefined : { display: "none" }}
+        >
+          <div className="panel-header tight">
+            <div>
+              <h2>Terminal</h2>
+              <p>Live SSH over the Onshell gateway — every session is audited.</p>
+            </div>
+            {tabs.length > 0 && (
+              <div className="terminal-controls">
+                <button
+                  aria-pressed={terminalLayout === "split"}
+                  className={cx("icon-button", terminalLayout === "split" && "is-active")}
+                  onClick={() => setTerminalLayout((mode) => (mode === "split" ? "single" : "split"))}
+                  title={terminalLayout === "split" ? "Single terminal" : "Split — show all terminals"}
+                  type="button"
+                >
+                  {terminalLayout === "split" ? <SquareTerminal size={15} /> : <Columns2 size={15} />}
+                </button>
+                <button
+                  aria-pressed={snippetsPanelOpen}
+                  className={cx("icon-button", snippetsPanelOpen && "is-active")}
+                  onClick={() => setSnippetsPanelOpen((open) => !open)}
+                  title={snippetsPanelOpen ? "Hide snippets" : "Show snippets"}
+                  type="button"
+                >
+                  {snippetsPanelOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
+                </button>
+                <button
+                  aria-pressed={terminalFullscreen}
+                  className={cx("icon-button", terminalFullscreen && "is-active")}
+                  onClick={() => setTerminalFullscreen((full) => !full)}
+                  title={terminalFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                  type="button"
+                >
+                  {terminalFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </button>
+              </div>
+            )}
+          </div>
+          {tabs.length === 0 ? (
+            <div className="terminal-empty">
+              <SquareTerminal size={26} />
+              <strong>No open terminals</strong>
+              <span>Open a localhost shell, or pick a host to start an audited SSH session in this tab.</span>
+              <div className="inline-form" style={{ justifyContent: "center" }}>
+                <button className="primary-button" onClick={() => void connectLocalhost()} type="button">
+                  <Monitor size={15} />
+                  Localhost shell
+                </button>
+                <button className="secondary-button" onClick={() => setView("hosts")} type="button">
+                  Browse Hosts
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="terminal-tabs" role="tablist">
+                {tabs.map((tab) => (
+                  <div
+                    aria-selected={activeTab === tab.key}
+                    className={cx("terminal-tab", activeTab === tab.key && "is-active")}
+                    data-status={tab.status}
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") setActiveTab(tab.key);
+                    }}
+                    role="tab"
+                    tabIndex={0}
+                  >
+                    <span aria-hidden="true" className="tab-dot" />
+                    {tab.hostName}
+                    <button
+                      aria-label={`Close ${tab.hostName}`}
+                      className="tab-close"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeTab(tab);
+                      }}
+                      type="button"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="terminal-body">
+                <div
+                  className={cx("terminal-stage", terminalLayout === "split" && "is-split")}
+                  data-count={tabs.length}
+                >
+                  {tabs.map((tab) => {
+                    const visible = terminalLayout === "split" || activeTab === tab.key;
+                    return (
+                      <div
+                        className={cx("terminal-pane", terminalLayout === "split" && activeTab === tab.key && "is-focused")}
+                        key={tab.key}
+                        onMouseDown={() => setActiveTab(tab.key)}
+                        style={{ display: visible ? "block" : "none" }}
+                      >
+                        <XtermTerminal
+                          injectedCommand={activeTab === tab.key ? injected : null}
+                          onStatusChange={(status) =>
+                            setTabs((current) =>
+                              current.map((item) => (item.key === tab.key ? { ...item, status } : item))
+                            )
+                          }
+                          websocketUrl={tab.websocketUrl}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {snippetsPanelOpen && (
+                  <aside className="terminal-snippets">
+                    <div className="terminal-snippets-head">
+                      <ScrollText size={14} />
+                      <strong>Snippets</strong>
+                    </div>
+                    {snippets.length === 0 ? (
+                      <p className="terminal-snippets-empty">
+                        No snippets yet. Create reusable commands in the Snippets menu.
+                      </p>
+                    ) : (
+                      <ul className="terminal-snippets-list">
+                        {snippets.map((snippet) => (
+                          <li key={snippet.id}>
+                            <button
+                              className="terminal-snippet"
+                              onClick={() => runSnippet(snippet.command)}
+                              title={`Run: ${snippet.command}`}
+                              type="button"
+                            >
+                              <span className="terminal-snippet-name">{snippet.name}</span>
+                              <code>{snippet.command}</code>
+                              <Play className="terminal-snippet-run" size={13} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </aside>
+                )}
+              </div>
+            </>
+          )}
+        </section>
       </main>
 
       <AnimatePresence>

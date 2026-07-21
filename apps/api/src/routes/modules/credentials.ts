@@ -223,10 +223,20 @@ export async function registerCredentialRoutes(app: FastifyInstance) {
 
       const { credentialId } = z.object({ credentialId: z.string() }).parse(request.params);
       const existing = await prisma.credential.findFirst({
-        where: { id: credentialId, organizationId: actor.organizationId }
+        where: { id: credentialId, organizationId: actor.organizationId },
+        include: { hosts: { select: { id: true, name: true } } }
       });
       if (!existing) {
         return reply.code(404).send({ error: "credential_not_found" });
+      }
+
+      // Refuse to delete a credential that is still attached to (in use by) a host.
+      if (existing.hosts.length > 0) {
+        return reply.code(409).send({
+          error: "credential_in_use",
+          attachedHostCount: existing.hosts.length,
+          attachedHosts: existing.hosts.map((host) => host.name)
+        });
       }
 
       await prisma.credential.delete({ where: { id: existing.id } });

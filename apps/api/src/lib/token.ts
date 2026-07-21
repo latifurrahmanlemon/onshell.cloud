@@ -17,7 +17,7 @@ export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export function signAccessToken(payload: Omit<AccessTokenPayload, "exp">, secret: string, ttlSeconds = 15 * 60) {
+export function signAccessToken(payload: Omit<AccessTokenPayload, "exp">, secret: string, ttlSeconds = 12 * 60 * 60) {
   const header = { alg: "HS256", typ: "JWT" };
   const body: AccessTokenPayload = {
     ...payload,

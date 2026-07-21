@@ -61,6 +61,7 @@ export interface Host {
   group?: string;
   notes?: string;
   health: "unknown" | "online" | "degraded" | "offline";
+  lastSessionAt?: string;
   createdAt: string;
   updatedAt: string;
 }

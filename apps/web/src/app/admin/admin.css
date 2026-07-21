@@ -1546,6 +1546,21 @@
   grid-template-columns: 1fr;
 }
 
+/* Wide modal variant (e.g. New/Edit package) — two-column form layout */
+.adm-modal-wide {
+  width: min(100%, 600px);
+}
+
+.adm-modal-wide .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 680px) {
+  .adm-modal-wide .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Profile photo editor (inside the photo modal) */
 
 .adm-photo-editor {

@@ -130,7 +130,7 @@ export type HostWithRelations = PrismaHost & {
   group: PrismaHostGroup | null;
 };
 
-export function toHost(host: HostWithRelations): Host {
+export function toHost(host: HostWithRelations, lastSessionAt?: Date | null): Host {
   return {
     id: host.id,
     organizationId: host.organizationId,
@@ -144,6 +144,7 @@ export function toHost(host: HostWithRelations): Host {
     group: host.group?.name,
     notes: host.notes ?? undefined,
     health: host.health as Host["health"],
+    lastSessionAt: lastSessionAt?.toISOString(),
     createdAt: host.createdAt.toISOString(),
     updatedAt: host.updatedAt.toISOString()
   };

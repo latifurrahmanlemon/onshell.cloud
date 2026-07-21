@@ -849,6 +849,7 @@ function Modal({
   icon: Icon,
   onClose,
   reduceMotion,
+  className,
   children
 }: {
   title: string;
@@ -856,6 +857,7 @@ function Modal({
   icon: LucideIcon;
   onClose: () => void;
   reduceMotion: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -879,9 +881,9 @@ function Modal({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         aria-label={title}
         aria-modal="true"
-        className="adm-modal panel"
         exit={reduceMotion ? undefined : { opacity: 0, y: 8, scale: 0.98 }}
         initial={reduceMotion ? false : { opacity: 0, y: 8, scale: 0.98 }}
+        className={className ? `adm-modal panel ${className}` : "adm-modal panel"}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         transition={{ duration: 0.16, ease: "easeOut" }}
@@ -2866,6 +2868,7 @@ function AdminPanel() {
       <AnimatePresence>
         {packageModalOpen && (
           <Modal
+            className="adm-modal-wide"
             description={packageForm.id ? "Update pricing, limits, and visibility." : "Active packages show on the public pricing page immediately."}
             icon={Package}
             key="package-modal"
