@@ -1856,6 +1856,18 @@ export function TeamView({
 
 /* ---------- Audit ---------- */
 
+/** Sign-in events, kept separate from the rest of the activity feed. */
+const LOGIN_ACTIONS = new Set(["auth.login", "auth.google.login", "auth.login.failed"]);
+const isLoginLog = (log: AuditLog) => LOGIN_ACTIONS.has(log.action);
+
+type AuditFilter = "all" | "logins" | "activity";
+
+const AUDIT_FILTERS: Array<{ value: AuditFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "logins", label: "Logins" },
+  { value: "activity", label: "Activity" },
+];
+
 export function AuditView({
   logs,
   loading,
@@ -1865,10 +1877,18 @@ export function AuditView({
   loading: boolean;
   memberNames: Map<string, string>;
 }) {
+  const [filter, setFilter] = useState<AuditFilter>("all");
+
   const actorName = useCallback(
     (log: AuditLog) => memberNames.get(log.actorId) ?? "system",
     [memberNames],
   );
+
+  const visibleLogs = useMemo(() => {
+    if (filter === "logins") return logs.filter(isLoginLog);
+    if (filter === "activity") return logs.filter((log) => !isLoginLog(log));
+    return logs;
+  }, [logs, filter]);
 
   const columns = useMemo<DataColumn<AuditLog>[]>(
     () => [
@@ -1940,12 +1960,26 @@ export function AuditView({
         defaultSort={{ key: "date", dir: "desc" }}
         empty={{
           icon: <ScrollText size={22} />,
-          title: "No audit events yet",
+          title: filter === "logins" ? "No login events yet" : "No audit events yet",
           hint: "Activity will appear here as your team works.",
         }}
+        leftTools={
+          <div className="segmented" style={{ gridTemplateColumns: "repeat(3, minmax(64px, auto))" }}>
+            {AUDIT_FILTERS.map((option) => (
+              <button
+                className={cx(filter === option.value && "selected")}
+                key={option.value}
+                onClick={() => setFilter(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        }
         loading={loading}
         rowKey={(log) => log.id}
-        rows={logs}
+        rows={visibleLogs}
         searchPlaceholder="Search actions, actors, targets…"
         searchText={(log) =>
           `${log.action} ${actorName(log)} ${log.targetType} ${log.targetId ?? ""} ${log.ipAddress ?? ""} ${shortDate(log.createdAt)}`

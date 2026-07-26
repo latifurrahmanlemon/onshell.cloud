@@ -10,8 +10,12 @@ export type TerminalStatus = "connecting" | "connected" | "closed" | "error";
 interface XtermTerminalProps {
   websocketUrl: string;
   onStatusChange?: (status: TerminalStatus) => void;
-  /** Incremented counter + command; when it changes the command is written to the terminal. */
-  injectedCommand?: { id: number; command: string } | null;
+  /**
+   * Incremented counter + command; when it changes the command is written to
+   * the terminal. `execute` defaults to true (append a newline so it runs);
+   * pass false to paste the text without running it.
+   */
+  injectedCommand?: { id: number; command: string; execute?: boolean } | null;
 }
 
 const terminalTheme = {
@@ -35,6 +39,7 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
   const [status, setStatus] = useState<TerminalStatus>("connecting");
   const statusRef = useRef(onStatusChange);
   statusRef.current = onStatusChange;
+  const lastInjectedId = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -129,9 +134,14 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
 
   useEffect(() => {
     if (!injectedCommand || !injectedCommand.command) return;
+    // Each injection has a unique id; process it once so re-passing the same
+    // command (e.g. when this tab is re-focused) never re-runs it.
+    if (lastInjectedId.current === injectedCommand.id) return;
     const socket = socketRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(`${injectedCommand.command}\n`);
+      lastInjectedId.current = injectedCommand.id;
+      const suffix = injectedCommand.execute === false ? "" : "\n";
+      socket.send(`${injectedCommand.command}${suffix}`);
       terminalRef.current?.focus();
     }
   }, [injectedCommand]);

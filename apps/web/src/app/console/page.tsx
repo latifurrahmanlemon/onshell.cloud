@@ -10,7 +10,9 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardPaste,
   Columns2,
+  Copy,
   File,
   Folder,
   FolderLock,
@@ -27,6 +29,7 @@ import {
   PanelRight,
   PanelRightClose,
   Play,
+  RefreshCw,
   ScrollText,
   Server,
   Settings,
@@ -54,6 +57,7 @@ type ViewKey = "overview" | "hosts" | "terminal" | "sftp" | "vault" | "snippets"
 interface TerminalTab {
   key: string;
   sessionId: string;
+  hostId: string;
   hostName: string;
   websocketUrl: string;
   status: TerminalStatus;
@@ -130,7 +134,9 @@ export default function ConsolePage() {
 
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [injected, setInjected] = useState<{ id: number; command: string } | null>(null);
+  const [injected, setInjected] = useState<{ id: number; command: string; execute: boolean; targetKey: string } | null>(
+    null
+  );
   const injectedCounter = useRef(0);
   const [terminalLayout, setTerminalLayout] = useState<"single" | "split">("single");
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
@@ -330,6 +336,7 @@ export default function ConsolePage() {
           const tab: TerminalTab = {
             key: `${session.id}-${Date.now()}`,
             sessionId: session.id,
+            hostId: host.id,
             hostName: host.name,
             websocketUrl: sessionWebsocketUrl(session, websocketUrl),
             status: "connecting"
@@ -360,17 +367,67 @@ export default function ConsolePage() {
     void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
   }, []);
 
-  const runSnippet = useCallback(
-    (command: string) => {
+  // Reconnect a closed/failed tab by opening a fresh session for its host and
+  // swapping the tab's socket URL in place (the terminal re-connects on change).
+  const retryTab = useCallback(
+    async (tab: TerminalTab) => {
+      setTabs((current) =>
+        current.map((item) => (item.key === tab.key ? { ...item, status: "connecting" } : item))
+      );
+      void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
+      try {
+        const { session, websocketUrl } = await consoleApi.openSession({ hostId: tab.hostId, protocol: "ssh" });
+        setTabs((current) =>
+          current.map((item) =>
+            item.key === tab.key
+              ? {
+                  ...item,
+                  sessionId: session.id,
+                  websocketUrl: sessionWebsocketUrl(session, websocketUrl),
+                  status: "connecting"
+                }
+              : item
+          )
+        );
+        setActiveTab(tab.key);
+        void consoleApi.sessions().then(setSessions).catch(() => undefined);
+      } catch (error) {
+        setTabs((current) =>
+          current.map((item) => (item.key === tab.key ? { ...item, status: "error" } : item))
+        );
+        notify(sessionErrorMessage(error), "error");
+      }
+    },
+    [notify]
+  );
+
+  // Send a snippet to the active terminal. execute=true appends a newline (runs
+  // it); execute=false pastes the text without running so the user can edit it.
+  const sendSnippet = useCallback(
+    (command: string, execute: boolean) => {
       if (!activeTab) {
-        notify("Open a terminal first, then run the snippet.", "error");
+        notify("Open a terminal first, then use the snippet.", "error");
         return;
       }
       injectedCounter.current += 1;
-      setInjected({ id: injectedCounter.current, command });
+      setInjected({ id: injectedCounter.current, command, execute, targetKey: activeTab });
       setView("terminal");
     },
     [activeTab, notify]
+  );
+
+  const runSnippet = useCallback((command: string) => sendSnippet(command, true), [sendSnippet]);
+
+  const copySnippet = useCallback(
+    async (command: string) => {
+      try {
+        await navigator.clipboard.writeText(command);
+        notify("Snippet copied to clipboard.", "success");
+      } catch {
+        notify("Could not copy — clipboard access was blocked.", "error");
+      }
+    },
+    [notify]
   );
 
   // Open a terminal to the local machine over SSH (127.0.0.1), reusing a
@@ -496,6 +553,17 @@ export default function ConsolePage() {
 
       <main className="workspace">
         <div className="console-topright">
+          <button
+            aria-label="Open terminal"
+            className={cx("console-topright-btn", view === "terminal" && "is-active")}
+            data-tooltip={tabs.length > 0 ? `Terminal (${tabs.length} open)` : "Terminal"}
+            onClick={() => setView("terminal")}
+            type="button"
+          >
+            <SquareTerminal size={16} />
+            {tabs.length > 0 && <span className="console-topright-badge">{tabs.length}</span>}
+          </button>
+
           <button
             aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             className="console-topright-btn"
@@ -964,7 +1032,7 @@ export default function ConsolePage() {
                         style={{ display: visible ? "block" : "none" }}
                       >
                         <XtermTerminal
-                          injectedCommand={activeTab === tab.key ? injected : null}
+                          injectedCommand={injected?.targetKey === tab.key ? injected : null}
                           onStatusChange={(status) =>
                             setTabs((current) =>
                               current.map((item) => (item.key === tab.key ? { ...item, status } : item))
@@ -972,6 +1040,19 @@ export default function ConsolePage() {
                           }
                           websocketUrl={tab.websocketUrl}
                         />
+                        {(tab.status === "closed" || tab.status === "error") && (
+                          <div className="terminal-retry">
+                            <span>
+                              {tab.status === "error"
+                                ? `Couldn't connect to ${tab.hostName}.`
+                                : `Session to ${tab.hostName} closed.`}
+                            </span>
+                            <button className="primary-button" onClick={() => void retryTab(tab)} type="button">
+                              <RefreshCw size={15} />
+                              Retry
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -989,17 +1070,40 @@ export default function ConsolePage() {
                     ) : (
                       <ul className="terminal-snippets-list">
                         {snippets.map((snippet) => (
-                          <li key={snippet.id}>
-                            <button
-                              className="terminal-snippet"
-                              onClick={() => runSnippet(snippet.command)}
-                              title={`Run: ${snippet.command}`}
-                              type="button"
-                            >
+                          <li className="terminal-snippet" key={snippet.id}>
+                            <div className="terminal-snippet-info">
                               <span className="terminal-snippet-name">{snippet.name}</span>
                               <code>{snippet.command}</code>
-                              <Play className="terminal-snippet-run" size={13} />
-                            </button>
+                            </div>
+                            <div className="terminal-snippet-actions">
+                              <button
+                                aria-label={`Copy ${snippet.name}`}
+                                className="icon-button compact"
+                                onClick={() => void copySnippet(snippet.command)}
+                                title="Copy to clipboard"
+                                type="button"
+                              >
+                                <Copy size={13} />
+                              </button>
+                              <button
+                                aria-label={`Paste ${snippet.name} into terminal`}
+                                className="icon-button compact"
+                                onClick={() => sendSnippet(snippet.command, false)}
+                                title="Paste into terminal (does not run)"
+                                type="button"
+                              >
+                                <ClipboardPaste size={13} />
+                              </button>
+                              <button
+                                aria-label={`Run ${snippet.name}`}
+                                className="icon-button compact"
+                                onClick={() => sendSnippet(snippet.command, true)}
+                                title="Run in terminal"
+                                type="button"
+                              >
+                                <Play size={13} />
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>
