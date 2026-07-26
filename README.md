@@ -69,8 +69,44 @@ The local database still needs a matching `onshell` user/database or a MySQL adm
 For production deploys, use:
 
 ```bash
-yarn db:deploy
+yarn db:deploy   # applies pending migrations only — never drops data
 yarn db:seed
+```
+
+### Checking And Resetting Migration State
+
+```bash
+yarn db:status   # which migrations are applied vs pending
+yarn db:deploy   # apply pending migrations (safe, non-destructive)
+```
+
+`yarn db:reset` **drops the database**, replays every migration from scratch, and
+re-runs the seed. It is for a genuinely fresh start only. Back up first:
+
+```bash
+set -a && source .env && set +a
+yarn db:backup                      # writes backups/onshell-cloud-<timestamp>.sql
+ADMIN_PASSWORD='<strong-password>' yarn db:reset --force
+```
+
+`ADMIN_PASSWORD` is required because `migrate reset` runs the seed automatically, and
+the seed refuses to create a known-password admin under `NODE_ENV=production`.
+
+If `db:deploy` fails with **P3005 (`database schema is not empty`)** — the tables exist
+but Prisma has no migration history for them — baseline the existing migrations instead
+of resetting:
+
+```bash
+cd apps/api
+npx prisma migrate resolve --applied 20260708094000_init_saas_platform
+# ...repeat for each migration already reflected in the database, then:
+npx prisma migrate deploy
+```
+
+Restore a backup with:
+
+```bash
+mysql -u onshell -p onshell_cloud < backups/onshell-cloud-<timestamp>.sql
 ```
 
 `yarn db:seed` is idempotent: it upserts the admin user, the Onshell.cloud
