@@ -2294,3 +2294,67 @@
 .form-grid select.host-access-select:disabled {
   opacity: 0.5;
 }
+
+/* ==========================================================================
+   Invite fallback — shown when an invitation was created but SMTP could not
+   deliver it, so the link can be shared by hand instead of going nowhere.
+   ========================================================================== */
+
+.invite-fallback {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+
+.invite-fallback-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.invite-fallback-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.invite-fallback-text strong {
+  color: var(--text);
+}
+
+.invite-fallback-row {
+  display: flex;
+  gap: 8px;
+}
+
+.invite-fallback-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.invite-fallback-row .secondary-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 520px) {
+  .invite-fallback-row {
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,11 @@
+# Onshell.cloud security contact (RFC 9116)
+# Please report vulnerabilities privately before disclosing them publicly.
+
+Contact: mailto:security@onshell.cloud
+Contact: https://onshell.cloud/contact
+Policy: https://onshell.cloud/security#disclosure
+Preferred-Languages: en
+Canonical: https://onshell.cloud/.well-known/security.txt
+
+# Update this date before it lapses; an expired security.txt is treated as stale.
+Expires: 2027-12-31T23:59:59.000Z

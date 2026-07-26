@@ -1,0 +1,31 @@
+/* /security — reuses the landing feature grid and the pillar prose styles. */
+
+.sec-heading-left {
+  text-align: left;
+  margin-bottom: 4px;
+}
+
+.sec-disclosure {
+  margin: 16px 0 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.97rem;
+  line-height: 1.7;
+}
+
+.sec-disclosure li::marker {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.pillar-section a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.pillar-section a:hover {
+  text-decoration: underline;
+}

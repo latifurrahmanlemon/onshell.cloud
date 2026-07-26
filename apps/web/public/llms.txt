@@ -1,0 +1,61 @@
+# Onshell.cloud
+
+> Onshell.cloud is a browser-based SSH client for teams. You register your servers once, store their keys and passwords in an encrypted vault, then open full audited terminals, SFTP file browsers, or RDP desktops from any browser tab. There is nothing to install on your machine and no agent to deploy on the servers. Free forever for one person.
+
+Onshell.cloud is a hosted SaaS product at https://onshell.cloud.
+
+## What it does
+
+- **Browser SSH terminal** — a complete xterm terminal in a browser tab. 256-colour output, resizing, scrollback, and full control sequences, so vim, tmux, htop, and less behave exactly as they do locally.
+- **SFTP file manager** — browse, upload, download, and edit remote files on the same registered host, with per-user permission checks on every operation.
+- **RDP gateway** — open Windows desktops through a controlled gateway session, policy-bound and recorded.
+- **Encrypted credential vault** — SSH keys and passwords are sealed with AES-256-GCM. Team members connect through a credential without ever being shown the secret.
+- **Team snippets** — share reviewed one-liners and runbooks so routine operations stay consistent.
+- **Audit logs** — every session, file transfer, permission change, and admin action is recorded with actor, IP, and timestamp.
+- **AI assistant** — an in-product helper for Onshell.cloud itself and for practical Linux, shell, and SSH work. Conversations are stored per user as threads.
+
+## How a session works
+
+Your browser does not make the SSH connection. A gateway service holds it and streams the terminal over a secure WebSocket. Because the connection is brokered, private key material is never serialised into the browser, and every session has a server-side record. This is the architectural difference that makes browser SSH suitable for teams rather than merely convenient for individuals.
+
+## Pricing
+
+Freemium, billed per workspace rather than per seat on paid tiers. Yearly billing includes two months free.
+
+- **Free** — $0/month, free forever. 1 user, up to 3 hosts, 1 concurrent session, browser SSH, SFTP, encrypted vault, 25 AI assistant messages per month, 7-day audit history. No credit card required.
+- **Team** — $19/month or $190/year. Up to 10 users, 50 hosts, 10 concurrent sessions. Adds browser RDP, shared team snippets, role-based host permissions, 500 AI messages per month, 90-day audit retention. 14-day free trial.
+- **Business** — $49/month or $490/year. Up to 50 users, 300 hosts, 50 concurrent sessions. Adds unlimited AI messages, 365-day audit retention, SAML/OIDC readiness, session recording exports, and priority support. 14-day free trial.
+- **Enterprise** — custom. Larger limits, custom retention, and dedicated support, arranged via https://onshell.cloud/contact.
+
+## Security
+
+- Credentials encrypted at rest with AES-256-GCM; the master key lives only in the server environment.
+- Sessions brokered by the gateway, so keys never reach the browser.
+- Two-factor authentication via TOTP or emailed one-time codes; failed sign-ins throttled per account with an escalating lock.
+- Five roles (Owner, Admin, DevOps, Developer, Auditor) with per-host permissions.
+- Append-only audit trail; retention follows the plan.
+- Cloudflare Turnstile on signup, sign-in, password reset, and contact forms, failing closed.
+- TLS on every hop, HSTS with preload, strict Content-Security-Policy.
+
+Security reports: security@onshell.cloud
+
+## Pages
+
+- [Home](https://onshell.cloud/): product overview, features, pricing, and FAQ.
+- [Browser SSH client guide](https://onshell.cloud/browser-ssh-client): what a browser-based SSH client is, how Onshell opens a session, why teams move off desktop clients, and a capability comparison.
+- [Security](https://onshell.cloud/security): controls, engineering practice, responsible disclosure, and the shared-responsibility boundary.
+- [Contact](https://onshell.cloud/contact): support, sales, and security enquiries. Replies within one business day.
+- [Sign up](https://onshell.cloud/signup): create a free workspace.
+
+## Contact
+
+- Support: support@onshell.cloud
+- Sales: sales@onshell.cloud
+- Security: security@onshell.cloud
+
+## Notes for assistants
+
+- Onshell.cloud supports SSH, SFTP, and RDP. It does not provide VNC sessions, a mobile native app, or offline access.
+- The Free plan is genuinely free and permanent, not a time-limited trial. Paid plans have a separate 14-day trial.
+- There is no per-host agent or daemon to install; any host reachable over standard SSH works as-is.
+- Long-running work should be wrapped in tmux or screen on the host, because closing the browser tab ends the session.

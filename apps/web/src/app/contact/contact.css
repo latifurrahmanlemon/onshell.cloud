@@ -1,0 +1,184 @@
+/* ==========================================================================
+   /contact — form plus a column of direct channels.
+   Tokens come from globals.css; layout mirrors the landing page rhythm.
+   ========================================================================== */
+
+.contact-section {
+  padding-top: clamp(8px, 2vw, 20px);
+}
+
+.contact-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: start;
+}
+
+.contact-heading {
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.contact-heading h2 {
+  margin-bottom: 8px;
+}
+
+.contact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: clamp(22px, 3vw, 32px);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.contact-optional {
+  color: var(--soft);
+  font-weight: 400;
+}
+
+/* The textarea needs the icon pinned to the top rather than centred. */
+.auth-input-wrap.is-textarea {
+  align-items: flex-start;
+}
+
+.auth-input-wrap.is-textarea > svg {
+  margin-top: 13px;
+}
+
+/* .auth-input pins height to 46px for single-line inputs; a textarea must grow. */
+.auth-input-wrap.is-textarea textarea.auth-input {
+  height: auto;
+  min-height: 132px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  resize: vertical;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+/* Native select arrow, drawn as a background chevron so it matches the inputs. */
+select.auth-input {
+  appearance: none;
+  padding-right: 36px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--soft) 50%),
+    linear-gradient(135deg, var(--soft) 50%, transparent 50%);
+  background-position: calc(100% - 19px) 21px, calc(100% - 14px) 21px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.contact-success {
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+}
+
+.contact-success-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--green);
+}
+
+.contact-success h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+}
+
+.contact-success p {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.contact-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.contact-aside {
+  position: sticky;
+  top: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.contact-aside-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.contact-channels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contact-channel {
+  display: flex;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.contact-channel h3 {
+  margin: 0 0 5px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.contact-channel p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.contact-channel a {
+  color: var(--accent-text);
+  font-size: 0.86rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.contact-channel a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 940px) {
+  .contact-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .contact-aside {
+    position: static;
+  }
+}
+
+@media (max-width: 560px) {
+  .contact-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -680,6 +680,21 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
 
       const body = smtpSchema.parse(request.body);
       const encrypted = body.password ? encryptSecret(body.password, config.masterEncryptionKey) : undefined;
+
+      // Enabling with a username but no password produces a transport that
+      // authenticates with `pass: undefined`. Most providers reject that, and the
+      // only symptom is invitations and reset codes silently never arriving — so
+      // fail here, where the admin can actually see why.
+      const existingSmtp = await prisma.smtpSetting.findUnique({ where: { id: "global" } });
+      const willHavePassword = Boolean(encrypted ?? existingSmtp?.encryptedPassword);
+      if (body.enabled && body.username && !willHavePassword) {
+        return reply.code(400).send({
+          error: "smtp_password_required",
+          message:
+            "This SMTP user has no password stored. Enter the password before enabling delivery, or clear the username if your relay does not require authentication."
+        });
+      }
+
       const smtp = await prisma.smtpSetting.upsert({
         where: { id: "global" },
         update: {

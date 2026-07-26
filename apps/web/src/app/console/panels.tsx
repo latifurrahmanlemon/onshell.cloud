@@ -14,6 +14,7 @@ import {
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -1560,6 +1561,12 @@ export function TeamView({
 }) {
   const [busy, setBusy] = useState(false);
   const [inviting, setInviting] = useState(false);
+  /**
+   * Set when an invitation was created but the email could not be delivered
+   * (usually SMTP is not enabled yet). Holds the link so it can be shared by
+   * hand instead of the invite silently going nowhere.
+   */
+  const [undeliveredInvite, setUndeliveredInvite] = useState<{ email: string; acceptUrl: string } | null>(null);
   const [removingMember, setRemovingMember] = useState<TeamMember | null>(null);
   const [revokingInvite, setRevokingInvite] = useState<PendingInvitation | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -1616,15 +1623,27 @@ export function TeamView({
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    const email = String(data.get("email") ?? "");
     setBusy(true);
     try {
-      await consoleApi.invite({
-        email: String(data.get("email") ?? ""),
+      const result = await consoleApi.invite({
+        email,
         role: String(data.get("role") ?? "developer") as Role,
       });
-      notify("Invitation sent by email.", "success");
-      form.reset();
-      setInviting(false);
+
+      if (result.emailSent) {
+        notify(`Invitation emailed to ${email}.`, "success");
+        setUndeliveredInvite(null);
+        form.reset();
+        setInviting(false);
+      } else {
+        // The invitation exists and is valid — only delivery failed. Keep the
+        // drawer open and hand the owner the link rather than claiming an email
+        // was sent that never left the server.
+        setUndeliveredInvite({ email, acceptUrl: result.acceptUrl });
+        notify("Invitation created, but email could not be sent.", "error");
+      }
+
       onChanged();
     } catch (err) {
       notify(
@@ -1633,6 +1652,16 @@ export function TeamView({
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function copyAcceptUrl() {
+    if (!undeliveredInvite) return;
+    try {
+      await navigator.clipboard.writeText(undeliveredInvite.acceptUrl);
+      notify("Invite link copied.", "success");
+    } catch {
+      notify("Clipboard is not available — select the link and copy it.", "error");
     }
   }
 
@@ -2043,12 +2072,40 @@ export function TeamView({
       </Drawer>
 
       <Drawer
-        onClose={() => setInviting(false)}
+        onClose={() => {
+          setInviting(false);
+          setUndeliveredInvite(null);
+        }}
         open={inviting}
         subtitle="They will receive an email link to join this workspace."
         title="Invite member"
       >
         <form className="form-grid" onSubmit={invite}>
+          {undeliveredInvite && (
+            <div className="invite-fallback span-two" role="status">
+              <p className="invite-fallback-title">
+                <AlertTriangle aria-hidden="true" size={15} />
+                Invitation created, but the email wasn&apos;t sent
+              </p>
+              <p className="invite-fallback-text">
+                Email delivery isn&apos;t configured yet, so <strong>{undeliveredInvite.email}</strong> did not receive
+                anything. The invitation is valid for 7 days — send them this link directly, or ask a platform admin to
+                enable SMTP in <strong>Admin → Settings → SMTP</strong>.
+              </p>
+              <div className="invite-fallback-row">
+                <input
+                  aria-label="Invitation link"
+                  onFocus={(event) => event.target.select()}
+                  readOnly
+                  value={undeliveredInvite.acceptUrl}
+                />
+                <button className="secondary-button" onClick={copyAcceptUrl} type="button">
+                  <Copy size={14} />
+                  Copy link
+                </button>
+              </div>
+            </div>
+          )}
           <label className="span-two">
             Email
             <input
