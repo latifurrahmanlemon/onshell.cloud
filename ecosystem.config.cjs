@@ -127,7 +127,12 @@ module.exports = {
         API_BASE_URL,
         GATEWAY_BASE_URL,
         COOKIE_DOMAIN,
-        COOKIE_SECURE: env.COOKIE_SECURE || "true",
+        // Left unset on purpose: the API then marks the session cookie Secure
+        // based on the actual request scheme. Forcing "true" here would make the
+        // browser silently discard the cookie whenever the site is reached over
+        // http:// (before TLS is set up, or via the server's IP), which presents
+        // as a failed login even though the password was correct.
+        COOKIE_SECURE: env.COOKIE_SECURE || "",
         TRUST_PROXY: env.TRUST_PROXY || "true",
         GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID || "",
         GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET || "",

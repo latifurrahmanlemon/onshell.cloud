@@ -131,6 +131,69 @@ export interface LaunchedSession {
   connectUrl?: string;
 }
 
+/** Source formats the host importer understands. */
+export type HostImportFormat =
+  | "onshell-json"
+  | "termius-json"
+  | "csv"
+  | "ssh-config"
+  | "putty-reg"
+  | "rdp"
+  | "rdcman";
+
+export type HostExportFormat = "json" | "csv" | "ssh-config";
+
+export interface HostImportPreviewRow {
+  name: string;
+  type: "ssh" | "rdp" | "vnc";
+  address: string;
+  port: number;
+  username?: string;
+  environment: "production" | "staging" | "development";
+  tags: string[];
+  group?: string;
+  notes?: string;
+  sourceRef: string;
+  /** "new" will be created; the others are reported but not written. */
+  disposition: "new" | "duplicate-in-file" | "exists";
+}
+
+export interface HostImportPreview {
+  format: HostImportFormat;
+  summary: { parsed: number; new: number; existing: number; duplicatesInFile: number; skipped: number };
+  limit: {
+    maxHosts: number | null;
+    currentHosts: number;
+    planName: string | null;
+    wouldExceed: boolean;
+    remaining: number | null;
+  };
+  hosts: HostImportPreviewRow[];
+  truncatedPreview: boolean;
+  issues: Array<{ sourceRef: string; message: string }>;
+}
+
+export interface HostImportResult {
+  format: HostImportFormat;
+  created: number;
+  updated: number;
+  skippedExisting: number;
+  duplicatesInFile: number;
+  failed: number;
+  failures: Array<{ sourceRef: string; message: string }>;
+  issues: Array<{ sourceRef: string; message: string }>;
+}
+
+export interface HostImportOptions {
+  content: string;
+  filename?: string;
+  format?: HostImportFormat;
+  environmentOverride?: "production" | "staging" | "development";
+  groupOverride?: string;
+  extraTags?: string[];
+  onDuplicate?: "skip" | "update";
+}
+
 export interface AiThreadSummary {
   id: string;
   title: string;
@@ -234,6 +297,17 @@ export const consoleApi = {
   updateHost: (id: string, body: Record<string, unknown>) =>
     request<unknown>(`/hosts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteHost: (id: string) => request<unknown>(`/hosts/${id}`, { method: "DELETE" }),
+
+  previewHostImport: (body: { content: string; filename?: string; format?: HostImportFormat }) =>
+    request<HostImportPreview>("/hosts/import/preview", { method: "POST", body: JSON.stringify(body) }),
+  importHosts: (body: HostImportOptions) =>
+    request<HostImportResult>("/hosts/import", { method: "POST", body: JSON.stringify(body) }),
+  /**
+   * Exports via a direct browser navigation rather than fetch: the response is a
+   * file download with Content-Disposition, and letting the browser handle it
+   * avoids buffering the whole export in memory just to build a blob.
+   */
+  hostExportUrl: (format: HostExportFormat) => `${apiBaseUrl}/hosts/export?format=${format}`,
 
   credentials: async () => unwrapList<CredentialSummary>(await request("/credentials"), "credentials"),
   createCredential: (body: Record<string, unknown>) =>

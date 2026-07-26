@@ -18,6 +18,7 @@ import { toPublicUser, type UserWithMembership } from "../../lib/prisma-mappers.
 import { ensureFreeSubscription, generateReferralCode, resolveReferrer } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { store } from "../../lib/store.js";
+import { resolveSessionCookie } from "../../lib/session-cookie.js";
 import { createRefreshToken, hashToken, signAccessToken } from "../../lib/token.js";
 import {
   readTurnstileToken,
@@ -175,7 +176,12 @@ async function uniqueOrganizationSlug(name: string) {
   return slug;
 }
 
-export async function issueTokens(reply: FastifyReply, config: RuntimeConfig, user: PublicUser) {
+export async function issueTokens(
+  reply: FastifyReply,
+  config: RuntimeConfig,
+  user: PublicUser,
+  request?: FastifyRequest
+) {
   const accessToken = signAccessToken(
     {
       sub: user.id,
@@ -197,16 +203,14 @@ export async function issueTokens(reply: FastifyReply, config: RuntimeConfig, us
     }
   });
 
-  // Scoped to the registrable domain (".onshell.cloud") so onshell.cloud and
-  // api.onshell.cloud share one session. Both are the same site, so SameSite=Lax
-  // still blocks cross-site POSTs while allowing the console's XHR.
-  const cookieOptions = {
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: config.cookieSecure,
-    domain: config.cookieDomain,
-    path: "/"
-  };
+  // Scoped to the registrable domain (".onshell.cloud") when the request is
+  // actually on it, so onshell.cloud and api.onshell.cloud share one session.
+  // Both are the same site, so SameSite=Lax still blocks cross-site POSTs while
+  // allowing the console's XHR.
+  const cookieOptions = resolveSessionCookie(
+    { host: request?.headers.host, protocol: request?.protocol ?? "http" },
+    config
+  );
 
   reply.setCookie("access_token", accessToken, { ...cookieOptions, maxAge: 12 * 60 * 60 });
   reply.setCookie("refresh_token", refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 });
@@ -218,11 +222,16 @@ export async function issueTokens(reply: FastifyReply, config: RuntimeConfig, us
   };
 }
 
-/** Cookie attributes must match on clear, or the browser keeps the old cookie. */
+/**
+ * Cookie attributes must match on clear, or the browser keeps the old cookie.
+ * Both variants are cleared because a session may have been issued before the
+ * host started matching the configured domain (e.g. mid-DNS-cutover).
+ */
 export function clearAuthCookies(reply: FastifyReply, config: RuntimeConfig) {
-  const options = { path: "/", domain: config.cookieDomain };
-  reply.clearCookie("access_token", options);
-  reply.clearCookie("refresh_token", options);
+  for (const domain of [config.cookieDomain, undefined]) {
+    reply.clearCookie("access_token", { path: "/", domain });
+    reply.clearCookie("refresh_token", { path: "/", domain });
+  }
 }
 
 /**
@@ -559,7 +568,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         metadata: { referred: Boolean(referredById) }
       });
 
-      return reply.code(201).send(await issueTokens(reply, config, user));
+      return reply.code(201).send(await issueTokens(reply, config, user, request));
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -680,7 +689,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         success: true
       });
 
-      return issueTokens(reply, config, user);
+      return issueTokens(reply, config, user, request);
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -743,7 +752,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         reason: challenge.method
       });
 
-      return issueTokens(reply, config, user);
+      return issueTokens(reply, config, user, request);
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -1054,7 +1063,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         return reply.redirect(`${config.publicBaseUrl}/login?challengeId=${challengeId}&method=${method}`);
       }
 
-      await issueTokens(reply, config, user);
+      await issueTokens(reply, config, user, request);
       return reply.redirect(`${config.publicBaseUrl}${state.returnTo}?login=google`);
     } catch (error) {
       app.log.error(error);
@@ -1094,7 +1103,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       });
 
       const user = await addAuthMethods(toPublicUser(tokenRow.user), tokenRow.user);
-      return issueTokens(reply, config, user);
+      return issueTokens(reply, config, user, request);
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -1264,7 +1273,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         ipAddress: request.ip
       });
 
-      return issueTokens(reply, config, user);
+      return issueTokens(reply, config, user, request);
     } catch (error) {
       return handleRouteError(reply, error);
     }

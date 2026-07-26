@@ -28,6 +28,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FileUp,
   Inbox,
   KeyRound,
   Loader2,
@@ -69,6 +70,7 @@ import {
 import { cx } from "@onshell/ui";
 import type { MemberHostAccess, PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
+import { HostTransferPanel } from "./host-transfer";
 import type { AccentValue, ThemeMode } from "../theme";
 import { ACCENT_PRESETS, accentToHex, isDefaultAccent } from "../theme";
 
@@ -518,6 +520,8 @@ export function HostsView({
   const [adding, setAdding] = useState(false);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [busy, setBusy] = useState(false);
+  /** "hosts" is the table; "transfer" is the import/export workspace. */
+  const [hostsTab, setHostsTab] = useState<"hosts" | "transfer">("hosts");
 
   // The vault credential (if any) currently attached to a host.
   const credentialForHost = (hostId: string) =>
@@ -627,6 +631,29 @@ export function HostsView({
     }
   }
 
+  // Import/export takes over the view rather than sitting under the table: the
+  // preview grid needs the full width, and it is a deliberate detour, not
+  // something you want beneath the list you were just reading.
+  if (hostsTab === "transfer") {
+    return (
+      <div className="ht-stack">
+        <div className="ht-back">
+          <button className="secondary-button" onClick={() => setHostsTab("hosts")} type="button">
+            <ChevronLeft size={15} />
+            Back to hosts
+          </button>
+        </div>
+        <HostTransferPanel
+          notify={notify}
+          onImported={() => {
+            onRefresh();
+            onCreated();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <section className="panel">
       <div className="panel-header">
@@ -668,14 +695,24 @@ export function HostsView({
             <RefreshCw size={15} />
           </button>
           {canManageHosts(role) && (
-            <button
-              className="primary-button"
-              onClick={() => setAdding(true)}
-              type="button"
-            >
-              <Plus size={15} />
-              Add Host
-            </button>
+            <>
+              <button
+                className="secondary-button"
+                onClick={() => setHostsTab("transfer")}
+                type="button"
+              >
+                <FileUp size={15} />
+                Import / Export
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => setAdding(true)}
+                type="button"
+              >
+                <Plus size={15} />
+                Add Host
+              </button>
+            </>
           )}
         </div>
       </div>

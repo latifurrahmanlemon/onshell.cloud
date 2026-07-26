@@ -417,7 +417,7 @@ export async function registerOrganizationRoutes(
         metadata: { email: invitation.email, existingUser: false }
       });
 
-      return reply.code(201).send(await issueTokens(reply, config, user));
+      return reply.code(201).send(await issueTokens(reply, config, user, request));
     } catch (error) {
       return handleRouteError(reply, error);
     }

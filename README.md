@@ -220,6 +220,33 @@ The admin panel is designed for business operations:
 * Manage brand/platform settings
 * Monitor hosts, sessions, and audit activity
 
+## Importing Hosts From Other Tools
+
+**Console → Hosts → Import / Export.** Drop in a file or paste its contents; the
+format is detected from the content (not the extension, which people rename), and
+nothing is written until you review the preview.
+
+| Source | Format | Notes |
+| --- | --- | --- |
+| Termius | JSON or CSV export | Nested `group` / `identity` objects and tag objects are read |
+| OpenSSH | `~/.ssh/config` | `HostName`, `Port`, `User`; wildcard blocks are skipped and reported |
+| PuTTY | `.reg` registry export | `%20`-encoded session names and `dword:` hex ports decoded; serial sessions skipped |
+| Windows RDP | `.rdp` file | Filename becomes the label; `DOMAIN\user` split; several files can be pasted together |
+| RDCMan | `.rdg` file | Nested groups become host groups; `displayName` preferred over the address |
+| Anything else | CSV / TSV | Fuzzy header matching — `label`/`name`, `hostname`/`address`/`ip`, `port`, `username`, `tags`, `group`, `notes` |
+| Onshell.cloud | JSON export | Round-trips its own export |
+
+The preview shows, per row, whether it will be created, already exists
+(address + port + username is the identity), or is a duplicate inside the file — plus
+bulk overrides for environment, group, and tags before you commit. Plan `maxHosts`
+is enforced, and a grant-governed role automatically receives access to what it
+imports. Import and export are both audit-logged.
+
+Export writes JSON (re-importable), CSV (opens in Excel, imports into Termius), or an
+`ssh-config` fragment. **Credentials are never exported** — they stay encrypted in the
+vault — and CSV cells beginning `=`, `+`, `-`, or `@` are prefixed so a hostname cannot
+become a formula when the file is opened in a spreadsheet.
+
 ## API Highlights
 
 Public:
@@ -240,6 +267,9 @@ POST /auth/register
 POST /auth/login
 GET  /hosts
 POST /hosts
+POST /hosts/import/preview   # dry run: what an import would do
+POST /hosts/import           # apply
+GET  /hosts/export           # ?format=json|csv|ssh-config
 GET  /sessions
 POST /sessions
 GET  /snippets

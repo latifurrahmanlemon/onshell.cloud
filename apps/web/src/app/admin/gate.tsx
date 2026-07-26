@@ -152,9 +152,20 @@ export default function AdminGate({ children }: { children: ReactNode }) {
   async function finishLogin() {
     const next = await checkAccess();
     setStatus(next);
-    if (next !== "authorized") {
-      setError(next === "forbidden" ? "" : "Sign in failed.");
+    if (next === "authorized" || next === "forbidden") {
+      setError("");
+      return;
     }
+
+    // The credentials were accepted — /auth/login returned a token — but the
+    // follow-up /auth/me came back unauthenticated. That is never a bad password;
+    // it means the session cookie was not stored, so say so instead of blaming
+    // the credentials and sending the operator to reset a working password.
+    setError(
+      "Your password was accepted, but the browser did not keep the session cookie. " +
+        "This usually means the site is being served over http:// while COOKIE_SECURE is on, " +
+        "or the host you are visiting is outside COOKIE_DOMAIN. Check both, then try again."
+    );
   }
 
   async function switchAccount() {

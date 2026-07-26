@@ -2358,3 +2358,340 @@
     flex-direction: column;
   }
 }
+
+/* ==========================================================================
+   Host import / export workspace.
+   ========================================================================== */
+
+.ht-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ht-back {
+  display: flex;
+}
+
+.ht-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ht-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.ht-filename {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ht-format {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ht-format select,
+.ht-options select,
+.ht-options input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.ht-paste textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.ht-paste textarea:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-weak);
+}
+
+.ht-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.ht-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--rose);
+  border-radius: 9px;
+  color: var(--rose);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ht-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.ht-preview,
+.ht-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.ht-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ht-summary strong,
+.ht-result strong {
+  color: var(--text);
+}
+
+.ht-summary .is-warn,
+.ht-result .is-warn {
+  color: var(--amber);
+}
+
+.ht-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.ht-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.ht-options label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* The preview can be hundreds of rows wide and long — it scrolls inside its own
+   box so the console page never gains a horizontal scrollbar. */
+.ht-table-wrap {
+  max-height: 380px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.ht-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.ht-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ht-table tbody th,
+.ht-table tbody td {
+  padding: 9px 12px;
+  color: var(--muted);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ht-table tbody th {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ht-table tbody tr:not(:last-child) th,
+.ht-table tbody tr:not(:last-child) td {
+  border-bottom: 1px solid var(--border);
+}
+
+.ht-mono {
+  font-family: var(--font-mono);
+}
+
+.ht-status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ht-status.is-ok {
+  background: var(--accent-weak);
+  color: var(--green);
+}
+
+.ht-status.is-warn {
+  color: var(--amber);
+}
+
+.ht-status.is-muted {
+  color: var(--soft);
+}
+
+.ht-note {
+  margin: 0;
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.ht-details summary,
+.ht-result details summary {
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.ht-issues {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ht-issues code {
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+}
+
+.ht-result-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--green);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ht-result ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ht-export {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.ht-export-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
+}
+
+.ht-export-card:hover {
+  border-color: var(--accent-line);
+  background: var(--elevated);
+}
+
+.ht-export-card > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ht-export-card strong {
+  font-size: 13.5px;
+}
+
+.ht-export-card small {
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ht-export-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+}

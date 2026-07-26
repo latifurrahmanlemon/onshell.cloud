@@ -19,8 +19,12 @@ export interface RuntimeConfig {
   corsOrigins: string[];
   /** Cookie `Domain` attribute, e.g. `.onshell.cloud`, so the API subdomain and the site share a session. */
   cookieDomain?: string;
-  /** True when the deployment is served over HTTPS, so cookies get `Secure`. */
-  cookieSecure: boolean;
+  /**
+   * Only set when COOKIE_SECURE was given explicitly. Left undefined so the
+   * request's own scheme decides — a `Secure` cookie is silently dropped over
+   * plain HTTP, which is exactly what happens while TLS is still being set up.
+   */
+  cookieSecure?: boolean;
   googleClientId: string;
   googleClientSecret: string;
   googleRedirectUri: string;
@@ -80,6 +84,13 @@ function envList(name: string, fallback: string[]) {
 function envBoolean(name: string, fallback: boolean) {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
+  return raw === "1" || raw.toLowerCase() === "true";
+}
+
+/** Distinguishes "not set" from "set to false", which a default would erase. */
+function optionalBoolean(name: string) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return undefined;
   return raw === "1" || raw.toLowerCase() === "true";
 }
 
@@ -159,7 +170,7 @@ export function loadConfig(service: ServiceName): RuntimeConfig {
       isProduction ? [PRODUCTION_SITE_URL, `https://www.${PRODUCTION_SITE_URL.replace("https://", "")}`] : ["http://localhost:3000"]
     ),
     cookieDomain: deriveCookieDomain(publicBaseUrl),
-    cookieSecure: envBoolean("COOKIE_SECURE", publicBaseUrl.startsWith("https://")),
+    cookieSecure: optionalBoolean("COOKIE_SECURE"),
     googleClientId: env("GOOGLE_CLIENT_ID"),
     googleClientSecret: env("GOOGLE_CLIENT_SECRET"),
     googleRedirectUri: env("GOOGLE_REDIRECT_URI", `${apiBaseUrl}/auth/google/callback`),
