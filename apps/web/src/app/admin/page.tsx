@@ -10,6 +10,7 @@ import {
   Activity,
   AlertCircle,
   ArrowLeftRight,
+  Bot,
   Camera,
   CheckCircle2,
   ChevronDown,
@@ -51,10 +52,14 @@ import {
 import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import AdminGate from "./gate";
+import { AiSettingsPanel, AiThreadsSection } from "./ai-admin";
+import { BotProtectionPanel } from "./bot-protection";
+import { GrowthSection } from "./growth-admin";
+import { InboxSection } from "./inbox";
+import { LogsSection } from "./logs";
 import { OnshellMark } from "../brand";
 import { ThemeToggle } from "../theme";
-
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+import { apiBaseUrl, apiSend, errorText, useAdminResource } from "./lib";
 
 /* ------------------------------------------------------------------ types */
 
@@ -98,6 +103,8 @@ interface AdminPlan {
   code: string;
   name: string;
   description: string;
+  tagline?: string | null;
+  badge?: string | null;
   priceMonthlyCents: number;
   priceYearlyCents: number;
   currency: string;
@@ -105,8 +112,13 @@ interface AdminPlan {
   maxHosts?: number | null;
   maxConcurrentSessions?: number | null;
   auditRetentionDays: number;
+  /** Null means unlimited AI assistant messages on this plan. */
+  monthlyAiMessages?: number | null;
+  trialDays?: number;
   features: string[];
   isActive: boolean;
+  isFree?: boolean;
+  isFeatured?: boolean;
   displayOrder: number;
 }
 
@@ -193,6 +205,10 @@ interface PackageForm {
   code: string;
   name: string;
   description: string;
+  /** Marketing hook shown above the feature list on the pricing card. */
+  tagline: string;
+  /** Short pill on the pricing card, e.g. "Most popular". */
+  badge: string;
   monthlyPrice: string;
   yearlyPrice: string;
   currency: string;
@@ -200,8 +216,15 @@ interface PackageForm {
   maxHosts: string;
   maxConcurrentSessions: string;
   auditRetentionDays: string;
+  /** Blank means unlimited AI assistant messages. */
+  monthlyAiMessages: string;
+  trialDays: string;
   featuresText: string;
   isActive: boolean;
+  /** The freemium entry tier, auto-assigned to every new workspace. */
+  isFree: boolean;
+  /** Highlighted as the recommended card on the public pricing grid. */
+  isFeatured: boolean;
   displayOrder: string;
 }
 
@@ -215,8 +238,8 @@ interface NewSettingForm {
   isSecret: boolean;
 }
 
-type SectionId = "overview" | "users" | "settings";
-type SettingsTab = "packages" | "smtp" | "billing" | "general";
+type SectionId = "overview" | "users" | "inbox" | "ai" | "growth" | "logs" | "settings";
+type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "general";
 
 type UserSortKey = "name" | "email" | "role" | "created";
 type UserRoleFilter = "all" | "platform" | "owner" | "admin" | "devops" | "developer" | "auditor";
@@ -256,6 +279,10 @@ const NEW_USER_DEFAULTS: NewUserForm = {
 const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "users", label: "Users", icon: Users },
+  { id: "inbox", label: "Inbox", icon: Inbox },
+  { id: "ai", label: "AI Conversations", icon: Bot },
+  { id: "growth", label: "Growth", icon: TrendingUp },
+  { id: "logs", label: "Logs", icon: Activity },
   { id: "settings", label: "Settings", icon: Settings2 }
 ];
 
@@ -263,13 +290,19 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> 
   { id: "packages", label: "Packages", icon: Package },
   { id: "smtp", label: "SMTP", icon: Mail },
   { id: "billing", label: "Billing Provider", icon: CreditCard },
+  { id: "bots", label: "Bot Protection", icon: ShieldCheck },
+  { id: "ai", label: "AI Assistant", icon: Bot },
   { id: "general", label: "General", icon: Settings2 }
 ];
 
 const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   overview: { title: "Overview", description: "Live platform totals and delivery status across the deployment." },
   users: { title: "Users", description: "All accounts across organizations, with roles and security posture." },
-  settings: { title: "Settings", description: "Packages, email, billing, and platform configuration." }
+  inbox: { title: "Inbox", description: "Enquiries submitted through the public contact form." },
+  ai: { title: "AI Conversations", description: "Assistant threads across all workspaces, for support and abuse review." },
+  growth: { title: "Growth", description: "Freemium funnel, referral leaderboard, and newsletter subscribers." },
+  logs: { title: "Logs", description: "Public-site visits, sign-in activity, and outbound email delivery." },
+  settings: { title: "Settings", description: "Packages, email, billing, bot protection, AI, and platform configuration." }
 };
 
 const SMTP_FALLBACK: SmtpSettings = {
@@ -312,18 +345,6 @@ const NEW_SETTING_DEFAULTS: NewSettingForm = {
 
 /* ------------------------------------------------------------ api helpers */
 
-function friendlyError(payload: { error?: string; message?: string }, status: number) {
-  if (status === 403 || payload.error === "forbidden") {
-    return "Access denied. Sign in with a platform admin account, then retry.";
-  }
-  return payload.message ?? payload.error ?? `Request failed (${status}).`;
-}
-
-function errorText(error: unknown) {
-  if (error instanceof TypeError) return "Cannot reach the API server. Check that it is running, then retry.";
-  return error instanceof Error ? error.message : "Request failed.";
-}
-
 function passwordChangeError(raw: string): string {
   switch (raw) {
     case "invalid_current_password":
@@ -339,58 +360,6 @@ function passwordChangeError(raw: string): string {
     default:
       return raw;
   }
-}
-
-async function apiSend<T>(path: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method,
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string; message?: string };
-  if (!response.ok) throw new Error(friendlyError(payload, response.status));
-  return payload;
-}
-
-interface ResourceState<T> {
-  data?: T;
-  loading: boolean;
-  error?: string;
-}
-
-function useAdminResource<T>(path: string, fallbackOn404?: T) {
-  const [state, setState] = useState<ResourceState<T>>({ loading: true });
-  const fallbackRef = useRef(fallbackOn404);
-
-  const load = useCallback(async () => {
-    setState((current) => ({ data: current.data, loading: true }));
-    try {
-      const response = await fetch(`${apiBaseUrl}${path}`, { credentials: "include" });
-      if (response.status === 404 && fallbackRef.current !== undefined) {
-        setState({ data: fallbackRef.current, loading: false });
-        return;
-      }
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
-        throw new Error(friendlyError(payload, response.status));
-      }
-      const data = (await response.json()) as T;
-      setState({ data, loading: false });
-    } catch (error) {
-      setState((current) => ({ data: current.data, loading: false, error: errorText(error) }));
-    }
-  }, [path]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const setData = useCallback((updater: (current: T | undefined) => T | undefined) => {
-    setState((current) => ({ ...current, data: updater(current.data) }));
-  }, []);
-
-  return { ...state, reload: load, setData };
 }
 
 /* -------------------------------------------------------------- utilities */
@@ -468,15 +437,21 @@ function emptyPackageForm(displayOrder = "0"): PackageForm {
     code: "",
     name: "",
     description: "",
+    tagline: "",
+    badge: "",
     monthlyPrice: "19",
     yearlyPrice: "190",
     currency: "USD",
     maxUsers: "",
     maxHosts: "",
     maxConcurrentSessions: "",
-    auditRetentionDays: "30",
+    auditRetentionDays: "90",
+    monthlyAiMessages: "",
+    trialDays: "14",
     featuresText: "",
     isActive: true,
+    isFree: false,
+    isFeatured: false,
     displayOrder
   };
 }
@@ -487,6 +462,8 @@ function planToForm(plan: AdminPlan): PackageForm {
     code: plan.code,
     name: plan.name,
     description: plan.description,
+    tagline: plan.tagline ?? "",
+    badge: plan.badge ?? "",
     monthlyPrice: centsToDollars(plan.priceMonthlyCents),
     yearlyPrice: centsToDollars(plan.priceYearlyCents),
     currency: plan.currency,
@@ -494,8 +471,12 @@ function planToForm(plan: AdminPlan): PackageForm {
     maxHosts: plan.maxHosts?.toString() ?? "",
     maxConcurrentSessions: plan.maxConcurrentSessions?.toString() ?? "",
     auditRetentionDays: plan.auditRetentionDays.toString(),
+    monthlyAiMessages: plan.monthlyAiMessages?.toString() ?? "",
+    trialDays: (plan.trialDays ?? 0).toString(),
     featuresText: plan.features.join("\n"),
     isActive: plan.isActive,
+    isFree: plan.isFree ?? false,
+    isFeatured: plan.isFeatured ?? false,
     displayOrder: plan.displayOrder.toString()
   };
 }
@@ -922,6 +903,16 @@ function AdminPanel() {
 
   const [section, setSection] = useState<SectionId>("overview");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("packages");
+  /** Unread contact messages, surfaced as a badge on the Inbox nav item. */
+  const [inboxUnread, setInboxUnread] = useState(0);
+
+  // Deep links from the contact notification email land on ?section=inbox.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("section");
+    if (requested && adminNav.some((item) => item.id === requested)) {
+      setSection(requested as SectionId);
+    }
+  }, []);
 
   /* jump straight to a settings tab (used from overview shortcuts) */
   const goToSettingsTab = useCallback((tab: SettingsTab) => {
@@ -1130,7 +1121,11 @@ function AdminPanel() {
     return Array.from(groups.entries());
   }, [settingsRes.data]);
 
+  // Bot Protection and AI Assistant load their own settings, so they report no
+  // loading state to the shell.
   const settingsTabLoading: Record<SettingsTab, boolean> = {
+    bots: false,
+    ai: false,
     packages: plansRes.loading,
     smtp: smtpRes.loading,
     billing: paymentRes.loading,
@@ -1140,6 +1135,12 @@ function AdminPanel() {
   const sectionLoading: Record<SectionId, boolean> = {
     overview: overviewRes.loading,
     users: usersRes.loading,
+    // These sections manage their own loading state and expose their own reload
+    // control, so the shell's refresh button is a no-op for them.
+    inbox: false,
+    ai: false,
+    growth: false,
+    logs: false,
     settings: settingsTabLoading[settingsTab]
   };
 
@@ -1149,11 +1150,15 @@ function AdminPanel() {
         packages: plansRes.reload,
         smtp: smtpRes.reload,
         billing: paymentRes.reload,
+        bots: async () => undefined,
+        ai: async () => undefined,
         general: settingsRes.reload
       };
       void tabReloaders[settingsTab]();
       return;
     }
+    // Inbox, AI, and Growth each render their own reload button.
+    if (section === "inbox" || section === "ai" || section === "growth") return;
     if (section === "users") {
       void usersRes.reload();
       void subscriptionsRes.reload();
@@ -1208,9 +1213,13 @@ function AdminPanel() {
         `/admin/plans${packageForm.id ? `/${packageForm.id}` : ""}`,
         packageForm.id ? "PATCH" : "POST",
         {
-          code: packageForm.code.trim(),
+          // `code` is the identifier the public pricing page and checkout links
+          // resolve against, so the API rejects changing it after creation.
+          ...(packageForm.id ? {} : { code: packageForm.code.trim() }),
           name: packageForm.name.trim(),
           description: packageForm.description.trim(),
+          tagline: packageForm.tagline.trim() || null,
+          badge: packageForm.badge.trim() || null,
           priceMonthlyCents: dollarsToCents(packageForm.monthlyPrice),
           priceYearlyCents: dollarsToCents(packageForm.yearlyPrice),
           currency: packageForm.currency.trim().toUpperCase() || "USD",
@@ -1218,11 +1227,18 @@ function AdminPanel() {
           maxHosts: optionalPositiveInt(packageForm.maxHosts),
           maxConcurrentSessions: optionalPositiveInt(packageForm.maxConcurrentSessions),
           auditRetentionDays: requiredPositiveInt(packageForm.auditRetentionDays, 30),
+          // Blank means unlimited, which the API models as null.
+          monthlyAiMessages: packageForm.monthlyAiMessages.trim() === ""
+            ? null
+            : Math.max(0, requiredInt(packageForm.monthlyAiMessages, 0)),
+          trialDays: Math.max(0, requiredInt(packageForm.trialDays, 0)),
           features: packageForm.featuresText
             .split("\n")
             .map((feature) => feature.trim())
             .filter(Boolean),
           isActive: packageForm.isActive,
+          isFree: packageForm.isFree,
+          isFeatured: packageForm.isFeatured,
           displayOrder: requiredInt(packageForm.displayOrder, 0)
         }
       );
@@ -2642,6 +2658,8 @@ function AdminPanel() {
     packages: renderPackages,
     smtp: renderSmtp,
     billing: renderBilling,
+    bots: () => <BotProtectionPanel />,
+    ai: () => <AiSettingsPanel />,
     general: renderGeneralSettings
   };
 
@@ -2685,6 +2703,11 @@ function AdminPanel() {
   const sectionRenderers: Record<SectionId, () => ReactNode> = {
     overview: renderOverview,
     users: renderUsers,
+    // These sections own their own data fetching, so they need no wiring here.
+    inbox: () => <InboxSection onUnreadChange={setInboxUnread} />,
+    ai: () => <AiThreadsSection />,
+    growth: () => <GrowthSection />,
+    logs: () => <LogsSection />,
     settings: renderSettings
   };
 
@@ -2714,6 +2737,11 @@ function AdminPanel() {
               >
                 <Icon size={17} />
                 <span>{item.label}</span>
+                {item.id === "inbox" && inboxUnread > 0 && (
+                  <span className="nav-badge" aria-label={`${inboxUnread} unread`}>
+                    {inboxUnread}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -2879,7 +2907,14 @@ function AdminPanel() {
             <div className="form-grid">
               <label>
                 Code
-                <input onChange={(event) => updatePackageForm("code", event.target.value)} placeholder="business" value={packageForm.code} />
+                {/* Fixed after creation: checkout links and the public pricing
+                    page resolve plans by code, so renaming would break them. */}
+                <input
+                  disabled={Boolean(packageForm.id)}
+                  onChange={(event) => updatePackageForm("code", event.target.value.toLowerCase())}
+                  placeholder="business"
+                  value={packageForm.code}
+                />
               </label>
               <label>
                 Name
@@ -2940,6 +2975,36 @@ function AdminPanel() {
                 Audit Retention Days
                 <input inputMode="numeric" onChange={(event) => updatePackageForm("auditRetentionDays", event.target.value)} value={packageForm.auditRetentionDays} />
               </label>
+              <label>
+                AI Messages / Month
+                <input
+                  inputMode="numeric"
+                  onChange={(event) => updatePackageForm("monthlyAiMessages", event.target.value)}
+                  placeholder="Blank = unlimited"
+                  value={packageForm.monthlyAiMessages}
+                />
+              </label>
+              <label>
+                Trial Days
+                <input inputMode="numeric" onChange={(event) => updatePackageForm("trialDays", event.target.value)} value={packageForm.trialDays} />
+              </label>
+              <label>
+                Tagline
+                <input
+                  onChange={(event) => updatePackageForm("tagline", event.target.value)}
+                  placeholder="Most teams start here"
+                  value={packageForm.tagline}
+                />
+              </label>
+              <label>
+                Card Badge
+                <input
+                  maxLength={40}
+                  onChange={(event) => updatePackageForm("badge", event.target.value)}
+                  placeholder="Most popular"
+                  value={packageForm.badge}
+                />
+              </label>
               <label className="span-two">
                 Features (one per line)
                 <textarea onChange={(event) => updatePackageForm("featuresText", event.target.value)} rows={4} value={packageForm.featuresText} />
@@ -2947,6 +3012,17 @@ function AdminPanel() {
               <label className="toggle-line package-toggle span-two">
                 <input checked={packageForm.isActive} onChange={(event) => updatePackageForm("isActive", event.target.checked)} type="checkbox" />
                 <span>Active on public pricing</span>
+              </label>
+              <label className="toggle-line package-toggle span-two">
+                <input checked={packageForm.isFeatured} onChange={(event) => updatePackageForm("isFeatured", event.target.checked)} type="checkbox" />
+                <span>Highlight as the recommended plan</span>
+              </label>
+              <label className="toggle-line package-toggle span-two">
+                <input checked={packageForm.isFree} onChange={(event) => updatePackageForm("isFree", event.target.checked)} type="checkbox" />
+                <span>
+                  Free tier — assigned automatically to every new workspace
+                  <small>Only one plan should be the free tier. Free plans skip checkout entirely.</small>
+                </span>
               </label>
               <div className="form-actions span-two">
                 <button className="secondary-button" disabled={savingPackage} onClick={() => setPackageModalOpen(false)} type="button">

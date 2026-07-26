@@ -4,12 +4,21 @@ import { z } from "zod";
 import { createCheckoutSession } from "../../lib/checkout.js";
 import { prisma } from "../../lib/prisma.js";
 import { handleRouteError } from "../../lib/reply.js";
+import {
+  readTurnstileToken,
+  turnstileFailureResponse,
+  verifyTurnstile
+} from "../../lib/turnstile.js";
 
 const checkoutSchema = z.object({
-  planCode: z.string().min(2),
+  planCode: z.string().min(2).max(40),
   billingInterval: z.enum(["monthly", "yearly"]).default("monthly"),
-  email: z.string().email(),
-  organizationName: z.string().min(2)
+  email: z
+    .string()
+    .email()
+    .transform((value) => value.trim().toLowerCase()),
+  organizationName: z.string().trim().min(2).max(120),
+  turnstileToken: z.string().optional()
 });
 
 function toPublicPlan(plan: Awaited<ReturnType<typeof prisma.plan.findFirstOrThrow>>) {
@@ -29,9 +38,25 @@ export async function registerBillingRoutes(app: FastifyInstance, config: Runtim
     return plans.map(toPublicPlan);
   });
 
-  app.post("/checkout", async (request, reply) => {
+  app.post(
+    "/checkout",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
     try {
       const body = checkoutSchema.parse(request.body);
+
+      const verification = await verifyTurnstile({
+        form: "checkout",
+        token: readTurnstileToken(request.body),
+        remoteIp: request.ip,
+        masterEncryptionKey: config.masterEncryptionKey,
+        logger: request.log
+      });
+      if (!verification.ok) {
+        const failure = turnstileFailureResponse(verification);
+        return reply.code(failure.status).send(failure.body);
+      }
+
       const plan = await prisma.plan.findFirst({
         where: {
           code: body.planCode,
@@ -39,6 +64,15 @@ export async function registerBillingRoutes(app: FastifyInstance, config: Runtim
         }
       });
       if (!plan) return reply.code(404).send({ error: "plan_not_found" });
+
+      // The free tier is self-serve at signup, not something to charge for.
+      if (plan.isFree) {
+        return reply.code(400).send({
+          error: "plan_is_free",
+          message: "This plan is free — create an account to start using it."
+        });
+      }
+
       const paymentSetting = await prisma.paymentSetting.findFirst({
         where: { enabled: true },
         orderBy: [{ provider: "asc" }, { mode: "asc" }]
@@ -68,5 +102,6 @@ export async function registerBillingRoutes(app: FastifyInstance, config: Runtim
     } catch (error) {
       return handleRouteError(reply, error);
     }
-  });
+    }
+  );
 }

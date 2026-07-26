@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "@onshell/config";
-import { canManageHosts } from "@onshell/shared";
+import { canManageHosts, type Role } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
+import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import {
   credentialKindFromPrisma,
@@ -38,10 +39,21 @@ function sshKeyFingerprint(secret: string) {
   return `SHA256:${createHash("sha256").update(secret.trim()).digest("hex")}`;
 }
 
-async function hostsBelongToOrganization(organizationId: string, hostIds: string[]) {
+/**
+ * Attaching a credential to a host is attaching a secret to it, so the actor
+ * must hold a grant for every host named — a devops member cannot use the vault
+ * as a side door onto hosts they were not granted. Fails closed: an edit that
+ * would keep an attachment to a host the actor cannot see is rejected rather
+ * than silently narrowed.
+ */
+async function hostsAreAccessible(
+  actor: { id: string; role: Role; organizationId: string },
+  hostIds: string[]
+) {
   if (hostIds.length === 0) return true;
-  const count = await prisma.host.count({ where: { organizationId, id: { in: hostIds } } });
-  return count === hostIds.length;
+  const filter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
+  const count = await prisma.host.count({ where: { ...filter, id: { in: hostIds } } });
+  return count === new Set(hostIds).size;
 }
 
 export async function registerCredentialRoutes(app: FastifyInstance) {
@@ -71,7 +83,7 @@ export async function registerCredentialRoutes(app: FastifyInstance) {
       }
 
       const body = createCredentialSchema.parse(request.body);
-      if (!(await hostsBelongToOrganization(actor.organizationId, body.attachedHostIds))) {
+      if (!(await hostsAreAccessible(actor, body.attachedHostIds))) {
         return reply.code(400).send({ error: "invalid_host_ids" });
       }
 
@@ -125,7 +137,7 @@ export async function registerCredentialRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "credential_not_found" });
       }
 
-      if (body.attachedHostIds && !(await hostsBelongToOrganization(actor.organizationId, body.attachedHostIds))) {
+      if (body.attachedHostIds && !(await hostsAreAccessible(actor, body.attachedHostIds))) {
         return reply.code(400).send({ error: "invalid_host_ids" });
       }
 

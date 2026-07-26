@@ -4,6 +4,7 @@ import { canOpenSession } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { decryptSecret } from "../../lib/encryption.js";
+import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import {
   recordAudit,
@@ -47,8 +48,9 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const query = listSessionsQuerySchema.parse(request.query);
+      const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const sessions = await prisma.session.findMany({
-        where: { organizationId: user.organizationId },
+        where: { organizationId: user.organizationId, host: accessFilter },
         orderBy: { startedAt: "desc" },
         take: query.limit
       });
@@ -68,12 +70,22 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
       }
 
       const body = openSessionSchema.parse(request.body);
+      const accessFilter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
       const host = await prisma.host.findFirst({
-        where: { id: body.hostId, organizationId: actor.organizationId },
+        where: { ...accessFilter, id: body.hostId },
         include: { credentials: { orderBy: { createdAt: "asc" }, take: 1 } }
       });
       if (!host) {
-        return reply.code(404).send({ error: "host_not_found" });
+        // Separate "you have no grant" from "no such host" so the console can
+        // tell the member to ask for access instead of to refresh their list.
+        // Safe to distinguish here: the caller is already inside the org, and
+        // this only ever runs on the failure path.
+        const inOrganization = await prisma.host.count({
+          where: { id: body.hostId, organizationId: actor.organizationId }
+        });
+        return inOrganization > 0
+          ? reply.code(403).send({ error: "host_access_denied" })
+          : reply.code(404).send({ error: "host_not_found" });
       }
 
       const credential = body.credentialId
@@ -217,8 +229,9 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
       if (!actor) return reply.code(401).send({ error: "unauthorized" });
 
       const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
+      const accessFilter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
       const session = await prisma.session.findFirst({
-        where: { id: sessionId, organizationId: actor.organizationId }
+        where: { id: sessionId, organizationId: actor.organizationId, host: accessFilter }
       });
       if (!session) {
         return reply.code(404).send({ error: "session_not_found" });

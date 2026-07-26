@@ -1,6 +1,12 @@
 # Onshell.cloud
 
-Onshell.cloud is a browser-based SaaS platform for SSH terminals, SFTP file operations, RDP sessions, saved hosts, encrypted credentials, snippets, audit logs, subscriptions, packages, SMTP, and platform administration.
+**The best browser-based SSH client for teams.** Onshell.cloud is a SaaS platform for
+browser SSH terminals, SFTP file operations, RDP sessions, saved hosts, encrypted
+credentials, snippets, audit logs, an OpenAI-powered assistant, subscriptions,
+packages, SMTP, and platform administration.
+
+Production domain: **https://onshell.cloud** (API on `api.onshell.cloud`, gateway on
+`gateway.onshell.cloud`).
 
 ## Apps
 
@@ -25,7 +31,16 @@ yarn install
 copy .env.example .env
 ```
 
-Update `.env` before production. The seed script creates a platform admin. It uses `ADMIN_EMAIL` and `ADMIN_PASSWORD` when provided; otherwise it falls back to the local development admin requested for this project.
+Update `.env` before production.
+
+The seed script creates a platform admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+`ADMIN_PASSWORD` is **required** when seeding with `NODE_ENV=production` — the seed
+refuses to create a known-password account. Outside production it generates a random
+password and prints it once, so nothing credential-shaped is ever committed.
+
+The API also refuses to boot in production while `JWT_SECRET` or
+`MASTER_ENCRYPTION_KEY` still hold their `.env.example` placeholders. Generate real
+values with `openssl rand -base64 48`.
 
 ## Database Migration And Seed
 
@@ -58,7 +73,11 @@ yarn db:deploy
 yarn db:seed
 ```
 
-`yarn db:seed` is idempotent: it upserts the admin user, Onshell.cloud organization, Starter/Business/Enterprise packages, default subscription, SMTP settings, brand settings, and payment provider settings.
+`yarn db:seed` is idempotent: it upserts the admin user, the Onshell.cloud
+organization, the Free/Team/Business packages, the platform subscription, and the
+SMTP, brand, payment-provider, Turnstile, and AI-assistant settings rows. Re-running
+it never rotates a live admin password or clobbers keys an operator rotated in
+`/admin` — env values are bootstrap-only, applied on first run.
 
 ## Run Development
 
@@ -69,6 +88,9 @@ yarn dev
 URLs:
 
 * Public SaaS page: `http://localhost:3000`
+* Browser SSH guide (SEO pillar): `http://localhost:3000/browser-ssh-client`
+* Security page: `http://localhost:3000/security`
+* Contact us: `http://localhost:3000/contact`
 * Login page: `http://localhost:3000/login`
 * Customer console: `http://localhost:3000/console`
 * Admin panel: `http://localhost:3000/admin`
@@ -93,8 +115,22 @@ The Compose stack includes:
 ## Production Deployment Flow
 
 1. Provision MySQL and Redis.
-2. Configure DNS for `onshell.cloud`.
-3. Set production environment variables.
+2. Configure DNS for `onshell.cloud`:
+
+```text
+A/AAAA  onshell.cloud          -> server
+CNAME   www.onshell.cloud      -> onshell.cloud
+A       api.onshell.cloud      -> server
+A       gateway.onshell.cloud  -> server   (needs WebSocket upgrade in Nginx)
+```
+
+   All three are subdomains of one registrable domain, so the session cookie
+   (`Domain=.onshell.cloud`) is same-site and `SameSite=Lax` still blocks
+   cross-site POSTs while allowing the console's XHR.
+
+3. Set production environment variables (see `.env.example`; `SITE_URL`,
+   `API_BASE_URL`, `GATEWAY_BASE_URL`, and `CORS_ORIGINS` all default to the
+   `onshell.cloud` values when `NODE_ENV=production`).
 4. Build services:
 
 ```bash
@@ -115,9 +151,14 @@ yarn db:seed
 
 7. Start containers or your process manager.
 8. Put Web, API, and Gateway behind HTTPS.
-9. Configure SMTP from `/admin`.
-10. Configure package prices and payment provider from `/admin`.
-11. Schedule database backups:
+9. Configure SMTP from `/admin` → Settings → SMTP.
+10. Configure package prices and payment provider from `/admin` → Settings.
+11. Add the Cloudflare Turnstile key pair in `/admin` → Settings → Bot Protection,
+    then enable it. Verification fails closed, so enabling without both keys is
+    rejected rather than silently bypassed.
+12. Add an OpenAI API key in `/admin` → Settings → AI Assistant to switch the
+    in-product assistant on. Use "Send test prompt" to confirm the key works.
+13. Schedule database backups:
 
 ```bash
 yarn db:backup
@@ -127,9 +168,17 @@ yarn db:backup
 
 The admin panel is designed for business operations:
 
-* Manage SaaS packages and pricing
+* Manage SaaS packages and pricing, including which tier is the free plan and which
+  card is highlighted on the public pricing grid
 * Manage users and platform-admin access
+* Read and triage the **Inbox** of contact-form enquiries (status, internal notes)
+* Review **AI conversations** across all workspaces for support and abuse handling
+  (opening a thread is itself audit-logged)
+* Track the **Growth** funnel: free vs paid workspaces, conversion rate, referral
+  leaderboard, and newsletter subscribers
 * Configure SMTP for invitations, resets, invoices, and alerts
+* Configure Cloudflare Turnstile bot protection per public form
+* Configure the OpenAI-powered AI assistant (model, prompt, quotas)
 * Configure payment provider settings
 * Review subscriptions and usage
 * Manage brand/platform settings
@@ -141,7 +190,10 @@ Public:
 
 ```text
 GET  /plans
-POST /checkout
+GET  /public/site-config     # Turnstile site key + AI availability, read at runtime
+POST /checkout               # Turnstile-guarded
+POST /contact                # Turnstile-guarded, rate limited
+POST /newsletter             # Turnstile-guarded, rate limited
 ```
 
 Auth and console:
@@ -156,6 +208,11 @@ GET  /sessions
 POST /sessions
 GET  /snippets
 GET  /audit
+GET  /me/growth              # plan, live usage vs limits, upgrade path, referral link
+GET  /ai/status
+GET  /ai/threads
+GET  /ai/threads/:threadId
+POST /ai/messages
 ```
 
 Admin:
@@ -171,6 +228,16 @@ GET   /admin/smtp
 PATCH /admin/smtp
 GET   /admin/settings
 PATCH /admin/settings
+GET   /admin/turnstile
+PATCH /admin/turnstile
+GET   /admin/ai/settings
+PATCH /admin/ai/settings
+POST  /admin/ai/test
+GET   /admin/ai/threads
+GET   /admin/ai/threads/:threadId
+GET   /admin/contact-messages
+PATCH /admin/contact-messages/:messageId
+GET   /admin/growth
 ```
 
 Auth and 2FA:
@@ -180,6 +247,9 @@ POST /auth/login
 POST /auth/2fa/setup
 POST /auth/2fa/verify
 POST /auth/2fa/complete
+POST /auth/2fa/email/enable
+POST /auth/2fa/email/challenge   # code needed to turn email 2FA OFF
+POST /auth/2fa/email/verify
 POST /auth/2fa/disable
 GET  /auth/2fa/status
 GET  /auth/google/start
@@ -226,10 +296,30 @@ Implemented (verified 2026-07-10 — see PROJECT_PLAN.md section 13 for the full
 * Prisma schema, migration, and seed
 * Docker Compose infrastructure
 
+Added 2026-07-26:
+
+* Freemium pricing: a permanent Free tier for solo users, auto-assigned on signup,
+  plus Team and Business paid tiers
+* Cloudflare Turnstile on signup, sign-in, password reset, contact, checkout, and
+  newsletter, with credentials and per-form toggles managed from `/admin`
+* Contact-us page and an admin inbox with status triage and internal notes
+* OpenAI-powered AI assistant with persisted threads, per-plan monthly quotas, and
+  admin review of all conversations
+* Growth surfaces: plan/usage meters, upgrade nudges, referral programme with
+  shareable links, and newsletter capture
+* Session-aware public pages (avatar + menu when a visitor already has a session)
+* SEO/AI-SEO: repositioned copy, a `/browser-ssh-client` pillar page, `/security`,
+  expanded JSON-LD (`SoftwareApplication`, `HowTo`, `FAQPage`, `BreadcrumbList`),
+  `llms.txt`, `security.txt`, and an AI-crawler allowlist in `robots.txt`
+* Security hardening: production secret guards, constant-time token comparison,
+  per-account login lockout, per-route rate limits, TTL-bounded challenge stores,
+  no internal error leakage, CSP and security headers, and removal of hardcoded
+  development credentials
+
 Pending production work (Phase B/C in PROJECT_PLAN.md):
 
 * Full SFTP file operations (upload/download/rename/delete/edit) and the browser RDP viewer UI
 * Billing webhooks (subscription/invoice rows) and plan-limit enforcement
-* Per-member resource-sharing ACLs and snippet variables
+* Snippet variables
 * Expand gateway tests with disposable SSH/RDP containers
-* Add production observability and rate limiting
+* Add production observability

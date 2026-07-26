@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
+  Bot,
   Braces,
   Check,
   ChevronDown,
@@ -10,135 +11,215 @@ import {
   KeyRound,
   MonitorUp,
   ScrollText,
+  ShieldCheck,
   SquareTerminal
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "framer-motion";
 import { cx } from "@onshell/ui";
-import { OnshellMark } from "./brand";
-import { ThemeToggle } from "./theme";
+import { PublicFooter, PublicNav } from "../components/public-shell";
+import { TurnstileWidget, useTurnstile } from "../components/turnstile";
+import { apiBaseUrl, site, siteUrl as SITE_URL } from "../lib/site";
 import "./home.css";
 
+/**
+ * Fallback pricing, used only until GET /plans resolves. Kept in sync with the
+ * seed so a cold cache or an unreachable API still renders honest numbers.
+ */
 const plans = [
   {
-    code: "starter",
-    name: "Starter",
+    code: "free",
+    name: "Free",
+    price: { monthly: 0, yearly: 0 },
+    limit: "1 user / 3 hosts",
+    description: "Everything you need to replace a desktop SSH client, for one person.",
+    badge: "Free forever",
+    isFree: true,
+    features: [
+      "1 user",
+      "Up to 3 hosts",
+      "Browser SSH terminal",
+      "SFTP file manager",
+      "Encrypted credential vault",
+      "7-day audit history"
+    ]
+  },
+  {
+    code: "team",
+    name: "Team",
     price: { monthly: 19, yearly: 190 },
-    limit: "5 users / 20 hosts",
-    description: "Secure browser SSH and SFTP for small teams.",
-    features: ["SSH terminal", "SFTP manager", "Credential vault", "30-day audit logs"]
+    limit: "10 users / 50 hosts",
+    description: "For small teams sharing servers. Billed per workspace, not per seat.",
+    badge: "Most popular",
+    highlighted: true,
+    features: [
+      "Up to 10 users",
+      "Everything in Free",
+      "Browser RDP sessions",
+      "Shared team snippets",
+      "Role-based host permissions",
+      "90-day audit retention"
+    ]
   },
   {
     code: "business",
     name: "Business",
     price: { monthly: 49, yearly: 490 },
-    limit: "25 users / 150 hosts",
-    description: "RDP, snippets, and team controls for growing DevOps teams.",
-    features: ["Everything in Starter", "Browser RDP", "Team snippets", "180-day audit logs"],
-    highlighted: true
-  },
-  {
-    code: "enterprise",
-    name: "Enterprise",
-    price: { monthly: 149, yearly: 1490 },
-    limit: "Custom scale",
-    description: "Governance, custom retention, and dedicated support.",
-    features: ["Unlimited hosts", "Custom audit retention", "SAML/OIDC ready", "Dedicated success"]
+    limit: "50 users / 300 hosts",
+    description: "For growing DevOps organisations that need governance and scale.",
+    features: [
+      "Up to 50 users",
+      "Everything in Team",
+      "Unlimited AI assistant",
+      "365-day audit retention",
+      "SAML / OIDC ready",
+      "Priority support"
+    ]
   }
 ];
 
 const featureCards = [
   {
     icon: SquareTerminal,
-    title: "Browser SSH",
-    text: "Open fully audited terminals in a tab. No local client, no exposed keys, no jump-box sprawl."
+    title: "Full browser SSH terminal",
+    text: "A real xterm in a tab: 256 colours, resizing, scrollback, and every control sequence. vim, tmux, and htop behave exactly as they do locally."
   },
   {
     icon: FileLock2,
     title: "SFTP file manager",
-    text: "Browse, upload, and edit remote files with per-user permission checks on every operation."
+    text: "Browse, upload, download, and edit remote files on the same host, with per-user permission checks on every operation."
   },
   {
     icon: MonitorUp,
-    title: "RDP gateway",
-    text: "Launch Windows desktops through controlled gateway sessions — recorded and policy-bound."
+    title: "RDP for Windows hosts",
+    text: "Launch Windows desktops through controlled gateway sessions — policy-bound and recorded alongside your shell sessions."
   },
   {
     icon: KeyRound,
-    title: "Credential vault",
-    text: "Store keys and passwords encrypted at rest. Members connect without ever seeing secrets."
+    title: "Encrypted credential vault",
+    text: "Keys and passwords sealed with AES-256-GCM. Members connect through a credential without ever being shown the secret."
   },
   {
     icon: Braces,
-    title: "Team snippets",
-    text: "Share vetted one-liners and runbooks so routine operations stay consistent across the team."
+    title: "Shared team snippets",
+    text: "Keep reviewed one-liners and runbooks next to the hosts they belong to, so routine work stays consistent."
+  },
+  {
+    icon: Bot,
+    title: "Built-in AI assistant",
+    text: "Ask about a stubborn systemd unit or an Onshell setting and get a practical answer, without leaving the console."
+  },
+  {
+    icon: ShieldCheck,
+    title: "Roles and per-host access",
+    text: "Five roles from Owner to Auditor. Developers reach staging, auditors read the trail, production stays locked down."
   },
   {
     icon: ScrollText,
-    title: "Audit logs",
-    text: "Every session, file transfer, and admin change is logged with retention that matches your plan."
+    title: "Complete audit trail",
+    text: "Every session, transfer, and admin change recorded with actor, IP, and timestamp. Retention follows your plan."
   }
 ];
 
 const steps = [
   {
     number: "01",
-    title: "Connect your hosts",
-    text: "Register servers over SSH, SFTP, or RDP and store their credentials in the encrypted vault."
+    title: "Register your hosts",
+    text: "Add each server's address, port, and username once. No agent to deploy — anything you can already reach over SSH works as-is."
   },
   {
     number: "02",
-    title: "Invite your team",
-    text: "Assign roles and per-host access. Members sign in with email, Google, or 2FA-protected accounts."
+    title: "Store credentials once",
+    text: "Paste keys or passwords into the encrypted vault and attach them to hosts. Nobody has to keep a copy on their laptop again."
   },
   {
     number: "03",
-    title: "Work from anywhere",
-    text: "Open terminals, move files, and launch desktops from any browser — every action audited."
+    title: "Invite your team",
+    text: "Assign roles and per-host access. Members sign in with email, Google, or a 2FA-protected account."
+  },
+  {
+    number: "04",
+    title: "Work from any browser",
+    text: "Open terminals, move files, and launch desktops from any machine with a browser — every action audited."
   }
 ];
 
 const stats = [
   { value: "3-in-1", label: "SSH · SFTP · RDP" },
-  { value: "0", label: "Clients to install" },
+  { value: "$0", label: "To start, forever" },
   { value: "100%", label: "Sessions audited" },
   { value: "AES-256", label: "Vault encryption" }
+];
+
+/** Problem/solution pairs — the objections a team raises before switching. */
+const painPoints = [
+  {
+    problem: "Private keys scattered across every laptop",
+    solution: "Keys live encrypted in one vault. The gateway injects them; members never hold the material."
+  },
+  {
+    problem: "Offboarding means hunting for who had which key",
+    solution: "Revoke one membership. Access to every host disappears with it, and the audit log shows what they touched."
+  },
+  {
+    problem: "Nobody can answer \"who ran that on Tuesday?\"",
+    solution: "Every session, transfer, and permission change is recorded with actor, IP, and timestamp."
+  },
+  {
+    problem: "New engineers lose a day to SSH config",
+    solution: "They sign in and see the hosts they're allowed to reach. Setup time is a single invite."
+  }
 ];
 
 const faqs = [
   {
     question: "What is Onshell.cloud?",
     answer:
-      "Onshell.cloud is a browser-based remote access workspace. It gives your team audited SSH terminals, an SFTP file manager, RDP desktop sessions, an encrypted credential vault, and shared snippets — all behind one login, with no local client to install."
+      "Onshell.cloud is a browser-based SSH client for teams. Register your servers once, store their keys and passwords in an encrypted vault, then open full audited terminals, SFTP file browsers, or RDP desktops from any browser tab — with per-host permissions and a complete audit trail, and nothing to install."
+  },
+  {
+    question: "Is Onshell.cloud really free?",
+    answer:
+      "Yes. The Free plan is free forever for one person: up to 3 hosts, browser SSH, SFTP, the encrypted credential vault, and 7 days of audit history, with no credit card. It is a permanent tier, not a trial. Paid Team and Business plans add seats, hosts, RDP, snippets, and longer retention — and those come with a separate 14-day trial."
   },
   {
     question: "Do I need to install any software or agents?",
     answer:
-      "No. Everything runs in the browser through the Onshell gateway. There are no desktop clients, browser extensions, or per-host agents to deploy — you register a host and connect from any modern browser."
+      "No. Everything runs in the browser through the Onshell gateway. There are no desktop clients, browser extensions, or per-host agents to deploy — any host you can already reach with a normal SSH client works as-is."
   },
   {
     question: "How are my credentials and keys kept safe?",
     answer:
-      "SSH keys and passwords are encrypted at rest in the credential vault. Team members connect to hosts without ever seeing the underlying secrets, and every connection is brokered through the gateway so credentials never reach the browser."
+      "SSH keys and passwords are encrypted at rest with AES-256-GCM, using a master key held only in the server environment. Every connection is brokered through the gateway, so key material is never serialised into the browser and members connect without ever seeing the secret."
+  },
+  {
+    question: "Does the terminal support vim, tmux, and colours?",
+    answer:
+      "Yes. It is a full xterm implementation, so 256-colour output, alternate screen buffers, mouse reporting, and resizing all work. Interactive tools behave exactly as they do in a local terminal."
   },
   {
     question: "Which protocols and platforms are supported?",
     answer:
-      "SSH and SFTP for Linux and Unix hosts, plus RDP for Windows desktops. Sessions open in a tab with a full terminal, a file browser, or a remote desktop — whichever the host needs."
+      "SSH and SFTP for Linux and Unix hosts, plus RDP for Windows desktops. A single registered host can be opened as a terminal, a file browser, or a remote desktop, depending on what it supports."
   },
   {
     question: "Can I control who accesses which servers?",
     answer:
-      "Yes. Assign roles and per-host permissions so each member only reaches the systems they should. Sign-in supports email, Google, and 2FA-protected accounts, and admins manage everything from the panel."
+      "Yes. Five roles from Owner to Auditor, with per-host permissions, so each member only reaches the systems they should. Sign-in supports email, Google, and two-factor authentication via an authenticator app or emailed codes."
   },
   {
     question: "What gets logged for audit and compliance?",
     answer:
-      "Every session, file transfer, and admin change is recorded. Audit retention matches your plan — from 30 days on Starter up to custom retention on Enterprise — so you always have a complete trail."
+      "Every session, file transfer, permission change, and admin action is recorded with actor, IP, and timestamp in an append-only log. Retention matches your plan — 7 days on Free, 90 days on Team, and a full year on Business."
+  },
+  {
+    question: "What does the AI assistant do?",
+    answer:
+      "It answers questions about Onshell.cloud itself and about practical Linux, shell, and SSH work — commands, config files, key management, systemd, and troubleshooting — from inside the console. Conversations are saved as threads so you can pick up where you left off. It never asks for or repeats your secrets."
   },
   {
     question: "How does billing work?",
     answer:
-      "Pick a package that maps to user and host limits, billed monthly or yearly (yearly includes two months free). You can upgrade, downgrade, or manage seats from the admin panel at any time."
+      "Paid plans are billed per workspace rather than per seat, monthly or yearly, with yearly including two months free. You can upgrade or downgrade at any time, and larger deployments are arranged directly — just get in touch."
   }
 ];
 
@@ -165,15 +246,18 @@ interface ApiPlan {
   code: string;
   name: string;
   description: string;
+  tagline?: string | null;
+  badge?: string | null;
   priceMonthlyCents: number;
   priceYearlyCents: number;
   currency: string;
   maxUsers?: number | null;
   maxHosts?: number | null;
+  isFree?: boolean;
+  isFeatured?: boolean;
+  trialDays?: number;
   features: string[];
 }
-
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 const VIEWPORT = { once: true, margin: "-80px" };
@@ -211,45 +295,102 @@ function useMounted() {
   return mounted;
 }
 
-const SITE_URL = "https://onshell.cloud";
-
-// Rich structured data so search engines and AI crawlers can understand the
-// product, its pricing, and the FAQ. Rendered as JSON-LD in the initial HTML.
+/**
+ * Structured data for search engines and AI crawlers, rendered as JSON-LD in the
+ * initial HTML so it is present without JavaScript.
+ *
+ * The `@id` anchors here are referenced by the secondary pages (`/security`,
+ * `/browser-ssh-client`, `/contact`), which lets crawlers resolve one
+ * Organization and one WebSite entity across the whole site instead of treating
+ * each page as an unrelated island.
+ */
 const structuredData = {
   "@context": "https://schema.org",
   "@graph": [
     {
       "@type": "Organization",
       "@id": `${SITE_URL}/#organization`,
-      name: "Onshell.cloud",
+      name: site.name,
       url: SITE_URL,
-      logo: `${SITE_URL}/icons/icon-512.png`,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/icons/icon-512.png`,
+        width: 512,
+        height: 512
+      },
       description:
-        "Browser-based SSH, SFTP, and RDP with an encrypted credential vault and full session audit for teams."
+        "Onshell.cloud builds a browser-based SSH client for teams: audited terminals, SFTP, and RDP with an encrypted credential vault and a complete audit trail.",
+      email: site.supportEmail,
+      foundingDate: String(site.foundedYear),
+      contactPoint: [
+        { "@type": "ContactPoint", contactType: "customer support", email: site.supportEmail },
+        { "@type": "ContactPoint", contactType: "sales", email: site.salesEmail }
+      ]
     },
     {
       "@type": "WebSite",
       "@id": `${SITE_URL}/#website`,
       url: SITE_URL,
-      name: "Onshell.cloud",
-      publisher: { "@id": `${SITE_URL}/#organization` }
+      name: site.name,
+      description: "The best browser-based SSH client for teams.",
+      publisher: { "@id": `${SITE_URL}/#organization` },
+      inLanguage: "en"
     },
     {
-      "@type": "SoftwareApplication",
+      "@type": "WebPage",
+      "@id": `${SITE_URL}/#webpage`,
+      url: SITE_URL,
+      name: "Onshell.cloud — the best browser-based SSH client for teams",
+      isPartOf: { "@id": `${SITE_URL}/#website` },
+      about: { "@id": `${SITE_URL}/#software` },
+      primaryImageOfPage: { "@id": `${SITE_URL}/#logo` }
+    },
+    {
+      "@type": ["SoftwareApplication", "WebApplication"],
       "@id": `${SITE_URL}/#software`,
-      name: "Onshell.cloud",
-      applicationCategory: "SecurityApplication",
-      operatingSystem: "Web-based (any modern browser)",
+      name: site.name,
+      alternateName: "Onshell browser SSH client",
+      applicationCategory: "DeveloperApplication",
+      applicationSubCategory: "SSH client",
+      operatingSystem: "Any (runs in a web browser)",
+      browserRequirements: "Requires a modern browser with WebSocket support",
       url: SITE_URL,
       description:
-        "Open audited SSH terminals, manage files over SFTP, and launch RDP sessions from one secure browser workspace — no client to install.",
+        "A browser-based SSH client for teams. Open full audited terminals, manage files over SFTP, and launch RDP desktops from any browser tab, with keys stored in an encrypted vault and every session recorded.",
       featureList: featureCards.map((card) => card.title),
-      offers: plans.map((plan) => ({
-        "@type": "Offer",
-        name: plan.name,
-        price: plan.price.monthly,
+      softwareHelp: { "@id": `${SITE_URL}/browser-ssh-client#webpage` },
+      publisher: { "@id": `${SITE_URL}/#organization` },
+      // A free tier plus paid tiers, expressed so crawlers can read "free to
+      // start" without us inventing a review score we do not have.
+      offers: {
+        "@type": "AggregateOffer",
         priceCurrency: "USD",
-        description: plan.description
+        lowPrice: 0,
+        highPrice: 49,
+        offerCount: plans.length,
+        offers: plans.map((plan) => ({
+          "@type": "Offer",
+          name: plan.name,
+          price: plan.price.monthly,
+          priceCurrency: "USD",
+          description: plan.description,
+          url: `${SITE_URL}/#pricing`,
+          availability: "https://schema.org/InStock"
+        }))
+      }
+    },
+    {
+      "@type": "HowTo",
+      "@id": `${SITE_URL}/#howto`,
+      name: "How to get audited SSH access for your team in your browser",
+      description:
+        "Register your hosts, store credentials in the encrypted vault, invite your team with per-host roles, and open terminals from any browser.",
+      totalTime: "PT15M",
+      step: steps.map((step, index) => ({
+        "@type": "HowToStep",
+        position: index + 1,
+        name: step.title,
+        text: step.text
       }))
     },
     {
@@ -355,6 +496,7 @@ export default function PublicPage() {
   const [checkoutOrganization, setCheckoutOrganization] = useState("");
   const [checkoutStatus, setCheckoutStatus] = useState("");
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const checkoutTurnstile = useTurnstile("checkout");
 
   const mounted = useMounted();
   const reduce = useReducedMotion() ?? false;
@@ -397,18 +539,28 @@ export default function PublicPage() {
           },
           limit: `${plan.maxUsers ?? "Custom"} users / ${plan.maxHosts ?? "Custom"} hosts`,
           description: plan.description,
+          badge: plan.badge ?? undefined,
           features: plan.features,
-          highlighted: plan.code === "business"
+          isFree: plan.isFree ?? false,
+          trialDays: plan.trialDays ?? 0,
+          // The admin panel owns which card is highlighted, via Plan.isFeatured.
+          highlighted: plan.isFeatured ?? false
         }))
-      : plans;
+      : plans.map((plan) => ({ ...plan, trialDays: plan.code === "free" ? 0 : 14 }));
+
+  /** Free tier needs no payment provider — send people straight to signup. */
+  function planCta(plan: { code: string; isFree?: boolean; name: string }) {
+    if (plan.isFree) return { label: "Start free", href: "/signup" as const };
+    return { label: `Start ${plan.name} trial`, href: undefined };
+  }
 
   async function startCheckout(planCode: string) {
     if (!checkoutEmail || !checkoutOrganization) {
-      setCheckoutStatus("Enter customer email and organization name before buying a package.");
+      setCheckoutStatus("Enter your email and organization name to continue to checkout.");
       return;
     }
 
-    setCheckoutStatus("Preparing checkout...");
+    setCheckoutStatus("Preparing checkout…");
     try {
       const response = await fetch(`${apiBaseUrl}/checkout`, {
         method: "POST",
@@ -417,25 +569,31 @@ export default function PublicPage() {
           planCode,
           billingInterval: interval,
           email: checkoutEmail,
-          organizationName: checkoutOrganization
+          organizationName: checkoutOrganization,
+          ...(checkoutTurnstile.token ? { turnstileToken: checkoutTurnstile.token } : {})
         })
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setCheckoutStatus(payload.error ?? "Checkout failed.");
+        // Single-use token: a retry needs a fresh challenge.
+        checkoutTurnstile.reset();
+        setCheckoutStatus(payload.message ?? "Checkout failed. Please try again.");
         return;
       }
 
       if (payload.checkoutUrl) {
-        setCheckoutStatus(`Redirecting to ${payload.provider ?? "checkout"}...`);
+        setCheckoutStatus(`Redirecting to ${payload.provider ?? "checkout"}…`);
         window.location.href = payload.checkoutUrl;
         return;
       }
 
-      setCheckoutStatus(`Checkout is not ready yet: ${payload.status ?? "provider missing"}.`);
+      setCheckoutStatus(
+        "Card payments aren't switched on yet — start on the Free plan and we'll upgrade you manually, or get in touch."
+      );
     } catch {
-      setCheckoutStatus("Checkout service is not reachable.");
+      checkoutTurnstile.reset();
+      setCheckoutStatus("Checkout service is not reachable. Please try again shortly.");
     }
   }
 
@@ -445,38 +603,7 @@ export default function PublicPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <motion.nav
-        className="lp-nav"
-        aria-label="Primary"
-        initial={{ opacity: reduce ? 1 : 0, y: reduce ? 0 : -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: reduce ? 0 : 0.4, ease: EASE }}
-      >
-        <div className="lp-container lp-nav-inner">
-          <a className="lp-brand" href="/" aria-label="Onshell.cloud — home">
-            <OnshellMark size={36} />
-            <span className="lp-brand-text">
-              <span className="brand-name">Onshell.cloud</span>
-              <span className="brand-domain">Browser remote access</span>
-            </span>
-          </a>
-          <div className="lp-nav-links">
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How it works</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#faq">FAQ</a>
-          </div>
-          <div className="lp-nav-actions">
-            <ThemeToggle />
-            <a className="lp-login" href="/login">
-              Log in
-            </a>
-            <a className="primary-button lp-nav-cta" href="/signup">
-              Get started
-            </a>
-          </div>
-        </div>
-      </motion.nav>
+      <PublicNav />
 
       <section className="lp-hero" aria-labelledby="lp-hero-title">
         <span className="lp-hero-glow" aria-hidden="true" />
@@ -489,26 +616,27 @@ export default function PublicPage() {
           >
             <motion.span className="lp-eyebrow" variants={motionVariants.fade}>
               <span className="lp-eyebrow-dot" aria-hidden="true" />
-              SSH · SFTP · RDP — one browser workspace
+              Free forever for one user — no card required
             </motion.span>
             <motion.h1 id="lp-hero-title" variants={motionVariants.fade}>
-              Secure remote access, <span className="lp-grad-text">straight from the browser.</span>
+              The best <span className="lp-grad-text">browser-based SSH client</span> for teams.
             </motion.h1>
             <motion.p className="lp-hero-lead" variants={motionVariants.fade}>
-              Onshell.cloud gives your team audited terminals, a file manager, RDP sessions, an encrypted credential
-              vault, shared snippets, and admin billing controls — without installing a single client.
+              Open a full audited terminal in a browser tab, move files over SFTP, and reach Windows desktops over RDP.
+              Keys stay encrypted in one vault, access is granted per host, and every session is recorded. Nothing to
+              install — on any operating system.
             </motion.p>
             <motion.div className="lp-hero-actions" variants={motionVariants.fade}>
-              <a className="primary-button large" href="#pricing">
-                Choose a package
+              <a className="primary-button large" href="/signup">
+                Start free
                 <ArrowRight size={18} />
               </a>
-              <a className="secondary-button lp-hero-secondary" href="/console">
-                View live console
+              <a className="secondary-button lp-hero-secondary" href="/browser-ssh-client">
+                How it works
               </a>
             </motion.div>
             <motion.p className="lp-hero-trust" variants={motionVariants.fade}>
-              No agents to install · Encrypted vault · Full session audit
+              No agents to install · AES-256 encrypted vault · Every session audited
             </motion.p>
           </motion.div>
 
@@ -544,8 +672,8 @@ export default function PublicPage() {
         <div className="lp-container">
           <motion.div className="lp-heading" variants={motionVariants.fade}>
             <span className="lp-section-eyebrow">Everything in one workspace</span>
-            <h2>The remote-access toolkit your team already needs</h2>
-            <p>Six capabilities that usually take six tools — behind one login, one policy, one audit trail.</p>
+            <h2>A browser SSH client that replaces your whole access stack</h2>
+            <p>Eight capabilities that usually take six tools — behind one login, one policy, one audit trail.</p>
           </motion.div>
           <motion.div className="lp-feature-grid" variants={motionVariants.staggerTight}>
             {featureCards.map(({ icon: Icon, title, text }) => (
@@ -577,7 +705,8 @@ export default function PublicPage() {
         <div className="lp-container">
           <motion.div className="lp-heading" variants={motionVariants.fade}>
             <span className="lp-section-eyebrow">How it works</span>
-            <h2>From bare servers to audited access in an afternoon</h2>
+            <h2>From bare servers to audited access in fifteen minutes</h2>
+            <p>Four steps, no agents, and nothing to install on the machine you&apos;re sitting at.</p>
           </motion.div>
           <motion.div className="lp-steps-grid" variants={motionVariants.staggerTight}>
             {steps.map((step) => (
@@ -603,8 +732,10 @@ export default function PublicPage() {
           <motion.div className="lp-heading lp-pricing-heading" variants={motionVariants.fade}>
             <div>
               <span className="lp-section-eyebrow">Pricing</span>
-              <h2>Packages customers can buy and start using</h2>
-              <p>Plans map directly to limits the admin panel can manage.</p>
+              <h2>Start free. Upgrade when your team grows.</h2>
+              <p>
+                One genuinely useful free tier for solo operators, then per-workspace pricing for teams — not per seat.
+              </p>
             </div>
             <div className="lp-billing-wrap">
               <div className="lp-billing" role="group" aria-label="Billing interval">
@@ -631,65 +762,143 @@ export default function PublicPage() {
             </div>
           </motion.div>
 
+          <motion.div className="lp-pricing-grid" variants={motionVariants.staggerTight}>
+            {visiblePlans.map((plan) => {
+              const cta = planCta(plan);
+              return (
+                <motion.article
+                  className={cx("lp-plan", plan.highlighted && "is-highlighted", plan.isFree && "is-free")}
+                  key={plan.code}
+                  variants={motionVariants.item}
+                  whileHover={reduce ? undefined : { y: -4 }}
+                >
+                  {plan.badge && <span className="lp-plan-badge">{plan.badge}</span>}
+                  <div className="lp-plan-head">
+                    <h3>{plan.name}</h3>
+                    <p>{plan.description}</p>
+                  </div>
+                  <div className="lp-plan-price">
+                    {plan.isFree ? (
+                      <>
+                        <strong>$0</strong>
+                        <span>forever</span>
+                      </>
+                    ) : (
+                      <>
+                        <strong>${plan.price[interval]}</strong>
+                        <span>/{interval === "monthly" ? "mo" : "yr"}</span>
+                      </>
+                    )}
+                  </div>
+                  <span className="lp-plan-limit">{plan.limit}</span>
+                  <ul className="lp-plan-features">
+                    {plan.features.map((feature) => (
+                      <li key={feature}>
+                        <Check size={16} />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {cta.href ? (
+                    <a className={cx("lp-plan-cta", "primary-button")} href={cta.href}>
+                      {cta.label}
+                    </a>
+                  ) : (
+                    <button
+                      className={cx("lp-plan-cta", plan.highlighted ? "primary-button" : "secondary-button")}
+                      type="button"
+                      onClick={() => startCheckout(plan.code)}
+                    >
+                      {cta.label}
+                    </button>
+                  )}
+                  <span className="lp-plan-note">
+                    {plan.isFree
+                      ? "No credit card, no time limit"
+                      : plan.trialDays > 0
+                        ? `${plan.trialDays}-day free trial, cancel anytime`
+                        : "Cancel anytime"}
+                  </span>
+                </motion.article>
+              );
+            })}
+          </motion.div>
+
+          {/* Checkout details, only relevant once a paid plan is chosen. Kept
+              below the grid so the Free CTA is never gated behind a form. */}
           <motion.div className="lp-checkout" variants={motionVariants.fade}>
-            <label className="lp-field" htmlFor="checkout-email">
-              <span>Customer email</span>
-              <input
-                id="checkout-email"
-                onChange={(event) => setCheckoutEmail(event.target.value)}
-                placeholder="buyer@company.com"
-                type="email"
-                value={checkoutEmail}
-              />
-            </label>
-            <label className="lp-field" htmlFor="checkout-organization">
-              <span>Organization</span>
-              <input
-                id="checkout-organization"
-                onChange={(event) => setCheckoutOrganization(event.target.value)}
-                placeholder="Company name"
-                value={checkoutOrganization}
-              />
-            </label>
+            <div className="lp-checkout-head">
+              <strong>Upgrading to a paid plan?</strong>
+              <span>We&apos;ll pass these details to the billing provider.</span>
+            </div>
+            <div className="lp-checkout-fields">
+              <label className="lp-field" htmlFor="checkout-email">
+                <span>Your email</span>
+                <input
+                  id="checkout-email"
+                  onChange={(event) => setCheckoutEmail(event.target.value)}
+                  placeholder="you@company.com"
+                  type="email"
+                  value={checkoutEmail}
+                />
+              </label>
+              <label className="lp-field" htmlFor="checkout-organization">
+                <span>Organization</span>
+                <input
+                  id="checkout-organization"
+                  onChange={(event) => setCheckoutOrganization(event.target.value)}
+                  placeholder="Company name"
+                  value={checkoutOrganization}
+                />
+              </label>
+            </div>
+            <TurnstileWidget key={checkoutTurnstile.widgetKey} {...checkoutTurnstile.widgetProps} />
             <p className="lp-checkout-status" aria-live="polite">
-              {checkoutStatus || "Buyer details are passed to the configured billing provider."}
+              {checkoutStatus ||
+                "Need more than 50 users or custom retention? Talk to us about Enterprise instead."}
             </p>
           </motion.div>
 
-          <motion.div className="lp-pricing-grid" variants={motionVariants.staggerTight}>
-            {visiblePlans.map((plan) => (
-              <motion.article
-                className={cx("lp-plan", plan.highlighted && "is-highlighted")}
-                key={plan.code}
-                variants={motionVariants.item}
-                whileHover={reduce ? undefined : { y: -4 }}
-              >
-                {plan.highlighted && <span className="lp-plan-badge">Most popular</span>}
-                <div className="lp-plan-head">
-                  <h3>{plan.name}</h3>
-                  <p>{plan.description}</p>
-                </div>
-                <div className="lp-plan-price">
-                  <strong>${plan.price[interval]}</strong>
-                  <span>/{interval === "monthly" ? "mo" : "yr"}</span>
-                </div>
-                <span className="lp-plan-limit">{plan.limit}</span>
-                <ul className="lp-plan-features">
-                  {plan.features.map((feature) => (
-                    <li key={feature}>
-                      <Check size={16} />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  className={cx("lp-plan-cta", plan.highlighted ? "primary-button" : "secondary-button")}
-                  type="button"
-                  onClick={() => startCheckout(plan.code)}
-                >
-                  Buy {plan.name}
-                </button>
-              </motion.article>
+          {/* Enterprise is a sales conversation, not a self-serve plan, so it
+              deliberately sits outside the pricing grid. */}
+          <motion.div className="lp-enterprise" variants={motionVariants.fade}>
+            <div>
+              <h3>Enterprise</h3>
+              <p>
+                More than 50 users, custom audit retention, SSO enforcement, data-residency requirements, or a security
+                review to get through? We&apos;ll size it with you.
+              </p>
+            </div>
+            <a className="secondary-button" href="/contact">
+              Talk to us
+              <ArrowRight size={16} />
+            </a>
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-pains"
+        aria-labelledby="lp-pains-title"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container">
+          <motion.div className="lp-heading" variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">Why teams switch</span>
+            <h2 id="lp-pains-title">The problems desktop SSH clients leave you with</h2>
+          </motion.div>
+          <motion.div className="lp-pain-grid" variants={motionVariants.staggerTight}>
+            {painPoints.map((pain) => (
+              <motion.div className="lp-pain" key={pain.problem} variants={motionVariants.item}>
+                <p className="lp-pain-problem">{pain.problem}</p>
+                <p className="lp-pain-solution">
+                  <Check aria-hidden="true" size={15} />
+                  <span>{pain.solution}</span>
+                </p>
+              </motion.div>
             ))}
           </motion.div>
         </div>
@@ -776,51 +985,21 @@ export default function PublicPage() {
         viewport={VIEWPORT}
       >
         <motion.div className="lp-container lp-cta-inner" variants={motionVariants.fade}>
-          <h2>Ready to open a shell?</h2>
-          <p>Pick a package, invite your team, and connect to your first host today.</p>
+          <h2>Open your first browser terminal in five minutes</h2>
+          <p>Free forever for one person. No credit card, no agents to deploy, no config to copy around.</p>
           <div className="lp-cta-actions">
-            <a className="primary-button large" href="#pricing">
-              Choose a package
+            <a className="primary-button large" href="/signup">
+              Start free
               <ArrowRight size={18} />
             </a>
-            <a className="secondary-button lp-hero-secondary" href="/login">
-              Sign in instead
+            <a className="secondary-button lp-hero-secondary" href="/contact">
+              Talk to us first
             </a>
           </div>
         </motion.div>
       </motion.section>
 
-      <footer className="lp-footer">
-        <div className="lp-container lp-footer-grid">
-          <div className="lp-footer-brand">
-            <a className="lp-brand" href="/">
-              <OnshellMark size={36} />
-              <span className="lp-brand-text">
-                <span className="brand-name">Onshell.cloud</span>
-                <span className="brand-domain">Browser remote access</span>
-              </span>
-            </a>
-            <p>Audited SSH, SFTP, and RDP for teams that live in the terminal but work in the browser.</p>
-          </div>
-          <div className="lp-footer-col">
-            <strong>Product</strong>
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How it works</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#faq">FAQ</a>
-          </div>
-          <div className="lp-footer-col">
-            <strong>Account</strong>
-            <a href="/login">Log in</a>
-            <a href="/signup">Sign up</a>
-            <a href="/console">Console</a>
-          </div>
-        </div>
-        <div className="lp-container lp-footer-bottom">
-          <p>© 2026 Onshell.cloud. All rights reserved.</p>
-          <p className="lp-footer-meta">SSH · SFTP · RDP</p>
-        </div>
-      </footer>
+      <PublicFooter />
     </main>
   );
 }

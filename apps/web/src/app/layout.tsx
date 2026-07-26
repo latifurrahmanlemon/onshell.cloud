@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { DM_Sans, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { siteUrl } from "../lib/site";
 import { themeBootstrapScript } from "./theme";
 import "./globals.css";
 
@@ -22,32 +23,37 @@ const monoFont = JetBrains_Mono({
   variable: "--font-mono"
 });
 
-const siteUrl = "https://onshell.cloud";
-const title = "Onshell.cloud — Browser-based SSH, SFTP & RDP for teams";
+// Positioning is deliberately keyword-forward: "browser-based SSH client" is
+// the phrase people search, and leading with it keeps the <title>, the H1, and
+// the JSON-LD describing the same product in the same words.
+const title = "Onshell.cloud — The best browser-based SSH client for teams";
 const description =
-  "Onshell.cloud is a browser-based remote access workspace: open audited SSH terminals, manage files over SFTP, and launch RDP sessions from one secure tab — with an encrypted credential vault, team snippets, and full session audit. No client to install.";
+  "Onshell.cloud is a browser-based SSH client for teams: open full audited terminals, manage files over SFTP, and launch RDP desktops from any browser tab. Encrypted credential vault, per-host permissions, complete audit trail. Free for one user — nothing to install.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
     default: title,
-    template: "%s · Onshell.cloud"
+    template: "%s · Onshell.cloud — browser SSH client"
   },
   description,
   applicationName: "Onshell.cloud",
   keywords: [
-    "browser SSH",
+    "browser SSH client",
     "web SSH client",
+    "best browser based SSH client",
+    "SSH in the browser",
+    "online SSH client",
+    "web based terminal",
     "SFTP file manager",
     "browser RDP",
-    "remote access",
-    "SSH in the browser",
-    "credential vault",
+    "clientless remote access",
+    "PuTTY alternative",
+    "SSH credential vault",
     "session audit logs",
     "DevOps remote access",
-    "secure shell",
-    "web-based terminal",
-    "team server access"
+    "team server access",
+    "free browser SSH"
   ],
   authors: [{ name: "Onshell.cloud" }],
   creator: "Onshell.cloud",
@@ -88,6 +94,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
     apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]
+  },
+  other: {
+    // Points AI crawlers at the plain-text product summary they prefer.
+    "ai-content-declaration": "human-authored"
   }
 };
 
@@ -103,6 +113,12 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html className={`${displayFont.variable} ${sansFont.variable} ${monoFont.variable}`} lang="en" suppressHydrationWarning>
+      <head>
+        {/* Warm up the API origin so the first session/config fetch is not
+            waiting on DNS and TLS. */}
+        <link href="https://challenges.cloudflare.com" rel="preconnect" />
+        <link href="/llms.txt" rel="alternate" title="LLM-friendly site summary" type="text/plain" />
+      </head>
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         {children}

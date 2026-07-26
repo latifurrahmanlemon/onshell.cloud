@@ -10,8 +10,14 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail } from "../../lib/email.js";
+import {
+  hasImplicitHostAccess,
+  hostAccessSummaries,
+  replaceHostAccess
+} from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import { toPublicUser } from "../../lib/prisma-mappers.js";
+import { generateReferralCode } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { hashToken } from "../../lib/token.js";
 import { createAudit, issueTokens } from "./auth.js";
@@ -61,6 +67,18 @@ const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120)
 });
 
+const hostAccessSchema = z
+  .object({
+    allHosts: z.boolean(),
+    hostIds: z.array(z.string().min(1)).max(500).default([])
+  })
+  // "All hosts" and a host list are alternatives, not a combination — refusing
+  // both at once keeps the caller from thinking the list narrowed the grant.
+  .refine((body) => !body.allHosts || body.hostIds.length === 0, {
+    message: "hostIds must be empty when allHosts is true",
+    path: ["hostIds"]
+  });
+
 function toInvitationSummary(invitation: {
   id: string;
   email: string;
@@ -104,6 +122,16 @@ export async function registerOrganizationRoutes(
         orderBy: { createdAt: "asc" }
       });
 
+      // Bundled in rather than fetched per row: the team panel renders an access
+      // summary for every member, which would otherwise be an N+1 of requests.
+      const accessSummaries = await hostAccessSummaries(
+        organization.id,
+        memberships.map((membership) => ({
+          userId: membership.userId,
+          role: roleToPublic[membership.role]
+        }))
+      );
+
       return {
         organization: {
           id: organization.id,
@@ -118,7 +146,12 @@ export async function registerOrganizationRoutes(
           avatarUrl: membership.user.avatarUrl ?? null,
           role: roleToPublic[membership.role],
           joinedAt: membership.createdAt.toISOString(),
-          twoFactorEnabled: membership.user.twoFactorEnabled
+          twoFactorEnabled: membership.user.twoFactorEnabled,
+          hostAccess: accessSummaries.get(membership.userId) ?? {
+            allHosts: false,
+            hostIds: [],
+            implicit: false
+          }
         }))
       };
     } catch (error) {
@@ -207,6 +240,7 @@ export async function registerOrganizationRoutes(
         subject: `You have been invited to ${organization?.name ?? "Onshell.cloud"}`,
         text: `${actor.name} invited you to join ${organization?.name ?? "their workspace"} on Onshell.cloud as ${body.role}. Accept the invitation: ${acceptUrl} (link expires in 7 days).`,
         html: `<p><strong>${actor.name}</strong> invited you to join <strong>${organization?.name ?? "their workspace"}</strong> on Onshell.cloud as <strong>${body.role}</strong>.</p><p><a href="${acceptUrl}">Accept the invitation</a> (link expires in 7 days).</p>`,
+        kind: "organization_invitation",
         logger: app.log
       });
 
@@ -344,12 +378,16 @@ export async function registerOrganizationRoutes(
       }
 
       const passwordHash = await bcrypt.hash(body.password, 12);
+      // Invited members get a referral code too, so anyone on the platform can
+      // share Onshell — not just people who signed up through the public form.
+      const referralCode = await generateReferralCode();
       const prismaUser = await prisma.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
             name: body.name!,
             email: invitation.email,
             passwordHash,
+            referralCode,
             memberships: {
               create: {
                 organizationId: invitation.organizationId,
@@ -418,6 +456,16 @@ export async function registerOrganizationRoutes(
         where: { id: membership.id },
         data: { role: newRole }
       });
+
+      // Promotion to owner/admin makes stored grants unreadable dead rows; drop
+      // them so a later demotion starts from "no access" rather than from a
+      // stale grant set nobody remembers approving.
+      if (hasImplicitHostAccess(body.role)) {
+        await prisma.hostAccessGrant.deleteMany({
+          where: { organizationId: actor.organizationId, userId: params.userId }
+        });
+      }
+
       await createAudit({
         organizationId: actor.organizationId,
         actorId: actor.id,
@@ -429,6 +477,91 @@ export async function registerOrganizationRoutes(
       });
 
       return { id: params.userId, role: body.role };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.get("/organizations/current/members/:userId/host-access", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+      if (!canManageUsers(actor.role)) return reply.code(403).send({ error: "forbidden" });
+
+      const params = memberParamsSchema.parse(request.params);
+      const membership = await prisma.organizationMember.findUnique({
+        where: {
+          organizationId_userId: {
+            organizationId: actor.organizationId,
+            userId: params.userId
+          }
+        }
+      });
+      if (!membership) return reply.code(404).send({ error: "member_not_found" });
+
+      const summaries = await hostAccessSummaries(actor.organizationId, [
+        { userId: params.userId, role: roleToPublic[membership.role] }
+      ]);
+
+      return summaries.get(params.userId) ?? { allHosts: false, hostIds: [], implicit: false };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.put("/organizations/current/members/:userId/host-access", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+      if (!canManageUsers(actor.role)) return reply.code(403).send({ error: "forbidden" });
+
+      const params = memberParamsSchema.parse(request.params);
+      const body = hostAccessSchema.parse(request.body);
+      const membership = await prisma.organizationMember.findUnique({
+        where: {
+          organizationId_userId: {
+            organizationId: actor.organizationId,
+            userId: params.userId
+          }
+        }
+      });
+      if (!membership) return reply.code(404).send({ error: "member_not_found" });
+
+      // Owners and admins reach every host by role, so storing grants for them
+      // would only pretend to restrict something. Reject loudly instead of
+      // writing rows that nothing reads.
+      if (hasImplicitHostAccess(roleToPublic[membership.role])) {
+        return reply.code(409).send({ error: "member_has_implicit_host_access" });
+      }
+
+      if (body.hostIds.length > 0) {
+        const owned = await prisma.host.count({
+          where: { organizationId: actor.organizationId, id: { in: body.hostIds } }
+        });
+        if (owned !== new Set(body.hostIds).size) {
+          return reply.code(400).send({ error: "invalid_host_ids" });
+        }
+      }
+
+      const summary = await replaceHostAccess({
+        organizationId: actor.organizationId,
+        userId: params.userId,
+        grantedById: actor.id,
+        allHosts: body.allHosts,
+        hostIds: body.hostIds
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "organization.member.host_access",
+        targetType: "organization_member",
+        targetId: params.userId,
+        ipAddress: request.ip,
+        metadata: { allHosts: summary.allHosts, hostIds: summary.hostIds }
+      });
+
+      return summary;
     } catch (error) {
       return handleRouteError(reply, error);
     }

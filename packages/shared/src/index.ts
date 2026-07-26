@@ -38,6 +38,8 @@ export interface User {
   emailVerifiedAt?: string;
   authMethods?: Array<"password" | "google">;
   twoFactorEnabled: boolean;
+  /** Shareable code behind this user's referral link. */
+  referralCode?: string | null;
   createdAt: string;
 }
 

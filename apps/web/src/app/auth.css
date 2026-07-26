@@ -419,3 +419,13 @@
     display: none;
   }
 }
+
+/* Reassurance line under the signup CTA — freemium messaging at the point of
+   commitment, where hesitation is highest. */
+.auth-fineprint {
+  margin: 0;
+  color: var(--soft);
+  font-size: 0.79rem;
+  line-height: 1.5;
+  text-align: center;
+}

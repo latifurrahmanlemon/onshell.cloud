@@ -4,6 +4,7 @@ import {
   ChangeEvent,
   CSSProperties,
   FormEvent,
+  KeyboardEvent,
   ReactNode,
   useCallback,
   useEffect,
@@ -65,7 +66,7 @@ import {
   validatePassword,
 } from "@onshell/shared";
 import { cx } from "@onshell/ui";
-import type { PendingInvitation, TeamMember } from "./api";
+import type { MemberHostAccess, PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
 import type { AccentValue, ThemeMode } from "../theme";
 import { ACCENT_PRESETS, accentToHex, isDefaultAccent } from "../theme";
@@ -1260,6 +1261,16 @@ export function VaultView({
 
 /* ---------- Snippets ---------- */
 
+/** Snippet scopes, plus "all". Mirrors Snippet["scope"] in @onshell/shared. */
+type ScopeFilter = "all" | Snippet["scope"];
+
+const SCOPE_FILTERS: Array<{ value: ScopeFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "personal", label: "Personal" },
+  { value: "team", label: "Team" },
+  { value: "host", label: "Host" },
+];
+
 export function SnippetsView({
   snippets,
   loading,
@@ -1279,6 +1290,17 @@ export function SnippetsView({
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<Snippet | null>(null);
   const [removingBusy, setRemovingBusy] = useState(false);
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+
+  // Filtering client-side is fine here: snippets are a small, already-loaded set
+  // scoped to one organization, so there is nothing to gain from a round-trip.
+  const visibleSnippets = useMemo(
+    () =>
+      scopeFilter === "all"
+        ? snippets
+        : snippets.filter((snippet) => snippet.scope === scopeFilter),
+    [snippets, scopeFilter],
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1421,9 +1443,32 @@ export function SnippetsView({
         defaultSort={{ key: "name", dir: "asc" }}
         empty={{
           icon: <Braces size={22} />,
-          title: "No snippets yet",
-          hint: "Save the commands you run on every server.",
+          title: scopeFilter === "all" ? "No snippets yet" : `No ${scopeFilter} snippets`,
+          hint:
+            scopeFilter === "all"
+              ? "Save the commands you run on every server."
+              : "Try a different scope, or save a new snippet here.",
         }}
+        leftTools={
+          <div
+            aria-label="Filter by scope"
+            className="segmented"
+            role="group"
+            style={{ gridTemplateColumns: `repeat(${SCOPE_FILTERS.length}, minmax(64px, auto))` }}
+          >
+            {SCOPE_FILTERS.map((option) => (
+              <button
+                aria-pressed={scopeFilter === option.value}
+                className={cx(scopeFilter === option.value && "selected")}
+                key={option.value}
+                onClick={() => setScopeFilter(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        }
         loading={loading}
         rightTools={
           <button className="primary-button" onClick={() => setAdding(true)} type="button">
@@ -1432,7 +1477,7 @@ export function SnippetsView({
           </button>
         }
         rowKey={(snippet) => snippet.id}
-        rows={snippets}
+        rows={visibleSnippets}
         searchPlaceholder="Search snippets…"
         searchText={(snippet) => `${snippet.name} ${snippet.command} ${snippet.scope}`}
       />
@@ -1486,9 +1531,20 @@ export function SnippetsView({
 
 /* ---------- Team ---------- */
 
+type TeamTab = "members" | "invitations";
+
+/** Compact label for the host-access column and the drawer's summary line. */
+function hostAccessLabel(access: MemberHostAccess | undefined) {
+  if (access?.allHosts) return "All hosts";
+  const count = access?.hostIds.length ?? 0;
+  if (count === 0) return "No hosts";
+  return `${count} host${count === 1 ? "" : "s"}`;
+}
+
 export function TeamView({
   members,
   invitations,
+  hosts,
   currentUser,
   loading,
   onChanged,
@@ -1496,6 +1552,7 @@ export function TeamView({
 }: {
   members: TeamMember[];
   invitations: PendingInvitation[];
+  hosts: Host[];
   currentUser: User;
   loading: boolean;
   onChanged: () => void;
@@ -1506,7 +1563,54 @@ export function TeamView({
   const [removingMember, setRemovingMember] = useState<TeamMember | null>(null);
   const [revokingInvite, setRevokingInvite] = useState<PendingInvitation | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [tab, setTab] = useState<TeamTab>("members");
+  const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
+  const [accessAllHosts, setAccessAllHosts] = useState(false);
+  const [accessHostIds, setAccessHostIds] = useState<string[]>([]);
   const manager = canManageUsers(currentUser.role);
+
+  const teamTabs: Array<{ value: TeamTab; label: string }> = [
+    { value: "members", label: `Members (${members.length})` },
+    { value: "invitations", label: `Pending invitations (${invitations.length})` },
+  ];
+
+  function openHostAccess(member: TeamMember) {
+    setAccessMember(member);
+    setAccessAllHosts(member.hostAccess?.allHosts ?? false);
+    setAccessHostIds(member.hostAccess?.hostIds ?? []);
+  }
+
+  async function saveHostAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accessMember) return;
+    setBusy(true);
+    try {
+      await consoleApi.setMemberHostAccess(accessMember.id, {
+        allHosts: accessAllHosts,
+        hostIds: accessAllHosts ? [] : accessHostIds,
+      });
+      notify(`Host access updated for ${accessMember.name}.`, "success");
+      setAccessMember(null);
+      onChanged();
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Could not update host access.",
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Roving focus across the tablist, which is what makes a tab strip usable
+  // without a mouse.
+  function moveTab(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const index = teamTabs.findIndex((option) => option.value === tab);
+    const next = event.key === "ArrowRight" ? index + 1 : index - 1;
+    setTab(teamTabs[(next + teamTabs.length) % teamTabs.length].value);
+  }
 
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1624,6 +1728,34 @@ export function TeamView({
         ),
     },
     {
+      key: "hostAccess",
+      header: "Host access",
+      width: "minmax(150px, 1fr)",
+      sortValue: (member) => hostAccessLabel(member.hostAccess),
+      render: (member) => {
+        const implicit = member.hostAccess?.implicit ?? false;
+        const label = hostAccessLabel(member.hostAccess);
+        if (!manager) return <span className="data-muted">{label}</span>;
+        return (
+          <button
+            aria-label={`Host access for ${member.name}: ${label}`}
+            className="host-access-chip"
+            disabled={implicit}
+            onClick={() => openHostAccess(member)}
+            title={
+              implicit
+                ? `${member.role}s reach every host in the organization by role, so there is nothing to grant.`
+                : `Change which hosts ${member.name} can reach`
+            }
+            type="button"
+          >
+            <MonitorUp size={13} />
+            {label}
+          </button>
+        );
+      },
+    },
+    {
       key: "twofa",
       header: "2FA",
       width: "110px",
@@ -1736,54 +1868,179 @@ export function TeamView({
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h2>Team Members</h2>
-            <p>Roles control what each member can see and open.</p>
+            <h2>Team</h2>
+            <p>Roles control what each member can do; host access controls what they can reach.</p>
           </div>
         </div>
-        <DataTable
-          columns={memberColumns}
-          defaultSort={{ key: "member", dir: "asc" }}
-          empty={{ icon: <UserRound size={22} />, title: "No members yet" }}
-          loading={loading}
-          rightTools={
-            manager ? (
-              <button className="primary-button" onClick={() => setInviting(true)} type="button">
-                <UserPlus size={15} />
-                Invite Member
-              </button>
-            ) : undefined
-          }
-          rowKey={(member) => member.id}
-          rows={members}
-          searchPlaceholder="Search members…"
-          searchText={(member) => `${member.name} ${member.email} ${member.role}`}
-        />
+
+        {/* Members and invitations share one area: stacking two tables made the
+            page read as two unrelated panels. Only managers see invitations. */}
+        {manager ? (
+          <>
+            <div
+              aria-label="Team lists"
+              className="segmented team-tabs"
+              onKeyDown={moveTab}
+              role="tablist"
+            >
+              {teamTabs.map((option) => (
+                <button
+                  aria-controls={`team-panel-${option.value}`}
+                  aria-selected={tab === option.value}
+                  className={cx(tab === option.value && "selected")}
+                  id={`team-tab-${option.value}`}
+                  key={option.value}
+                  onClick={() => setTab(option.value)}
+                  role="tab"
+                  tabIndex={tab === option.value ? 0 : -1}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            {tab === "members" ? (
+              <div
+                aria-labelledby="team-tab-members"
+                id="team-panel-members"
+                role="tabpanel"
+                tabIndex={0}
+              >
+                <DataTable
+                  columns={memberColumns}
+                  defaultSort={{ key: "member", dir: "asc" }}
+                  empty={{ icon: <UserRound size={22} />, title: "No members yet" }}
+                  loading={loading}
+                  rightTools={
+                    <button className="primary-button" onClick={() => setInviting(true)} type="button">
+                      <UserPlus size={15} />
+                      Invite Member
+                    </button>
+                  }
+                  rowKey={(member) => member.id}
+                  rows={members}
+                  searchPlaceholder="Search members…"
+                  searchText={(member) =>
+                    `${member.name} ${member.email} ${member.role} ${hostAccessLabel(member.hostAccess)}`
+                  }
+                />
+              </div>
+            ) : (
+              <div
+                aria-labelledby="team-tab-invitations"
+                id="team-panel-invitations"
+                role="tabpanel"
+                tabIndex={0}
+              >
+                <DataTable
+                  columns={invitationColumns}
+                  defaultSort={{ key: "invited", dir: "desc" }}
+                  empty={{
+                    icon: <Mail size={22} />,
+                    title: "No pending invitations",
+                    hint: "Invite a teammate to see them listed here.",
+                  }}
+                  loading={loading}
+                  rightTools={
+                    <button className="primary-button" onClick={() => setInviting(true)} type="button">
+                      <UserPlus size={15} />
+                      Invite Member
+                    </button>
+                  }
+                  rowKey={(invitation) => invitation.id}
+                  rows={invitations}
+                  searchPlaceholder="Search invitations…"
+                  searchText={(invitation) => `${invitation.email} ${invitation.role}`}
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <DataTable
+            columns={memberColumns}
+            defaultSort={{ key: "member", dir: "asc" }}
+            empty={{ icon: <UserRound size={22} />, title: "No members yet" }}
+            loading={loading}
+            rowKey={(member) => member.id}
+            rows={members}
+            searchPlaceholder="Search members…"
+            searchText={(member) => `${member.name} ${member.email} ${member.role}`}
+          />
+        )}
       </section>
 
-      {manager && (
-        <section className="panel">
-          <div className="panel-header tight">
-            <div>
-              <h2>Pending Invitations</h2>
-              <p>People who have been invited but have not joined yet.</p>
+      <Drawer
+        onClose={() => setAccessMember(null)}
+        open={accessMember !== null}
+        subtitle="Members can only see, open and manage the hosts granted to them here."
+        title={accessMember ? `Host access — ${accessMember.name}` : "Host access"}
+      >
+        {accessMember && (
+          <form className="form-grid" onSubmit={saveHostAccess}>
+            <fieldset className="span-two access-scope">
+              <legend>Scope</legend>
+              <label className="access-radio">
+                <input
+                  checked={accessAllHosts}
+                  name="hostAccessScope"
+                  onChange={() => setAccessAllHosts(true)}
+                  type="radio"
+                  value="all"
+                />
+                <span>
+                  <strong>All hosts</strong>
+                  <small>Every host in this organization, including ones added later.</small>
+                </span>
+              </label>
+              <label className="access-radio">
+                <input
+                  checked={!accessAllHosts}
+                  name="hostAccessScope"
+                  onChange={() => setAccessAllHosts(false)}
+                  type="radio"
+                  value="specific"
+                />
+                <span>
+                  <strong>Specific hosts</strong>
+                  <small>Only the hosts selected below.</small>
+                </span>
+              </label>
+            </fieldset>
+
+            <label className="span-two">
+              Hosts
+              <select
+                className="host-access-select"
+                disabled={accessAllHosts}
+                multiple
+                onChange={(event) =>
+                  setAccessHostIds(
+                    Array.from(event.target.selectedOptions, (option) => option.value),
+                  )
+                }
+                size={Math.min(8, Math.max(3, hosts.length))}
+                value={accessHostIds}
+              >
+                {hosts.map((host) => (
+                  <option key={host.id} value={host.id}>
+                    {host.name} ({host.address})
+                  </option>
+                ))}
+              </select>
+              <small className="field-note">
+                {accessAllHosts
+                  ? "All hosts granted — the list above is ignored."
+                  : `${accessHostIds.length} of ${hosts.length} host${hosts.length === 1 ? "" : "s"} selected. Hold ⌘/Ctrl or Shift to pick several.`}
+              </small>
+            </label>
+
+            <div className="form-actions span-two">
+              <SubmitButton busy={busy} label="Save Host Access" />
             </div>
-          </div>
-          <DataTable
-            columns={invitationColumns}
-            defaultSort={{ key: "invited", dir: "desc" }}
-            empty={{
-              icon: <Mail size={22} />,
-              title: "No pending invitations",
-              hint: "Invite a teammate to see them listed here.",
-            }}
-            loading={loading}
-            rowKey={(invitation) => invitation.id}
-            rows={invitations}
-            searchPlaceholder="Search invitations…"
-            searchText={(invitation) => `${invitation.email} ${invitation.role}`}
-          />
-        </section>
-      )}
+          </form>
+        )}
+      </Drawer>
 
       <Drawer
         onClose={() => setInviting(false)}

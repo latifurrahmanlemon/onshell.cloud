@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { canManageUsers, type User } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
+import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import { recordAudit, toSnippet } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
@@ -21,9 +22,11 @@ function canEditSnippet(actor: User, snippet: { ownerId: string }) {
   return snippet.ownerId === actor.id || canManageUsers(actor.role);
 }
 
-async function hostBelongsToOrganization(organizationId: string, hostId: string) {
-  const host = await prisma.host.findFirst({ where: { id: hostId, organizationId } });
-  return Boolean(host);
+/** A host-scoped snippet may only point at a host the actor holds a grant for. */
+async function hostIsAccessible(actor: User, hostId: string) {
+  const filter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
+  const host = await prisma.host.findFirst({ where: { ...filter, id: hostId }, select: { id: true } });
+  return host !== null;
 }
 
 export async function registerSnippetRoutes(app: FastifyInstance) {
@@ -32,10 +35,16 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
       const user = await getAuthenticatedUser(request);
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
+      const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const snippets = await prisma.snippet.findMany({
         where: {
           organizationId: user.organizationId,
-          OR: [{ scope: { in: ["team", "host"] } }, { scope: "personal", ownerId: user.id }]
+          AND: [
+            { OR: [{ scope: { in: ["team", "host"] } }, { scope: "personal", ownerId: user.id }] },
+            // A host-scoped snippet names the host it belongs to, so it stays
+            // hidden unless the member holds a grant for that host.
+            { OR: [{ hostId: null }, { host: accessFilter }] }
+          ]
         },
         orderBy: { createdAt: "desc" }
       });
@@ -52,7 +61,7 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
       if (!actor) return reply.code(401).send({ error: "unauthorized" });
 
       const body = snippetSchema.parse(request.body);
-      if (body.hostId && !(await hostBelongsToOrganization(actor.organizationId, body.hostId))) {
+      if (body.hostId && !(await hostIsAccessible(actor, body.hostId))) {
         return reply.code(404).send({ error: "host_not_found" });
       }
 
@@ -99,7 +108,7 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: "forbidden" });
       }
 
-      if (body.hostId && !(await hostBelongsToOrganization(actor.organizationId, body.hostId))) {
+      if (body.hostId && !(await hostIsAccessible(actor, body.hostId))) {
         return reply.code(404).send({ error: "host_not_found" });
       }
 

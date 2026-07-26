@@ -1,8 +1,14 @@
 /**
  * PM2 ecosystem for onshell.cloud
  *
- * Public web UI runs on port 5016. The API and gateway are backend services
+ * Public web UI runs on port 5018. The API and gateway are backend services
  * on their own ports (the web app talks to them).
+ *
+ * DNS + Nginx for the domain (see docs/deployment.md):
+ *   A/AAAA  onshell.cloud          -> server
+ *   CNAME   www.onshell.cloud      -> onshell.cloud
+ *   A       api.onshell.cloud      -> server
+ *   A       gateway.onshell.cloud  -> server
  *
  *   Prereqs (run once):
  *     yarn install
@@ -56,10 +62,18 @@ const GATEWAY_PORT = Number(env.GATEWAY_PORT) || 5019;
 
 const DATABASE_URL = env.DATABASE_URL || "mysql://onshell:onshell@localhost:3306/onshell_cloud";
 const REDIS_URL = env.REDIS_URL || "redis://localhost:6379";
-const CORS_ORIGINS = env.CORS_ORIGINS || `http://localhost:${WEB_PORT}`;
-const PUBLIC_BASE_URL = env.PUBLIC_BASE_URL || `http://localhost:${WEB_PORT}`;
-const API_BASE_URL = env.API_BASE_URL || `http://localhost:${API_PORT}`;
-const GATEWAY_BASE_URL = env.GATEWAY_BASE_URL || `http://localhost:${GATEWAY_PORT}`;
+
+// Public domain. Nginx terminates TLS for onshell.cloud and reverse-proxies to
+// the local ports above:
+//   onshell.cloud          -> 127.0.0.1:WEB_PORT
+//   api.onshell.cloud      -> 127.0.0.1:API_PORT
+//   gateway.onshell.cloud  -> 127.0.0.1:GATEWAY_PORT   (WebSocket upgrade)
+const SITE_URL = env.SITE_URL || "https://onshell.cloud";
+const PUBLIC_BASE_URL = env.PUBLIC_BASE_URL || SITE_URL;
+const API_BASE_URL = env.API_BASE_URL || "https://api.onshell.cloud";
+const GATEWAY_BASE_URL = env.GATEWAY_BASE_URL || "https://gateway.onshell.cloud";
+const CORS_ORIGINS = env.CORS_ORIGINS || `${SITE_URL},https://www.onshell.cloud`;
+const COOKIE_DOMAIN = env.COOKIE_DOMAIN || ".onshell.cloud";
 
 const common = {
   exec_mode: "fork",
@@ -82,8 +96,10 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: WEB_PORT,
+        SITE_URL,
         // NOTE: NEXT_PUBLIC_* are baked into the client bundle at `yarn build`
         // time. To change them, set them before building, then rebuild.
+        NEXT_PUBLIC_SITE_URL: env.NEXT_PUBLIC_SITE_URL || SITE_URL,
         NEXT_PUBLIC_API_BASE_URL: env.NEXT_PUBLIC_API_BASE_URL || API_BASE_URL,
         NEXT_PUBLIC_GATEWAY_BASE_URL: env.NEXT_PUBLIC_GATEWAY_BASE_URL || GATEWAY_BASE_URL,
       },
@@ -100,15 +116,23 @@ module.exports = {
         LOG_LEVEL: env.LOG_LEVEL || "info",
         DATABASE_URL,
         REDIS_URL,
-        JWT_SECRET: env.JWT_SECRET || "change-me-in-production",
-        MASTER_ENCRYPTION_KEY: env.MASTER_ENCRYPTION_KEY || "replace-with-32-byte-base64-key",
+        // No placeholder fallbacks: the API refuses to boot in production with
+        // the example secrets, so a missing value fails loudly at start rather
+        // than silently running with a forgeable JWT key.
+        JWT_SECRET: env.JWT_SECRET || "",
+        MASTER_ENCRYPTION_KEY: env.MASTER_ENCRYPTION_KEY || "",
         CORS_ORIGINS,
+        SITE_URL,
         PUBLIC_BASE_URL,
         API_BASE_URL,
         GATEWAY_BASE_URL,
+        COOKIE_DOMAIN,
+        COOKIE_SECURE: env.COOKIE_SECURE || "true",
+        TRUST_PROXY: env.TRUST_PROXY || "true",
         GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID || "",
         GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET || "",
         GOOGLE_REDIRECT_URI: env.GOOGLE_REDIRECT_URI || `${API_BASE_URL}/auth/google/callback`,
+        CONTACT_NOTIFY_EMAIL: env.CONTACT_NOTIFY_EMAIL || "support@onshell.cloud",
       },
     },
     {

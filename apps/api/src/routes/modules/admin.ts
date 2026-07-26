@@ -7,6 +7,12 @@ const { PaymentProvider, Role, SubscriptionStatus, BillingInterval } = prismaPkg
 type PaymentProvider = (typeof PaymentProvider)[keyof typeof PaymentProvider];
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import {
+  AiConfigurationError,
+  AiUpstreamError,
+  createAiCompletion,
+  DEFAULT_SYSTEM_PROMPT
+} from "../../lib/ai.js";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
 import { sendSmtpTestEmail } from "../../lib/email.js";
@@ -15,9 +21,15 @@ import { toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
 
 const planSchema = z.object({
-  code: z.string().min(2),
-  name: z.string().min(2),
-  description: z.string().min(10),
+  code: z
+    .string()
+    .min(2)
+    .max(40)
+    .regex(/^[a-z0-9_-]+$/, "Plan codes are lowercase letters, digits, hyphens, and underscores."),
+  name: z.string().min(2).max(60),
+  description: z.string().min(10).max(600),
+  tagline: z.string().max(120).nullable().optional(),
+  badge: z.string().max(40).nullable().optional(),
   priceMonthlyCents: z.number().int().min(0),
   priceYearlyCents: z.number().int().min(0),
   currency: z.string().min(3).max(3).default("USD"),
@@ -25,9 +37,66 @@ const planSchema = z.object({
   maxHosts: z.number().int().positive().nullable().optional(),
   maxConcurrentSessions: z.number().int().positive().nullable().optional(),
   auditRetentionDays: z.number().int().positive(),
-  features: z.array(z.string()).default([]),
+  monthlyAiMessages: z.number().int().min(0).nullable().optional(),
+  features: z.array(z.string().max(120)).max(20).default([]),
   isActive: z.boolean().default(true),
+  isFree: z.boolean().default(false),
+  isFeatured: z.boolean().default(false),
+  trialDays: z.number().int().min(0).max(90).default(0),
   displayOrder: z.number().int().default(0)
+});
+
+/**
+ * `code` is the stable identifier the public pricing page and checkout resolve
+ * against, so it is fixed after creation — renaming it would silently break
+ * every existing checkout link.
+ */
+const planUpdateSchema = planSchema.omit({ code: true }).partial();
+
+const turnstileSchema = z.object({
+  siteKey: z.string().trim().max(120).optional(),
+  /** Omit to keep the stored secret; send a value to rotate it. */
+  secretKey: z.string().trim().max(200).optional(),
+  enabled: z.boolean(),
+  protectSignup: z.boolean().default(true),
+  protectLogin: z.boolean().default(true),
+  protectPasswordReset: z.boolean().default(true),
+  protectContact: z.boolean().default(true),
+  protectCheckout: z.boolean().default(true),
+  protectNewsletter: z.boolean().default(true)
+});
+
+const aiSettingSchema = z.object({
+  model: z.string().trim().min(2).max(80),
+  /** Omit to keep the stored key; send a value to rotate it. */
+  apiKey: z.string().trim().max(300).optional(),
+  baseUrl: z.string().trim().url().max(300).nullable().optional(),
+  systemPrompt: z.string().trim().min(20).max(8_000),
+  /** Integer percentage (0-200) so the column stays an Int; 20 means 0.2. */
+  temperature: z.number().int().min(0).max(200),
+  maxOutputTokens: z.number().int().min(128).max(8_000),
+  monthlyMessageCap: z.number().int().min(0).max(100_000),
+  enabled: z.boolean()
+});
+
+const contactStatusEnum = z.enum(["NEW", "OPEN", "RESOLVED", "SPAM"]);
+
+const contactUpdateSchema = z.object({
+  status: contactStatusEnum.optional(),
+  adminNotes: z.string().max(5_000).nullable().optional()
+});
+
+const contactListSchema = z.object({
+  status: contactStatusEnum.optional(),
+  search: z.string().trim().max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).default(50),
+  skip: z.coerce.number().int().min(0).default(0)
+});
+
+const aiThreadListSchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).default(50),
+  skip: z.coerce.number().int().min(0).default(0)
 });
 
 const smtpSchema = z.object({
@@ -544,7 +613,7 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       if (!actor) return reply.code(403).send({ error: "forbidden" });
 
       const { planId } = z.object({ planId: z.string() }).parse(request.params);
-      const body = planSchema.partial().parse(request.body);
+      const body = planUpdateSchema.parse(request.body);
       const plan = await prisma.plan.update({
         where: { id: planId },
         data: body
@@ -842,5 +911,482 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     } catch (error) {
       return handleRouteError(reply, error);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bot protection (Cloudflare Turnstile)
+  // ---------------------------------------------------------------------------
+
+  app.get("/admin/turnstile", async (request, reply) => {
+    const actor = await requirePlatformAdmin(request, config);
+    if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+    const setting = await prisma.turnstileSetting.findUnique({ where: { id: "global" } });
+
+    // The secret key is never returned — only whether one is stored.
+    return {
+      siteKey: setting?.siteKey ?? "",
+      hasSecretKey: Boolean(setting?.encryptedSecretKey),
+      enabled: setting?.enabled ?? false,
+      protectSignup: setting?.protectSignup ?? true,
+      protectLogin: setting?.protectLogin ?? true,
+      protectPasswordReset: setting?.protectPasswordReset ?? true,
+      protectContact: setting?.protectContact ?? true,
+      protectCheckout: setting?.protectCheckout ?? true,
+      protectNewsletter: setting?.protectNewsletter ?? true,
+      updatedAt: setting?.updatedAt ?? null
+    };
+  });
+
+  app.patch("/admin/turnstile", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const body = turnstileSchema.parse(request.body);
+      const existing = await prisma.turnstileSetting.findUnique({ where: { id: "global" } });
+      const encrypted = body.secretKey ? encryptSecret(body.secretKey, config.masterEncryptionKey) : undefined;
+
+      // Enabling without a usable key pair would fail every public form closed,
+      // so reject the combination instead of locking signups out.
+      const willHaveSecret = Boolean(encrypted ?? existing?.encryptedSecretKey);
+      const willHaveSiteKey = Boolean(body.siteKey ?? existing?.siteKey);
+      if (body.enabled && (!willHaveSecret || !willHaveSiteKey)) {
+        return reply.code(400).send({
+          error: "turnstile_incomplete",
+          message: "Add both the site key and the secret key before enabling bot protection."
+        });
+      }
+
+      const shared = {
+        siteKey: body.siteKey ?? existing?.siteKey ?? null,
+        enabled: body.enabled,
+        protectSignup: body.protectSignup,
+        protectLogin: body.protectLogin,
+        protectPasswordReset: body.protectPasswordReset,
+        protectContact: body.protectContact,
+        protectCheckout: body.protectCheckout,
+        protectNewsletter: body.protectNewsletter,
+        updatedById: actor.id,
+        ...(encrypted
+          ? {
+              encryptedSecretKey: encrypted.encryptedPayload,
+              secretKeyNonce: encrypted.nonce,
+              secretKeyAuthTag: encrypted.authTag
+            }
+          : {})
+      };
+
+      const setting = await prisma.turnstileSetting.upsert({
+        where: { id: "global" },
+        update: shared,
+        create: { id: "global", ...shared }
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.turnstile.update",
+        targetType: "turnstile_settings",
+        ipAddress: request.ip,
+        metadata: { enabled: setting.enabled, secretRotated: Boolean(body.secretKey) }
+      });
+
+      return {
+        siteKey: setting.siteKey ?? "",
+        hasSecretKey: Boolean(setting.encryptedSecretKey),
+        enabled: setting.enabled,
+        protectSignup: setting.protectSignup,
+        protectLogin: setting.protectLogin,
+        protectPasswordReset: setting.protectPasswordReset,
+        protectContact: setting.protectContact,
+        protectCheckout: setting.protectCheckout,
+        protectNewsletter: setting.protectNewsletter,
+        updatedAt: setting.updatedAt
+      };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // AI assistant configuration
+  // ---------------------------------------------------------------------------
+
+  app.get("/admin/ai/settings", async (request, reply) => {
+    const actor = await requirePlatformAdmin(request, config);
+    if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+    const setting = await prisma.aiSetting.findUnique({ where: { id: "global" } });
+
+    return {
+      provider: setting?.provider ?? "openai",
+      model: setting?.model ?? "gpt-4o-mini",
+      hasApiKey: Boolean(setting?.encryptedApiKey),
+      baseUrl: setting?.baseUrl ?? "",
+      systemPrompt: setting?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+      temperature: setting?.temperature ?? 20,
+      maxOutputTokens: setting?.maxOutputTokens ?? 900,
+      monthlyMessageCap: setting?.monthlyMessageCap ?? 100,
+      enabled: setting?.enabled ?? false,
+      updatedAt: setting?.updatedAt ?? null
+    };
+  });
+
+  app.patch("/admin/ai/settings", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const body = aiSettingSchema.parse(request.body);
+      const existing = await prisma.aiSetting.findUnique({ where: { id: "global" } });
+      const encrypted = body.apiKey ? encryptSecret(body.apiKey, config.masterEncryptionKey) : undefined;
+
+      if (body.enabled && !(encrypted ?? existing?.encryptedApiKey)) {
+        return reply.code(400).send({
+          error: "ai_key_missing",
+          message: "Add an API key before enabling the AI assistant."
+        });
+      }
+
+      const shared = {
+        provider: "openai",
+        model: body.model,
+        baseUrl: body.baseUrl ?? null,
+        systemPrompt: body.systemPrompt,
+        temperature: body.temperature,
+        maxOutputTokens: body.maxOutputTokens,
+        monthlyMessageCap: body.monthlyMessageCap,
+        enabled: body.enabled,
+        updatedById: actor.id,
+        ...(encrypted
+          ? {
+              encryptedApiKey: encrypted.encryptedPayload,
+              apiKeyNonce: encrypted.nonce,
+              apiKeyAuthTag: encrypted.authTag
+            }
+          : {})
+      };
+
+      const setting = await prisma.aiSetting.upsert({
+        where: { id: "global" },
+        update: shared,
+        create: { id: "global", ...shared }
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.ai.update",
+        targetType: "ai_settings",
+        ipAddress: request.ip,
+        metadata: { enabled: setting.enabled, model: setting.model, keyRotated: Boolean(body.apiKey) }
+      });
+
+      return {
+        provider: setting.provider,
+        model: setting.model,
+        hasApiKey: Boolean(setting.encryptedApiKey),
+        baseUrl: setting.baseUrl ?? "",
+        systemPrompt: setting.systemPrompt,
+        temperature: setting.temperature,
+        maxOutputTokens: setting.maxOutputTokens,
+        monthlyMessageCap: setting.monthlyMessageCap,
+        enabled: setting.enabled,
+        updatedAt: setting.updatedAt
+      };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /** Sends a fixed prompt through the live configuration to prove the key works. */
+  app.post("/admin/ai/test", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const completion = await createAiCompletion({
+        messages: [{ role: "user", content: "Reply with exactly: Onshell AI is connected." }],
+        masterEncryptionKey: config.masterEncryptionKey,
+        maxOutputTokens: 64
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.ai.test",
+        targetType: "ai_settings",
+        ipAddress: request.ip,
+        metadata: { model: completion.model }
+      });
+
+      return { ok: true, model: completion.model, reply: completion.content };
+    } catch (error) {
+      if (error instanceof AiConfigurationError) {
+        return reply.code(400).send({ error: error.code, message: error.message });
+      }
+      if (error instanceof AiUpstreamError) {
+        return reply.code(502).send({
+          error: "ai_upstream_error",
+          message: `The AI provider rejected the request (HTTP ${error.status}). Check the API key and model name.`
+        });
+      }
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /** Every AI conversation on the platform, for support and abuse review. */
+  app.get("/admin/ai/threads", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const query = aiThreadListSchema.parse(request.query);
+      const where: Prisma.AiThreadWhereInput = query.search
+        ? {
+            OR: [
+              { title: { contains: query.search } },
+              { user: { email: { contains: query.search } } },
+              { user: { name: { contains: query.search } } }
+            ]
+          }
+        : {};
+
+      const [total, threads] = await Promise.all([
+        prisma.aiThread.count({ where }),
+        prisma.aiThread.findMany({
+          where,
+          orderBy: { lastMessageAt: "desc" },
+          take: query.take,
+          skip: query.skip,
+          select: {
+            id: true,
+            title: true,
+            messageCount: true,
+            lastMessageAt: true,
+            createdAt: true,
+            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+            organization: { select: { id: true, name: true } }
+          }
+        })
+      ]);
+
+      return { total, take: query.take, skip: query.skip, threads };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.get("/admin/ai/threads/:threadId", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { threadId } = z.object({ threadId: z.string() }).parse(request.params);
+      const thread = await prisma.aiThread.findUnique({
+        where: { id: threadId },
+        include: {
+          user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+          organization: { select: { id: true, name: true } },
+          messages: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              role: true,
+              content: true,
+              model: true,
+              promptTokens: true,
+              outputTokens: true,
+              createdAt: true
+            }
+          }
+        }
+      });
+      if (!thread) return reply.code(404).send({ error: "thread_not_found" });
+
+      // Reading a user's conversation is a privileged action; record it.
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.ai.thread.view",
+        targetType: "ai_thread",
+        targetId: thread.id,
+        ipAddress: request.ip,
+        metadata: { threadOwnerId: thread.userId }
+      });
+
+      return thread;
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Contact inbox
+  // ---------------------------------------------------------------------------
+
+  app.get("/admin/contact-messages", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const query = contactListSchema.parse(request.query);
+      const where: Prisma.ContactMessageWhereInput = {
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.search
+          ? {
+              OR: [
+                { name: { contains: query.search } },
+                { email: { contains: query.search } },
+                { company: { contains: query.search } },
+                { message: { contains: query.search } }
+              ]
+            }
+          : {})
+      };
+
+      const [total, unread, messages] = await Promise.all([
+        prisma.contactMessage.count({ where }),
+        prisma.contactMessage.count({ where: { status: "NEW" } }),
+        prisma.contactMessage.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          take: query.take,
+          skip: query.skip,
+          include: { handledBy: { select: { id: true, name: true, email: true } } }
+        })
+      ]);
+
+      return { total, unread, take: query.take, skip: query.skip, messages };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.patch("/admin/contact-messages/:messageId", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { messageId } = z.object({ messageId: z.string() }).parse(request.params);
+      const body = contactUpdateSchema.parse(request.body);
+      if (body.status === undefined && body.adminNotes === undefined) {
+        return reply.code(400).send({ error: "no_changes" });
+      }
+
+      const existing = await prisma.contactMessage.findUnique({ where: { id: messageId } });
+      if (!existing) return reply.code(404).send({ error: "message_not_found" });
+
+      const message = await prisma.contactMessage.update({
+        where: { id: messageId },
+        data: {
+          ...(body.status !== undefined ? { status: body.status } : {}),
+          ...(body.adminNotes !== undefined ? { adminNotes: body.adminNotes || null } : {}),
+          // Stamp the first admin who moves it out of NEW as the handler.
+          ...(body.status !== undefined && body.status !== "NEW"
+            ? { handledById: actor.id, handledAt: new Date() }
+            : {})
+        },
+        include: { handledBy: { select: { id: true, name: true, email: true } } }
+      });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.contact.update",
+        targetType: "contact_message",
+        targetId: messageId,
+        ipAddress: request.ip,
+        metadata: { status: message.status }
+      });
+
+      return message;
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.delete("/admin/contact-messages/:messageId", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { messageId } = z.object({ messageId: z.string() }).parse(request.params);
+      const deleted = await prisma.contactMessage.deleteMany({ where: { id: messageId } });
+      if (deleted.count === 0) return reply.code(404).send({ error: "message_not_found" });
+
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.contact.delete",
+        targetType: "contact_message",
+        targetId: messageId,
+        ipAddress: request.ip
+      });
+
+      return { ok: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Growth / marketing
+  // ---------------------------------------------------------------------------
+
+  /** Newsletter list and referral leaderboard, for the marketing view. */
+  app.get("/admin/growth", async (request, reply) => {
+    const actor = await requirePlatformAdmin(request, config);
+    if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+    const [subscriberCount, activeSubscribers, recentSubscribers, referrers, freeCount, paidCount] =
+      await Promise.all([
+        prisma.newsletterSubscriber.count(),
+        prisma.newsletterSubscriber.count({ where: { unsubscribedAt: null } }),
+        prisma.newsletterSubscriber.findMany({
+          orderBy: { createdAt: "desc" },
+          take: 25,
+          select: { id: true, email: true, source: true, unsubscribedAt: true, createdAt: true }
+        }),
+        prisma.user.findMany({
+          where: { referrals: { some: {} } },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            referralCode: true,
+            _count: { select: { referrals: true } }
+          },
+          take: 25
+        }),
+        prisma.subscription.count({ where: { status: "ACTIVE", plan: { isFree: true } } }),
+        prisma.subscription.count({ where: { status: { in: ["ACTIVE", "TRIALING"] }, plan: { isFree: false } } })
+      ]);
+
+    const referralLeaderboard = referrers
+      .map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        referralCode: user.referralCode,
+        referrals: user._count.referrals
+      }))
+      .sort((left, right) => right.referrals - left.referrals);
+
+    return {
+      newsletter: {
+        total: subscriberCount,
+        active: activeSubscribers,
+        recent: recentSubscribers
+      },
+      referrals: referralLeaderboard,
+      funnel: {
+        freeWorkspaces: freeCount,
+        paidWorkspaces: paidCount,
+        // Share of workspaces that converted from free to paid.
+        conversionRate: freeCount + paidCount > 0 ? paidCount / (freeCount + paidCount) : 0
+      }
+    };
   });
 }

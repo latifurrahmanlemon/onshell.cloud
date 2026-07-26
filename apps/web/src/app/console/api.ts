@@ -10,8 +10,8 @@ import type {
   User
 } from "@onshell/shared";
 
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
-export const gatewayBaseUrl = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL ?? "http://localhost:4100";
+export { apiBaseUrl, gatewayBaseUrl } from "../../lib/site";
+import { apiBaseUrl, gatewayBaseUrl } from "../../lib/site";
 
 export class ApiError extends Error {
   status: number;
@@ -87,6 +87,16 @@ export interface CurrentIdentity {
   organization?: Organization;
 }
 
+/** A member's effective host access, as returned alongside the team list. */
+export interface MemberHostAccess {
+  /** Reaches every host in the organization, including ones added later. */
+  allHosts: boolean;
+  /** Individually granted host ids. Empty when `allHosts` is true. */
+  hostIds: string[];
+  /** True when the access comes from the role (owner/admin) and cannot be edited. */
+  implicit: boolean;
+}
+
 export interface TeamMember {
   id: string;
   name: string;
@@ -95,6 +105,7 @@ export interface TeamMember {
   role: Role;
   joinedAt?: string;
   twoFactorEnabled?: boolean;
+  hostAccess?: MemberHostAccess;
 }
 
 export interface PendingInvitation {
@@ -105,10 +116,109 @@ export interface PendingInvitation {
   createdAt?: string;
 }
 
+export interface InviteResult extends PendingInvitation {
+  /**
+   * False when SMTP is disabled or the send failed. The invitation is still
+   * valid — it just has to be delivered by hand using `acceptUrl`.
+   */
+  emailSent: boolean;
+  acceptUrl: string;
+}
+
 export interface LaunchedSession {
   session: RemoteSession;
   websocketUrl?: string;
   connectUrl?: string;
+}
+
+export interface AiThreadSummary {
+  id: string;
+  title: string;
+  messageCount: number;
+  lastMessageAt: string;
+  createdAt: string;
+}
+
+export interface AiMessage {
+  id: string;
+  role: "USER" | "ASSISTANT" | "SYSTEM";
+  content: string;
+  createdAt: string;
+}
+
+export interface AiThreadDetail extends AiThreadSummary {
+  messages: AiMessage[];
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  model: string | null;
+  used: number;
+  /** Null means unlimited on the current plan. */
+  limit: number | null;
+  remaining: number | null;
+  planName: string | null;
+}
+
+export interface AiSendResult {
+  thread: AiThreadSummary;
+  userMessage: AiMessage;
+  assistantMessage: AiMessage;
+  usage: { used: number; limit: number | null; remaining: number | null };
+}
+
+/** One metered resource, as returned by GET /me/growth. */
+export interface UsageEntry {
+  used: number;
+  limit: number | null;
+  ratio: number | null;
+  atLimit: boolean;
+  nearLimit: boolean;
+}
+
+export interface GrowthOverview {
+  plan: {
+    id: string;
+    code: string;
+    name: string;
+    isFree: boolean;
+    tagline: string | null;
+    priceMonthlyCents: number;
+    priceYearlyCents: number;
+    currency: string;
+    auditRetentionDays: number;
+    trialDays: number;
+  } | null;
+  subscription: {
+    id: string;
+    status: string;
+    billingInterval: string;
+    currentPeriodEnd: string;
+    trialEndsAt: string | null;
+    cancelAt: string | null;
+  } | null;
+  usage: {
+    members: UsageEntry;
+    hosts: UsageEntry;
+    concurrentSessions: UsageEntry;
+    aiMessages: UsageEntry;
+  };
+  upgrade: {
+    shouldPrompt: boolean;
+    plan: {
+      code: string;
+      name: string;
+      tagline: string | null;
+      priceMonthlyCents: number;
+      priceYearlyCents: number;
+      currency: string;
+      maxUsers: number | null;
+      maxHosts: number | null;
+      trialDays: number;
+      features: string[];
+    };
+  } | null;
+  referral: { code: string | null; url: string; signups: number };
 }
 
 export const consoleApi = {
@@ -158,7 +268,10 @@ export const consoleApi = {
       body: JSON.stringify(body)
     }),
   invite: (body: { email: string; role: Role }) =>
-    request<unknown>("/organizations/current/invitations", { method: "POST", body: JSON.stringify(body) }),
+    request<InviteResult>("/organizations/current/invitations", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
   invitations: async () =>
     unwrapList<PendingInvitation>(await request("/organizations/current/invitations"), "invitations"),
   revokeInvitation: (id: string) =>
@@ -167,6 +280,13 @@ export const consoleApi = {
     request<unknown>(`/organizations/current/members/${userId}`, { method: "PATCH", body: JSON.stringify({ role }) }),
   removeMember: (userId: string) =>
     request<unknown>(`/organizations/current/members/${userId}`, { method: "DELETE" }),
+  memberHostAccess: (userId: string) =>
+    request<MemberHostAccess>(`/organizations/current/members/${userId}/host-access`),
+  setMemberHostAccess: (userId: string, body: { allHosts: boolean; hostIds: string[] }) =>
+    request<MemberHostAccess>(`/organizations/current/members/${userId}/host-access`, {
+      method: "PUT",
+      body: JSON.stringify(body)
+    }),
 
   twoFactorStatus: async () => {
     const payload = await request<{ twoFactorEnabled?: boolean; enabled?: boolean; method?: "totp" | "email" | null }>(
@@ -180,7 +300,22 @@ export const consoleApi = {
     request<unknown>("/auth/2fa/verify", { method: "POST", body: JSON.stringify({ totpCode }) }),
   enableEmailOtp: () => request<unknown>("/auth/2fa/email/enable", { method: "POST" }),
   verifyEmailOtp: (code: string) =>
-    request<unknown>("/auth/2fa/email/verify", { method: "POST", body: JSON.stringify({ code }) })
+    request<unknown>("/auth/2fa/email/verify", { method: "POST", body: JSON.stringify({ code }) }),
+  /** Emails the code needed to turn OFF email-based 2FA. */
+  requestEmailOtpChallenge: () => request<unknown>("/auth/2fa/email/challenge", { method: "POST" }),
+  disableTwoFactor: (totpCode: string) =>
+    request<unknown>("/auth/2fa/disable", { method: "POST", body: JSON.stringify({ totpCode }) }),
+
+  aiStatus: () => request<AiStatus>("/ai/status"),
+  aiThreads: async () => unwrapList<AiThreadSummary>(await request("/ai/threads"), "threads"),
+  aiThread: (id: string) => request<AiThreadDetail>(`/ai/threads/${id}`),
+  aiRenameThread: (id: string, title: string) =>
+    request<unknown>(`/ai/threads/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  aiDeleteThread: (id: string) => request<unknown>(`/ai/threads/${id}`, { method: "DELETE" }),
+  aiSend: (body: { threadId?: string; message: string }) =>
+    request<AiSendResult>("/ai/messages", { method: "POST", body: JSON.stringify(body) }),
+
+  growth: () => request<GrowthOverview>("/me/growth")
 };
 
 /** Resolve a session's terminal WebSocket URL, falling back to the gateway convention. */

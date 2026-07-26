@@ -72,6 +72,41 @@ enum AuthProvider {
   GOOGLE
 }
 
+enum ContactStatus {
+  NEW
+  OPEN
+  RESOLVED
+  SPAM
+}
+
+enum AiRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AuthEventType {
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  TWO_FACTOR_COMPLETED
+}
+
+enum AuthEventMethod {
+  PASSWORD
+  GOOGLE
+  TWO_FACTOR
+  /// Events with no credential of their own, such as sign-out.
+  SESSION
+}
+
+enum EmailLogStatus {
+  SENT
+  FAILED
+  /// SMTP is disabled, so the message was never handed to a provider.
+  SKIPPED
+}
+
 model User {
   id                  String               @id @default(cuid())
   email               String               @unique
@@ -82,6 +117,10 @@ model User {
   isPlatformAdmin     Boolean              @default(false)
   emailVerifiedAt     DateTime?
   twoFactorEnabled    Boolean              @default(false)
+  /// Shareable referral code used by the growth/referral programme.
+  referralCode        String?              @unique
+  /// The user whose referral link produced this signup, when any.
+  referredById        String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   memberships         OrganizationMember[]
@@ -94,6 +133,16 @@ model User {
   updatedSettings     AppSetting[]         @relation("SettingUpdatedBy")
   updatedSmtpSettings SmtpSetting[]        @relation("SmtpUpdatedBy")
   oauthAccounts       OAuthAccount[]
+  referredBy          User?                @relation("UserReferral", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals           User[]               @relation("UserReferral")
+  aiThreads           AiThread[]
+  handledContacts     ContactMessage[]     @relation("ContactHandledBy")
+  visitorLogs         VisitorLog[]
+  authEvents          AuthEventLog[]
+  hostAccessGrants    HostAccessGrant[]    @relation("HostAccessSubject")
+  grantedHostAccess   HostAccessGrant[]    @relation("HostAccessGrantedBy")
+
+  @@index([referredById])
 }
 
 model Organization {
@@ -111,6 +160,8 @@ model Organization {
   snippets      Snippet[]
   subscriptions Subscription[]
   usageRecords  UsageRecord[]
+  aiThreads     AiThread[]
+  hostAccessGrants HostAccessGrant[]
 }
 
 model OrganizationMember {
@@ -160,6 +211,7 @@ model Host {
   sftpOperations SftpOperation[]
   rdpConnection  RdpConnection?
   tunnelRules    TunnelRule[]
+  accessGrants   HostAccessGrant[]
 }
 
 model HostGroup {
@@ -174,6 +226,37 @@ model HostTag {
   name   String
   hostId String
   host   Host   @relation(fields: [hostId], references: [id], onDelete: Cascade)
+}
+
+/// Grants one member access to one host, or — when `allHosts` is set and
+/// `hostId` is null — to every host in the organization. Absence of any
+/// matching row denies access; see lib/host-access.ts for which roles the
+/// table governs and which bypass it.
+model HostAccessGrant {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  /// The granted host, or null on the single org-wide row.
+  hostId         String?
+  allHosts       Boolean      @default(false)
+  /// Mirrors the grant target as a non-null key: `hostId`, or "*" for the
+  /// org-wide row. MySQL treats NULLs as distinct, so a unique index over
+  /// `hostId` alone could not stop a member collecting duplicate all-hosts
+  /// rows. Always written together with `hostId`/`allHosts`.
+  scopeKey       String
+  /// Who granted it. Kept as null when that account is deleted so the audit
+  /// trail survives the grantor.
+  grantedById    String?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation("HostAccessSubject", fields: [userId], references: [id], onDelete: Cascade)
+  host           Host?        @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  grantedBy      User?        @relation("HostAccessGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId, scopeKey])
+  @@index([organizationId, userId])
+  @@index([hostId])
+  @@index([grantedById])
 }
 
 model Credential {
@@ -284,11 +367,13 @@ model TunnelRule {
 model RefreshToken {
   id        String    @id @default(cuid())
   userId    String
-  tokenHash String
+  tokenHash String    @unique
   revokedAt DateTime?
   expiresAt DateTime
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
 }
 
 model TwoFactorSecret {
@@ -309,6 +394,8 @@ model PasswordResetToken {
   expiresAt DateTime
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, tokenHash])
 }
 
 model OAuthAccount {
@@ -343,6 +430,18 @@ model Plan {
   features              Json
   isActive              Boolean        @default(true)
   displayOrder          Int            @default(0)
+  /// Free tier of the freemium funnel. Auto-assigned on signup, never charged.
+  isFree                Boolean        @default(false)
+  /// Renders as the "most popular" card on the public pricing grid.
+  isFeatured            Boolean        @default(false)
+  /// Short marketing badge shown on the pricing card, e.g. "Most popular".
+  badge                 String?
+  /// One-line marketing hook above the feature list.
+  tagline               String?
+  /// Paid-plan trial length in days. 0 disables the trial.
+  trialDays             Int            @default(0)
+  /// AI assistant messages included per calendar month. Null means unlimited.
+  monthlyAiMessages     Int?
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   subscriptions         Subscription[]
@@ -437,4 +536,185 @@ model PaymentSetting {
   updatedAt              DateTime        @updatedAt
 
   @@unique([provider, mode])
+}
+
+/// Cloudflare Turnstile credentials for the public forms. The site key is public
+/// and served to the browser; the secret key is encrypted with the master key.
+model TurnstileSetting {
+  id                    String   @id @default("global")
+  siteKey               String?
+  encryptedSecretKey    String?  @db.Text
+  secretKeyNonce        String?
+  secretKeyAuthTag      String?
+  enabled               Boolean  @default(false)
+  /// Per-form toggles so admins can protect signup but leave, say, login open.
+  protectSignup         Boolean  @default(true)
+  protectLogin          Boolean  @default(true)
+  protectPasswordReset  Boolean  @default(true)
+  protectContact        Boolean  @default(true)
+  protectCheckout       Boolean  @default(true)
+  protectNewsletter     Boolean  @default(true)
+  updatedById           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+/// OpenAI credentials and behaviour for the in-product AI assistant.
+model AiSetting {
+  id                 String   @id @default("global")
+  provider           String   @default("openai")
+  model              String   @default("gpt-4o-mini")
+  encryptedApiKey    String?  @db.Text
+  apiKeyNonce        String?
+  apiKeyAuthTag      String?
+  baseUrl            String?
+  systemPrompt       String   @db.Text
+  temperature        Int      @default(20)
+  maxOutputTokens    Int      @default(900)
+  /// Fallback monthly per-user message cap when the plan does not set one.
+  monthlyMessageCap  Int      @default(100)
+  enabled            Boolean  @default(false)
+  updatedById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+/// One AI assistant conversation. Threads are scoped to an organization so
+/// platform admins can review them without cross-tenant leakage.
+model AiThread {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  title          String
+  archivedAt     DateTime?
+  lastMessageAt  DateTime     @default(now())
+  messageCount   Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages       AiMessage[]
+
+  @@index([organizationId, lastMessageAt])
+  @@index([userId, lastMessageAt])
+}
+
+model AiMessage {
+  id           String   @id @default(cuid())
+  threadId     String
+  role         AiRole
+  content      String   @db.Text
+  model        String?
+  promptTokens Int?
+  outputTokens Int?
+  createdAt    DateTime @default(now())
+  thread       AiThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+/// A "Contact us" submission from the public site, reviewable in the admin panel.
+model ContactMessage {
+  id           String        @id @default(cuid())
+  name         String
+  email        String
+  company      String?
+  topic        String        @default("general")
+  message      String        @db.Text
+  status       ContactStatus @default(NEW)
+  /// Internal-only notes; never returned to the submitter.
+  adminNotes   String?       @db.Text
+  ipAddress    String?
+  userAgent    String?       @db.Text
+  /// Set when a user was signed in at submit time, for support context.
+  submittedById String?
+  handledById  String?
+  handledAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  handledBy    User?         @relation("ContactHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([email])
+}
+
+/// Marketing email capture from the public site footer.
+model NewsletterSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  source         String    @default("footer")
+  confirmedAt    DateTime?
+  unsubscribedAt DateTime?
+  ipAddress      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+/// One page view on the public site, written by POST /public/visit.
+///
+/// Deliberately not an AuditLog: audit rows are organization-scoped and require
+/// an actor, while most visits are anonymous and belong to no tenant.
+model VisitorLog {
+  id        String   @id @default(cuid())
+  /// Pathname only — query strings are dropped so the column stays indexable
+  /// and cannot accumulate tokens passed in URLs.
+  path      String
+  referrer  String?  @db.Text
+  /// Set when a session cookie accompanied the beacon. Kept on user deletion
+  /// as null so traffic history stays intact.
+  userId    String?
+  ipAddress String?
+  userAgent String?  @db.Text
+  /// ISO 3166-1 alpha-2, when the edge/proxy supplies a geo header.
+  country   String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([path, createdAt])
+  @@index([userId, createdAt])
+  @@index([country, createdAt])
+}
+
+/// Sign-in lifecycle events. Records the attempted email even when no account
+/// matches, which is what makes failed-login review useful.
+model AuthEventLog {
+  id        String          @id @default(cuid())
+  userId    String?
+  email     String
+  event     AuthEventType
+  method    AuthEventMethod
+  success   Boolean
+  /// Short machine-readable cause on failure, e.g. "invalid_password".
+  reason    String?
+  ipAddress String?
+  userAgent String?         @db.Text
+  createdAt DateTime        @default(now())
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([event, createdAt])
+  @@index([email, createdAt])
+}
+
+/// Delivery record for every outbound email.
+///
+/// Subject and status only — bodies are never stored, because transactional
+/// mail carries one-time codes and reset links.
+model EmailLog {
+  id                String         @id @default(cuid())
+  recipient         String
+  subject           String
+  /// Template identifier, e.g. "password_reset" or "contact_notification".
+  kind              String         @default("transactional")
+  status            EmailLogStatus
+  providerMessageId String?
+  error             String?        @db.Text
+  createdAt         DateTime       @default(now())
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([recipient, createdAt])
+  @@index([kind, createdAt])
 }

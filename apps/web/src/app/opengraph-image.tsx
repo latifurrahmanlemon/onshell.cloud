@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Onshell.cloud — Browser-based SSH, SFTP & RDP";
+export const alt = "Onshell.cloud — the best browser-based SSH client for teams";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -57,11 +57,11 @@ export default function OpengraphImage() {
               maxWidth: 980
             }}
           >
-            Secure remote access, straight from the browser.
+            The best browser-based SSH client for teams.
           </div>
           <div style={{ display: "flex", fontSize: 30, color: "#a6a8c0", maxWidth: 900 }}>
-            Audited SSH terminals, SFTP file manager, and RDP sessions — one secure tab, no client
-            to install.
+            Audited terminals, SFTP, and RDP from any browser tab. Encrypted vault, full audit
+            trail, free for one user.
           </div>
         </div>
 

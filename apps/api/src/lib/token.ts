@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export interface AccessTokenPayload {
   sub: string;
@@ -29,17 +29,46 @@ export function signAccessToken(payload: Omit<AccessTokenPayload, "exp">, secret
   return `${unsigned}.${signature}`;
 }
 
+/**
+ * Constant-time signature comparison. A plain `!==` leaks how many leading
+ * bytes of a forged signature were correct, which is enough to reconstruct a
+ * valid tag one byte at a time over many requests.
+ */
+function signatureMatches(expected: string, actual: string) {
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const actualBuffer = Buffer.from(actual, "utf8");
+  if (expectedBuffer.length !== actualBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
 export function verifyAccessToken(token: string, secret: string): AccessTokenPayload | undefined {
-  const [encodedHeader, encodedPayload, signature] = token.split(".");
+  const parts = token.split(".");
+  // Exactly three segments — a token with extra dots must not verify.
+  if (parts.length !== 3) return undefined;
+
+  const [encodedHeader, encodedPayload, signature] = parts;
   if (!encodedHeader || !encodedPayload || !signature) return undefined;
 
   const unsigned = `${encodedHeader}.${encodedPayload}`;
   const expected = createHmac("sha256", secret).update(unsigned).digest("base64url");
-  if (expected !== signature) return undefined;
+  if (!signatureMatches(expected, signature)) return undefined;
 
-  const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as AccessTokenPayload;
-  if (payload.exp < Math.floor(Date.now() / 1000)) return undefined;
-  return payload;
+  try {
+    const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString("utf8")) as {
+      alg?: unknown;
+    };
+    // Pin the algorithm so a token claiming `alg: none` can never be accepted
+    // if the verification path is ever refactored.
+    if (header.alg !== "HS256") return undefined;
+
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as AccessTokenPayload;
+    if (typeof payload.exp !== "number" || payload.exp < Math.floor(Date.now() / 1000)) return undefined;
+    if (typeof payload.sub !== "string" || payload.sub.length === 0) return undefined;
+    return payload;
+  } catch {
+    // Malformed base64 or JSON in a token whose HMAC somehow validated.
+    return undefined;
+  }
 }
 
 export function createRefreshToken() {

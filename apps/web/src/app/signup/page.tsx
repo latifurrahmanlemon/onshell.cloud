@@ -16,11 +16,12 @@ import {
   UserPlus
 } from "lucide-react";
 import { passwordPolicy, validatePassword } from "@onshell/shared";
+import { TurnstileWidget, useTurnstile } from "../../components/turnstile";
+import { apiBaseUrl } from "../../lib/site";
 import { OnshellMark } from "../brand";
 import { ThemeToggle } from "../theme";
 import "../auth.css";
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const RESEND_SECONDS = 30;
 
 type Mode = "signup" | "twofa";
@@ -83,6 +84,14 @@ function mapErrorCode(code?: string): string | undefined {
       return "Please wait before requesting another code.";
     case "google_oauth_not_configured":
       return "Google sign-up isn't configured yet.";
+    case "captcha_required":
+      return "Please complete the bot-protection challenge before continuing.";
+    case "captcha_failed":
+      return "The bot-protection challenge couldn't be verified. Please try it again.";
+    case "captcha_unavailable":
+      return "Bot protection is temporarily unavailable. Please try again shortly.";
+    case "rate_limited":
+      return "Too many attempts from this network. Please wait a moment and try again.";
     default:
       return undefined;
   }
@@ -98,8 +107,11 @@ function errorText(payload: any, fallback: string): string {
 
 export default function SignupPage() {
   const reduceMotion = useReducedMotion();
+  const turnstile = useTurnstile("signup");
 
   const [mode, setMode] = useState<Mode>("signup");
+  /** Referral attribution from a shared /signup?ref=CODE link. */
+  const [referralCode, setReferralCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [tone, setTone] = useState<Tone>("info");
   const [message, setMessage] = useState("");
@@ -124,7 +136,8 @@ export default function SignupPage() {
     email.length > 0 &&
     organizationName.trim().length >= 2 &&
     passwordValid &&
-    confirmPassword === password;
+    confirmPassword === password &&
+    turnstile.ready;
 
   function setStatus(nextTone: Tone, nextMessage: string) {
     setTone(nextTone);
@@ -137,6 +150,13 @@ export default function SignupPage() {
     const timer = setTimeout(() => setResendIn((seconds) => seconds - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendIn]);
+
+  // Pick up ?ref=CODE so referral credit survives the signup, without showing
+  // the code as an editable field.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) setReferralCode(ref.trim().toUpperCase().slice(0, 16));
+  }, []);
 
   async function submitRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -155,7 +175,14 @@ export default function SignupPage() {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, email, organizationName, password })
+        body: JSON.stringify({
+          name,
+          email,
+          organizationName,
+          password,
+          ...(referralCode ? { referralCode } : {}),
+          ...(turnstile.token ? { turnstileToken: turnstile.token } : {})
+        })
       });
       const payload = await response.json().catch(() => ({}));
 
@@ -178,6 +205,8 @@ export default function SignupPage() {
       }
 
       if (!response.ok) {
+        // Turnstile tokens are single-use, so a retry needs a fresh challenge.
+        turnstile.reset();
         setStatus("error", errorText(payload, "We couldn't create your account."));
         return;
       }
@@ -185,6 +214,7 @@ export default function SignupPage() {
       setStatus("success", "Account created. Redirecting to your console…");
       window.location.href = "/console";
     } catch {
+      turnstile.reset();
       setStatus("error", "Network error. Please check your connection and try again.");
     } finally {
       setBusy(false);
@@ -288,8 +318,8 @@ export default function SignupPage() {
 
   const headings: Record<Mode, { title: string; subtitle: string }> = {
     signup: {
-      title: "Create your workspace",
-      subtitle: "Start browser-based SSH, SFTP, and RDP access for your team."
+      title: "Create your free workspace",
+      subtitle: "Browser-based SSH, SFTP, and RDP access — free for one person, no card needed."
     },
     twofa: {
       title: "Two-factor verification",
@@ -430,10 +460,17 @@ export default function SignupPage() {
                   )}
                 </div>
 
+                <TurnstileWidget key={turnstile.widgetKey} {...turnstile.widgetProps} />
+
                 <button className="primary-button large full-width" type="submit" disabled={!canSubmit}>
                   {busy ? <span className="auth-spinner" aria-hidden="true" /> : <UserPlus size={17} />}
-                  {busy ? "Creating account…" : "Create account"}
+                  {busy ? "Creating account…" : "Create free account"}
                 </button>
+
+                <p className="auth-fineprint">
+                  Free forever for one person — no credit card required. Upgrade to Team or Business whenever your
+                  workspace grows.
+                </p>
               </form>
 
               <div className="auth-divider">

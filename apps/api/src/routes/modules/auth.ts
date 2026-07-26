@@ -1,9 +1,9 @@
-import { randomInt, randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { normalizeSlug, validatePassword } from "@onshell/shared";
 import type { User as PublicUser } from "@onshell/shared";
-import prismaPkg, { type Prisma } from "@prisma/client";
+import prismaPkg, { type AuthEventMethod, type AuthEventType, type Prisma } from "@prisma/client";
 const { AuthProvider, Role } = prismaPkg;
 import bcrypt from "bcryptjs";
 import { generateSecret, generateURI, verify } from "otplib";
@@ -12,28 +12,55 @@ import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail, isSmtpEnabled } from "../../lib/email.js";
 import { encryptSecret, decryptSecret } from "../../lib/encryption.js";
+import { clearLoginFailures, getLoginLock, recordLoginFailure } from "../../lib/login-throttle.js";
 import { prisma } from "../../lib/prisma.js";
 import { toPublicUser, type UserWithMembership } from "../../lib/prisma-mappers.js";
+import { ensureFreeSubscription, generateReferralCode, resolveReferrer } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { store } from "../../lib/store.js";
 import { createRefreshToken, hashToken, signAccessToken } from "../../lib/token.js";
+import {
+  readTurnstileToken,
+  turnstileFailureResponse,
+  verifyTurnstile,
+  type TurnstileForm
+} from "../../lib/turnstile.js";
 
 const EMAIL_OTP_TTL_MS = 10 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
 const CHALLENGE_RESEND_INTERVAL_MS = 30 * 1000;
 const MAX_CHALLENGE_ATTEMPTS = 5;
 
+/** Rate limits for the endpoints an attacker would hammer. */
+const authRateLimit = (max: number, timeWindow = "1 minute") => ({
+  config: { rateLimit: { max, timeWindow } }
+});
+
+/**
+ * Emails are compared case-insensitively everywhere else, so normalise on the
+ * way in. Without this, `Ada@x.com` and `ada@x.com` become two accounts and the
+ * unique index does not prevent the duplicate.
+ */
+const emailField = z
+  .string()
+  .email()
+  .transform((value) => value.trim().toLowerCase());
+
 const registerSchema = z.object({
-  name: z.string().min(2),
-  email: z.string().email(),
+  name: z.string().trim().min(2).max(120),
+  email: emailField,
   password: z.string().min(1),
-  organizationName: z.string().min(2).default("Onshell.cloud")
+  organizationName: z.string().trim().min(2).max(120).default("My workspace"),
+  /** Growth attribution from a `?ref=CODE` signup link. */
+  referralCode: z.string().trim().max(16).optional(),
+  turnstileToken: z.string().optional()
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: emailField,
   password: z.string().min(1),
-  totpCode: z.string().optional()
+  totpCode: z.string().optional(),
+  turnstileToken: z.string().optional()
 });
 
 const completeTwoFactorSchema = z.object({
@@ -55,11 +82,12 @@ const emailTwoFactorVerifySchema = z.object({
 });
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email()
+  email: emailField,
+  turnstileToken: z.string().optional()
 });
 
 const resetPasswordSchema = z.object({
-  email: z.string().email(),
+  email: emailField,
   otp: z.string().length(6),
   newPassword: z.string().min(1)
 });
@@ -98,6 +126,42 @@ export async function createAudit(input: {
   });
 }
 
+/**
+ * Records a sign-in lifecycle event for the admin login log.
+ *
+ * Sits alongside `createAudit` rather than replacing it: audit rows need an
+ * organization and an actor, which a failed login against an unknown email has
+ * neither of. Errors are swallowed so logging can never block authentication.
+ */
+async function recordAuthEvent(
+  request: FastifyRequest,
+  input: {
+    email: string;
+    userId?: string | null;
+    event: AuthEventType;
+    method: AuthEventMethod;
+    success: boolean;
+    reason?: string;
+  }
+) {
+  try {
+    await prisma.authEventLog.create({
+      data: {
+        email: input.email.slice(0, 190),
+        userId: input.userId ?? null,
+        event: input.event,
+        method: input.method,
+        success: input.success,
+        reason: input.reason ?? null,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"]?.slice(0, 500) ?? null
+      }
+    });
+  } catch (error) {
+    request.log.error(error, "Failed to write auth event log");
+  }
+}
+
 async function uniqueOrganizationSlug(name: string) {
   const base = normalizeSlug(name) || "workspace";
   let slug = base;
@@ -133,21 +197,19 @@ export async function issueTokens(reply: FastifyReply, config: RuntimeConfig, us
     }
   });
 
-  const secure = config.nodeEnv === "production";
-  reply.setCookie("access_token", accessToken, {
+  // Scoped to the registrable domain (".onshell.cloud") so onshell.cloud and
+  // api.onshell.cloud share one session. Both are the same site, so SameSite=Lax
+  // still blocks cross-site POSTs while allowing the console's XHR.
+  const cookieOptions = {
     httpOnly: true,
-    sameSite: "lax",
-    secure,
-    path: "/",
-    maxAge: 12 * 60 * 60
-  });
-  reply.setCookie("refresh_token", refreshToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure,
-    path: "/",
-    maxAge: 30 * 24 * 60 * 60
-  });
+    sameSite: "lax" as const,
+    secure: config.cookieSecure,
+    domain: config.cookieDomain,
+    path: "/"
+  };
+
+  reply.setCookie("access_token", accessToken, { ...cookieOptions, maxAge: 12 * 60 * 60 });
+  reply.setCookie("refresh_token", refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 });
 
   return {
     user,
@@ -156,13 +218,45 @@ export async function issueTokens(reply: FastifyReply, config: RuntimeConfig, us
   };
 }
 
+/** Cookie attributes must match on clear, or the browser keeps the old cookie. */
+export function clearAuthCookies(reply: FastifyReply, config: RuntimeConfig) {
+  const options = { path: "/", domain: config.cookieDomain };
+  reply.clearCookie("access_token", options);
+  reply.clearCookie("refresh_token", options);
+}
+
+/**
+ * Runs the Turnstile check for a form and, on failure, writes the response.
+ * Returns true when the caller should stop.
+ */
+async function turnstileBlocked(
+  form: TurnstileForm,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  config: RuntimeConfig
+) {
+  const verification = await verifyTurnstile({
+    form,
+    token: readTurnstileToken(request.body),
+    remoteIp: request.ip,
+    masterEncryptionKey: config.masterEncryptionKey,
+    logger: request.log
+  });
+
+  if (verification.ok) return false;
+
+  const failure = turnstileFailureResponse(verification);
+  reply.code(failure.status).send(failure.body);
+  return true;
+}
+
 function createTwoFactorChallenge(userId: string, method: "totp" | "email" = "totp") {
   const challengeId = `mfa_${randomUUID()}`;
-  store.pendingTwoFactorChallenges[challengeId] = {
+  store.pendingTwoFactorChallenges.set(challengeId, {
     userId,
     createdAt: new Date().toISOString(),
     method
-  };
+  });
 
   return challengeId;
 }
@@ -171,21 +265,21 @@ function generateEmailOtp() {
   return randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
-const pendingEmailTwoFactorSetups: Record<string, { otpHash: string; expiresAt: string }> = {};
-
 async function sendChallengeEmailOtp(
   app: FastifyInstance,
   config: RuntimeConfig,
   challengeId: string,
   recipient: string
 ) {
-  const challenge = store.pendingTwoFactorChallenges[challengeId];
+  const challenge = store.pendingTwoFactorChallenges.get(challengeId);
   if (!challenge) return false;
 
   const otp = generateEmailOtp();
   challenge.emailOtpHash = hashToken(otp);
   challenge.emailOtpExpiresAt = new Date(Date.now() + EMAIL_OTP_TTL_MS).toISOString();
   challenge.lastEmailSentAt = new Date().toISOString();
+  // Re-set so the TTL is refreshed alongside the mutated fields.
+  store.pendingTwoFactorChallenges.set(challengeId, challenge);
 
   return sendTransactionalEmail({
     masterEncryptionKey: config.masterEncryptionKey,
@@ -193,6 +287,7 @@ async function sendChallengeEmailOtp(
     subject: "Your Onshell.cloud sign-in code",
     text: `Your Onshell.cloud sign-in code is ${otp}. It expires in 10 minutes.`,
     html: `<p>Your Onshell.cloud sign-in code is <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
+    kind: "two_factor_login_code",
     logger: app.log
   });
 }
@@ -200,7 +295,43 @@ async function sendChallengeEmailOtp(
 function verifyEmailOtp(code: string, otpHash?: string, expiresAt?: string) {
   if (!otpHash || !expiresAt) return false;
   if (new Date(expiresAt).getTime() < Date.now()) return false;
-  return hashToken(code) === otpHash;
+  const candidate = Buffer.from(hashToken(code), "utf8");
+  const expected = Buffer.from(otpHash, "utf8");
+  if (candidate.length !== expected.length) return false;
+  return timingSafeEqual(candidate, expected);
+}
+
+/**
+ * Emails a one-time code used to confirm enabling or disabling email-based 2FA.
+ * Kept separate from the login challenge store so a pending login cannot be
+ * used to satisfy a settings change.
+ */
+async function sendEmailTwoFactorCode(
+  app: FastifyInstance,
+  config: RuntimeConfig,
+  userId: string,
+  recipient: string,
+  purpose: "enable" | "disable"
+) {
+  const otp = generateEmailOtp();
+  store.pendingEmailTwoFactorCodes.set(userId, {
+    otpHash: hashToken(otp),
+    expiresAt: new Date(Date.now() + EMAIL_OTP_TTL_MS).toISOString()
+  });
+
+  const action = purpose === "enable" ? "enable" : "turn off";
+  const sent = await sendTransactionalEmail({
+    masterEncryptionKey: config.masterEncryptionKey,
+    recipient,
+    subject: "Your Onshell.cloud verification code",
+    text: `Use code ${otp} to ${action} email two-factor authentication on Onshell.cloud. It expires in 10 minutes.`,
+    html: `<p>Use code <strong>${otp}</strong> to ${action} email two-factor authentication on Onshell.cloud. It expires in 10 minutes.</p>`,
+    kind: `two_factor_${purpose}_code`,
+    logger: app.log
+  });
+
+  if (!sent) store.pendingEmailTwoFactorCodes.delete(userId);
+  return sent;
 }
 
 async function getTwoFactorMethod(userId: string, twoFactorEnabled: boolean) {
@@ -227,10 +358,10 @@ async function verifyTotp(config: RuntimeConfig, userId: string, code: string) {
 
 function buildGoogleAuthUrl(config: RuntimeConfig, returnTo = "/console") {
   const state = `google_${randomUUID()}`;
-  store.googleOAuthStates[state] = {
+  store.googleOAuthStates.set(state, {
     createdAt: new Date().toISOString(),
     returnTo
-  };
+  });
 
   const params = new URLSearchParams({
     client_id: config.googleClientId,
@@ -272,7 +403,12 @@ async function getGoogleProfile(config: RuntimeConfig, code: string) {
   return (await profileResponse.json()) as GoogleProfile;
 }
 
-async function upsertGoogleUser(profile: GoogleProfile) {
+async function upsertGoogleUser(rawProfile: GoogleProfile) {
+  // Google returns mixed-case addresses; the User.email unique index is
+  // case-sensitive in MySQL utf8mb4_unicode_ci terms only for comparison, so
+  // normalise here to match the rest of the auth surface.
+  const profile: GoogleProfile = { ...rawProfile, email: rawProfile.email.trim().toLowerCase() };
+
   const existingAccount = await prisma.oAuthAccount.findUnique({
     where: {
       provider_providerAccountId: {
@@ -315,6 +451,7 @@ async function upsertGoogleUser(profile: GoogleProfile) {
 
   const organizationName = `${profile.email.split("@")[1] ?? "Google"} workspace`;
   const slug = await uniqueOrganizationSlug(organizationName);
+  const referralCode = await generateReferralCode();
 
   return prisma.$transaction(async (tx) => {
     const organization = await tx.organization.create({
@@ -329,6 +466,7 @@ async function upsertGoogleUser(profile: GoogleProfile) {
         email: profile.email,
         name: profile.name ?? profile.email.split("@")[0],
         passwordHash: null,
+        referralCode,
         emailVerifiedAt: profile.email_verified ? new Date() : undefined,
         oauthAccounts: {
           create: {
@@ -363,9 +501,11 @@ async function addAuthMethods(user: PublicUser, prismaUser: UserWithMembership) 
 }
 
 export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeConfig) {
-  app.post("/auth/register", async (request, reply) => {
+  app.post("/auth/register", authRateLimit(10), async (request, reply) => {
     try {
       const body = registerSchema.parse(request.body);
+      if (await turnstileBlocked("signup", request, reply, config)) return reply;
+
       const passwordCheck = validatePassword(body.password);
       if (!passwordCheck.valid) {
         return reply.code(400).send({ error: "password_policy_violation", errors: passwordCheck.errors });
@@ -376,6 +516,9 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
 
       const slug = await uniqueOrganizationSlug(body.organizationName);
       const passwordHash = await bcrypt.hash(body.password, 12);
+      const referredById = await resolveReferrer(body.referralCode);
+      const referralCode = await generateReferralCode();
+
       const prismaUser = await prisma.$transaction(async (tx) => {
         const organization = await tx.organization.create({
           data: {
@@ -389,6 +532,8 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
             name: body.name,
             email: body.email,
             passwordHash,
+            referralCode,
+            referredById,
             memberships: {
               create: {
                 organizationId: organization.id,
@@ -401,13 +546,17 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       });
 
       const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
+      // Start every new workspace on the Free tier so the freemium funnel and
+      // the console's usage/upgrade surfaces have a plan to read from.
+      await ensureFreeSubscription(user.organizationId);
       await createAudit({
         organizationId: user.organizationId,
         actorId: user.id,
         action: "auth.register",
         targetType: "user",
         targetId: user.id,
-        ipAddress: request.ip
+        ipAddress: request.ip,
+        metadata: { referred: Boolean(referredById) }
       });
 
       return reply.code(201).send(await issueTokens(reply, config, user));
@@ -416,18 +565,45 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/login", async (request, reply) => {
+  app.post("/auth/login", authRateLimit(20), async (request, reply) => {
     try {
       const body = loginSchema.parse(request.body);
+      if (await turnstileBlocked("login", request, reply, config)) return reply;
+
+      // Per-account lockout on top of the IP rate limit, so a distributed
+      // password-spray against one account still slows down.
+      const lockSeconds = getLoginLock(body.email, request.ip);
+      if (lockSeconds > 0) {
+        return reply.code(429).send({
+          error: "too_many_login_attempts",
+          message: `Too many failed attempts. Try again in ${lockSeconds}s.`,
+          retryAfterSeconds: lockSeconds
+        });
+      }
+
       const prismaUser = await prisma.user.findUnique({
         where: { email: body.email },
         include: { memberships: true }
       });
-      if (!prismaUser?.passwordHash) return reply.code(401).send({ error: "invalid_credentials" });
+      if (!prismaUser?.passwordHash) {
+        recordLoginFailure(body.email, request.ip);
+        // No audit row is possible here (unknown or password-less account), but
+        // the attempt is exactly what the login log exists to surface.
+        await recordAuthEvent(request, {
+          email: body.email,
+          userId: prismaUser?.id,
+          event: "LOGIN_FAILED",
+          method: "PASSWORD",
+          success: false,
+          reason: prismaUser ? "no_password_set" : "unknown_email"
+        });
+        return reply.code(401).send({ error: "invalid_credentials" });
+      }
 
       const passwordValid = await bcrypt.compare(body.password, prismaUser.passwordHash);
       const publicUser = toPublicUser(prismaUser);
       if (!passwordValid) {
+        recordLoginFailure(body.email, request.ip);
         await createAudit({
           organizationId: publicUser.organizationId,
           actorId: publicUser.id,
@@ -437,8 +613,18 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
           ipAddress: request.ip,
           metadata: { reason: "invalid_password" }
         });
+        await recordAuthEvent(request, {
+          email: publicUser.email,
+          userId: publicUser.id,
+          event: "LOGIN_FAILED",
+          method: "PASSWORD",
+          success: false,
+          reason: "invalid_password"
+        });
         return reply.code(401).send({ error: "invalid_credentials" });
       }
+
+      clearLoginFailures(body.email, request.ip);
 
       if (prismaUser.twoFactorEnabled) {
         const method = await getTwoFactorMethod(prismaUser.id, true);
@@ -464,6 +650,14 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         }
 
         if (!(await verifyTotp(config, prismaUser.id, body.totpCode))) {
+          await recordAuthEvent(request, {
+            email: publicUser.email,
+            userId: publicUser.id,
+            event: "LOGIN_FAILED",
+            method: "TWO_FACTOR",
+            success: false,
+            reason: "invalid_two_factor_code"
+          });
           return reply.code(401).send({ error: "invalid_two_factor_code" });
         }
       }
@@ -478,6 +672,13 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         ipAddress: request.ip,
         metadata: { twoFactorProvided: Boolean(body.totpCode) }
       });
+      await recordAuthEvent(request, {
+        email: user.email,
+        userId: user.id,
+        event: "LOGIN",
+        method: "PASSWORD",
+        success: true
+      });
 
       return issueTokens(reply, config, user);
     } catch (error) {
@@ -485,20 +686,21 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/2fa/complete", async (request, reply) => {
+  app.post("/auth/2fa/complete", authRateLimit(20), async (request, reply) => {
     try {
       const body = completeTwoFactorSchema.parse(request.body);
       const code = body.code ?? body.totpCode;
       if (!code) return reply.code(400).send({ error: "two_factor_code_required" });
 
-      const challenge = store.pendingTwoFactorChallenges[body.challengeId];
+      const challenge = store.pendingTwoFactorChallenges.get(body.challengeId);
       if (!challenge) return reply.code(404).send({ error: "two_factor_challenge_not_found" });
 
       challenge.attempts = (challenge.attempts ?? 0) + 1;
       if (challenge.attempts > MAX_CHALLENGE_ATTEMPTS) {
-        delete store.pendingTwoFactorChallenges[body.challengeId];
+        store.pendingTwoFactorChallenges.delete(body.challengeId);
         return reply.code(429).send({ error: "too_many_attempts" });
       }
+      store.pendingTwoFactorChallenges.set(body.challengeId, challenge);
 
       const prismaUser = await prisma.user.findUnique({
         where: { id: challenge.userId },
@@ -511,10 +713,18 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
           ? verifyEmailOtp(code, challenge.emailOtpHash, challenge.emailOtpExpiresAt)
           : await verifyTotp(config, prismaUser.id, code);
       if (!codeValid) {
+        await recordAuthEvent(request, {
+          email: prismaUser.email,
+          userId: prismaUser.id,
+          event: "LOGIN_FAILED",
+          method: "TWO_FACTOR",
+          success: false,
+          reason: "invalid_two_factor_code"
+        });
         return reply.code(401).send({ error: "invalid_two_factor_code" });
       }
 
-      delete store.pendingTwoFactorChallenges[body.challengeId];
+      store.pendingTwoFactorChallenges.delete(body.challengeId);
       const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
       await createAudit({
         organizationId: user.organizationId,
@@ -524,6 +734,14 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         targetId: user.id,
         ipAddress: request.ip
       });
+      await recordAuthEvent(request, {
+        email: user.email,
+        userId: user.id,
+        event: "TWO_FACTOR_COMPLETED",
+        method: "TWO_FACTOR",
+        success: true,
+        reason: challenge.method
+      });
 
       return issueTokens(reply, config, user);
     } catch (error) {
@@ -531,10 +749,10 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/2fa/challenge/resend", async (request, reply) => {
+  app.post("/auth/2fa/challenge/resend", authRateLimit(10), async (request, reply) => {
     try {
       const body = resendChallengeSchema.parse(request.body);
-      const challenge = store.pendingTwoFactorChallenges[body.challengeId];
+      const challenge = store.pendingTwoFactorChallenges.get(body.challengeId);
       if (!challenge) return reply.code(404).send({ error: "two_factor_challenge_not_found" });
       if (challenge.method !== "email") {
         return reply.code(400).send({ error: "challenge_does_not_use_email" });
@@ -571,7 +789,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       secret
     });
     const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
-    store.pendingTwoFactorSetups[user.id] = secret;
+    store.pendingTwoFactorSetups.set(user.id, secret);
 
     return {
       issuer: "Onshell.cloud",
@@ -588,7 +806,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const body = verifyTwoFactorSchema.parse(request.body);
-      const pendingSecret = store.pendingTwoFactorSetups[user.id];
+      const pendingSecret = store.pendingTwoFactorSetups.get(user.id);
       if (!pendingSecret) return reply.code(404).send({ error: "two_factor_setup_not_started" });
 
       const result = await verify({ secret: pendingSecret, token: body.totpCode });
@@ -616,7 +834,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         })
       ]);
 
-      delete store.pendingTwoFactorSetups[user.id];
+      store.pendingTwoFactorSetups.delete(user.id);
       await createAudit({
         organizationId: user.organizationId,
         actorId: user.id,
@@ -632,7 +850,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/2fa/email/enable", async (request, reply) => {
+  app.post("/auth/2fa/email/enable", authRateLimit(6), async (request, reply) => {
     try {
       const user = await getAuthenticatedUser(request, config);
       if (!user) return reply.code(401).send({ error: "unauthorized" });
@@ -644,24 +862,8 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         });
       }
 
-      const otp = generateEmailOtp();
-      pendingEmailTwoFactorSetups[user.id] = {
-        otpHash: hashToken(otp),
-        expiresAt: new Date(Date.now() + EMAIL_OTP_TTL_MS).toISOString()
-      };
-
-      const sent = await sendTransactionalEmail({
-        masterEncryptionKey: config.masterEncryptionKey,
-        recipient: user.email,
-        subject: "Your Onshell.cloud verification code",
-        text: `Your Onshell.cloud verification code is ${otp}. It expires in 10 minutes.`,
-        html: `<p>Your Onshell.cloud verification code is <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
-        logger: app.log
-      });
-      if (!sent) {
-        delete pendingEmailTwoFactorSetups[user.id];
-        return reply.code(502).send({ error: "email_delivery_failed" });
-      }
+      const sent = await sendEmailTwoFactorCode(app, config, user.id, user.email, "enable");
+      if (!sent) return reply.code(502).send({ error: "email_delivery_failed" });
 
       return { sent: true, expiresInSeconds: EMAIL_OTP_TTL_MS / 1000 };
     } catch (error) {
@@ -669,19 +871,54 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/2fa/email/verify", async (request, reply) => {
+  /**
+   * Sends the confirmation code needed to turn OFF email-based 2FA. Without
+   * this, a user on email 2FA could never disable it: /auth/2fa/disable expects
+   * a code, but the only issuing endpoint was the *enable* flow.
+   */
+  app.post("/auth/2fa/email/challenge", authRateLimit(6), async (request, reply) => {
+    try {
+      const user = await getAuthenticatedUser(request, config);
+      if (!user) return reply.code(401).send({ error: "unauthorized" });
+      if (!user.twoFactorEnabled) return reply.code(400).send({ error: "two_factor_not_enabled" });
+
+      const method = await getTwoFactorMethod(user.id, user.twoFactorEnabled);
+      if (method !== "email") {
+        return reply.code(400).send({
+          error: "two_factor_not_email",
+          message: "This account uses an authenticator app. Use a code from the app instead."
+        });
+      }
+
+      if (!(await isSmtpEnabled())) {
+        return reply.code(503).send({
+          error: "smtp_not_configured",
+          message: "Email delivery is not configured. Ask a platform admin to enable SMTP."
+        });
+      }
+
+      const sent = await sendEmailTwoFactorCode(app, config, user.id, user.email, "disable");
+      if (!sent) return reply.code(502).send({ error: "email_delivery_failed" });
+
+      return { sent: true, expiresInSeconds: EMAIL_OTP_TTL_MS / 1000 };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.post("/auth/2fa/email/verify", authRateLimit(20), async (request, reply) => {
     try {
       const user = await getAuthenticatedUser(request, config);
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const body = emailTwoFactorVerifySchema.parse(request.body);
-      const pending = pendingEmailTwoFactorSetups[user.id];
+      const pending = store.pendingEmailTwoFactorCodes.get(user.id);
       if (!pending) return reply.code(404).send({ error: "two_factor_email_setup_not_started" });
       if (!verifyEmailOtp(body.code, pending.otpHash, pending.expiresAt)) {
         return reply.code(401).send({ error: "invalid_two_factor_code" });
       }
 
-      delete pendingEmailTwoFactorSetups[user.id];
+      store.pendingEmailTwoFactorCodes.delete(user.id);
       await prisma.$transaction([
         prisma.twoFactorSecret.deleteMany({ where: { userId: user.id } }),
         prisma.user.update({
@@ -705,26 +942,23 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/2fa/disable", async (request, reply) => {
+  app.post("/auth/2fa/disable", authRateLimit(20), async (request, reply) => {
     try {
       const user = await getAuthenticatedUser(request, config);
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const body = verifyTwoFactorSchema.parse(request.body);
       const method = await getTwoFactorMethod(user.id, user.twoFactorEnabled);
+      const pendingCode = store.pendingEmailTwoFactorCodes.get(user.id);
       const codeValid =
         method === "email"
-          ? verifyEmailOtp(
-              body.totpCode,
-              pendingEmailTwoFactorSetups[user.id]?.otpHash,
-              pendingEmailTwoFactorSetups[user.id]?.expiresAt
-            )
+          ? verifyEmailOtp(body.totpCode, pendingCode?.otpHash, pendingCode?.expiresAt)
           : await verifyTotp(config, user.id, body.totpCode);
       if (!codeValid) {
         return reply.code(401).send({ error: "invalid_two_factor_code" });
       }
 
-      delete pendingEmailTwoFactorSetups[user.id];
+      store.pendingEmailTwoFactorCodes.delete(user.id);
 
       await prisma.$transaction([
         prisma.twoFactorSecret.deleteMany({ where: { userId: user.id } }),
@@ -781,13 +1015,16 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
   app.get("/auth/google/callback", async (request, reply) => {
     try {
       const query = googleCallbackSchema.parse(request.query);
-      const state = store.googleOAuthStates[query.state];
+      const state = store.googleOAuthStates.get(query.state);
       if (!state) return reply.redirect(`${config.publicBaseUrl}/login?error=invalid-google-state`);
 
-      delete store.googleOAuthStates[query.state];
+      // Single-use: consume the state before the token exchange so a replayed
+      // callback cannot mint a second session.
+      store.googleOAuthStates.delete(query.state);
       const googleProfile = await getGoogleProfile(config, query.code);
       const prismaUser = await upsertGoogleUser(googleProfile);
       const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
+      await ensureFreeSubscription(user.organizationId);
 
       await createAudit({
         organizationId: user.organizationId,
@@ -797,6 +1034,15 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         targetId: user.id,
         ipAddress: request.ip,
         metadata: { emailVerified: Boolean(googleProfile.email_verified) }
+      });
+      await recordAuthEvent(request, {
+        email: user.email,
+        userId: user.id,
+        event: "LOGIN",
+        method: "GOOGLE",
+        success: true,
+        // A 2FA challenge still stands between this and a usable session.
+        reason: prismaUser.twoFactorEnabled ? "awaiting_two_factor" : undefined
       });
 
       if (prismaUser.twoFactorEnabled) {
@@ -838,8 +1084,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         }
       });
       if (!tokenRow || tokenRow.revokedAt || tokenRow.expiresAt.getTime() <= Date.now()) {
-        reply.clearCookie("access_token", { path: "/" });
-        reply.clearCookie("refresh_token", { path: "/" });
+        clearAuthCookies(reply, config);
         return reply.code(401).send({ error: "invalid_refresh_token" });
       }
 
@@ -855,9 +1100,11 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/password/forgot", async (request, reply) => {
+  app.post("/auth/password/forgot", authRateLimit(6), async (request, reply) => {
     try {
       const body = forgotPasswordSchema.parse(request.body);
+      if (await turnstileBlocked("passwordReset", request, reply, config)) return reply;
+
       const genericResponse = {
         ok: true,
         message: "If that email is registered, a reset code has been sent."
@@ -886,6 +1133,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         subject: "Your Onshell.cloud password reset code",
         text: `Your Onshell.cloud password reset code is ${otp}. It expires in 15 minutes. If you did not request this, you can ignore this email.`,
         html: `<p>Your Onshell.cloud password reset code is <strong>${otp}</strong>. It expires in 15 minutes.</p><p>If you did not request this, you can ignore this email.</p>`,
+        kind: "password_reset",
         logger: app.log
       });
       if (!sent) {
@@ -898,7 +1146,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/password/reset", async (request, reply) => {
+  app.post("/auth/password/reset", authRateLimit(10), async (request, reply) => {
     try {
       const body = resetPasswordSchema.parse(request.body);
       const passwordCheck = validatePassword(body.newPassword);
@@ -956,7 +1204,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     }
   });
 
-  app.post("/auth/password/change", async (request, reply) => {
+  app.post("/auth/password/change", authRateLimit(10), async (request, reply) => {
     try {
       const user = await getAuthenticatedUser(request, config);
       if (!user) return reply.code(401).send({ error: "unauthorized" });
@@ -1025,14 +1273,31 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
   app.post("/auth/logout", async (request, reply) => {
     const refreshToken = request.cookies?.refresh_token;
     if (refreshToken) {
+      const tokenHash = hashToken(refreshToken);
+      // Resolved before revoking so the logout can be attributed to an account
+      // without trusting an access token that may already have expired.
+      const tokenRow = await prisma.refreshToken.findFirst({
+        where: { tokenHash },
+        select: { user: { select: { id: true, email: true } } }
+      });
+
       await prisma.refreshToken.updateMany({
-        where: { tokenHash: hashToken(refreshToken), revokedAt: null },
+        where: { tokenHash, revokedAt: null },
         data: { revokedAt: new Date() }
       });
+
+      if (tokenRow) {
+        await recordAuthEvent(request, {
+          email: tokenRow.user.email,
+          userId: tokenRow.user.id,
+          event: "LOGOUT",
+          method: "SESSION",
+          success: true
+        });
+      }
     }
 
-    reply.clearCookie("access_token", { path: "/" });
-    reply.clearCookie("refresh_token", { path: "/" });
+    clearAuthCookies(reply, config);
     return { ok: true };
   });
 }

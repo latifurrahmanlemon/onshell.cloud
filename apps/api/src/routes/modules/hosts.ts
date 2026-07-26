@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { canManageHosts } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
+import { accessibleHostFilter, hasImplicitHostAccess } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import {
   environmentToPrisma,
@@ -52,9 +53,10 @@ export async function registerHostRoutes(app: FastifyInstance) {
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const query = hostQuerySchema.parse(request.query);
+      const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const hosts = await prisma.host.findMany({
         where: {
-          organizationId: user.organizationId,
+          ...accessFilter,
           ...(query.type && { type: hostTypeToPrisma[query.type] }),
           ...(query.environment && { environment: environmentToPrisma[query.environment] }),
           ...(query.group && { group: { name: query.group } }),
@@ -113,6 +115,21 @@ export async function registerHostRoutes(app: FastifyInstance) {
         include: hostInclude
       });
 
+      // A devops member may add hosts but is still governed by grants, so give
+      // them one for what they just created — otherwise the new host vanishes
+      // from their own list the moment it is saved.
+      if (!hasImplicitHostAccess(actor.role)) {
+        await prisma.hostAccessGrant.create({
+          data: {
+            organizationId: actor.organizationId,
+            userId: actor.id,
+            hostId: host.id,
+            scopeKey: host.id,
+            grantedById: actor.id
+          }
+        });
+      }
+
       await recordAudit({
         organizationId: actor.organizationId,
         actorId: actor.id,
@@ -139,8 +156,11 @@ export async function registerHostRoutes(app: FastifyInstance) {
 
       const { hostId } = z.object({ hostId: z.string() }).parse(request.params);
       const body = hostPatchSchema.parse(request.body);
+      // 404 rather than 403: a member without a grant should not learn that the
+      // host exists at all.
+      const accessFilter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
       const existing = await prisma.host.findFirst({
-        where: { id: hostId, organizationId: actor.organizationId }
+        where: { ...accessFilter, id: hostId }
       });
       if (!existing) {
         return reply.code(404).send({ error: "host_not_found" });
@@ -194,8 +214,9 @@ export async function registerHostRoutes(app: FastifyInstance) {
       }
 
       const { hostId } = z.object({ hostId: z.string() }).parse(request.params);
+      const accessFilter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
       const existing = await prisma.host.findFirst({
-        where: { id: hostId, organizationId: actor.organizationId }
+        where: { ...accessFilter, id: hostId }
       });
       if (!existing) {
         return reply.code(404).send({ error: "host_not_found" });

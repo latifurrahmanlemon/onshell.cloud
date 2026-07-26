@@ -5,11 +5,12 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { Check, Circle, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck } from "lucide-react";
 import { passwordPolicy, validatePassword } from "@onshell/shared";
+import { TurnstileWidget, useTurnstile } from "../../components/turnstile";
+import { apiBaseUrl } from "../../lib/site";
 import { OnshellMark } from "../brand";
 import { ThemeToggle } from "../theme";
 import "../auth.css";
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const RESEND_SECONDS = 30;
 
 type Mode = "login" | "twofa" | "forgot-request" | "forgot-reset";
@@ -74,6 +75,16 @@ function mapErrorCode(code?: string): string | undefined {
       return "Google sign-in isn't configured yet.";
     case "resend_rate_limited":
       return "Please wait before requesting another code.";
+    case "too_many_login_attempts":
+      return "Too many failed sign-in attempts. Please wait a moment before trying again.";
+    case "rate_limited":
+      return "Too many requests from this network. Please wait a moment and try again.";
+    case "captcha_required":
+      return "Please complete the bot-protection challenge before continuing.";
+    case "captcha_failed":
+      return "The bot-protection challenge couldn't be verified. Please try it again.";
+    case "captcha_unavailable":
+      return "Bot protection is temporarily unavailable. Please try again shortly.";
     default:
       return undefined;
   }
@@ -102,6 +113,10 @@ function mapGoogleRedirectError(code: string): string {
 
 export default function LoginPage() {
   const reduceMotion = useReducedMotion();
+  // Separate challenges: sign-in and password-reset are independently
+  // toggleable in the admin panel, and each token is single-use.
+  const loginTurnstile = useTurnstile("login");
+  const resetTurnstile = useTurnstile("passwordReset");
 
   const [mode, setMode] = useState<Mode>("login");
   const [busy, setBusy] = useState(false);
@@ -168,7 +183,11 @@ export default function LoginPage() {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({
+          email,
+          password,
+          ...(loginTurnstile.token ? { turnstileToken: loginTurnstile.token } : {})
+        })
       });
       const payload = await response.json().catch(() => ({}));
 
@@ -190,6 +209,8 @@ export default function LoginPage() {
       }
 
       if (!response.ok) {
+        // Tokens are single-use; a rejected attempt needs a fresh challenge.
+        loginTurnstile.reset();
         setStatus("error", errorText(payload, "We couldn't sign you in."));
         return;
       }
@@ -197,6 +218,7 @@ export default function LoginPage() {
       setStatus("success", "Signed in. Redirecting to your console…");
       window.location.href = "/console";
     } catch {
+      loginTurnstile.reset();
       setStatus("error", "Network error. Please check your connection and try again.");
     } finally {
       setBusy(false);
@@ -299,8 +321,12 @@ export default function LoginPage() {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({
+          email,
+          ...(resetTurnstile.token ? { turnstileToken: resetTurnstile.token } : {})
+        })
       });
+      resetTurnstile.reset();
       // The endpoint always returns a generic response, so advance regardless.
       setResetOtp("");
       setNewPassword("");
@@ -461,7 +487,13 @@ export default function LoginPage() {
                   </button>
                 </div>
 
-                <button className="primary-button large full-width" type="submit" disabled={busy || !email || !password}>
+                <TurnstileWidget key={loginTurnstile.widgetKey} {...loginTurnstile.widgetProps} />
+
+                <button
+                  className="primary-button large full-width"
+                  type="submit"
+                  disabled={busy || !email || !password || !loginTurnstile.ready}
+                >
                   {busy ? <span className="auth-spinner" aria-hidden="true" /> : <LogIn size={17} />}
                   {busy ? "Signing in…" : "Sign in"}
                 </button>
@@ -554,7 +586,13 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <button className="primary-button large full-width" type="submit" disabled={busy || !email}>
+              <TurnstileWidget key={resetTurnstile.widgetKey} {...resetTurnstile.widgetProps} />
+
+              <button
+                className="primary-button large full-width"
+                type="submit"
+                disabled={busy || !email || !resetTurnstile.ready}
+              >
                 {busy ? <span className="auth-spinner" aria-hidden="true" /> : <Mail size={17} />}
                 {busy ? "Sending…" : "Send reset code"}
               </button>

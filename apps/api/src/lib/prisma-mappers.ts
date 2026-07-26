@@ -121,6 +121,7 @@ export function toPublicUser(user: UserWithMembership): User {
     emailVerifiedAt: user.emailVerifiedAt?.toISOString(),
     authMethods: [],
     twoFactorEnabled: user.twoFactorEnabled,
+    referralCode: user.referralCode ?? null,
     createdAt: user.createdAt.toISOString()
   };
 }

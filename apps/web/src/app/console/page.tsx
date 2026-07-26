@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Bot,
   Braces,
   CheckCircle2,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   ClipboardPaste,
   Columns2,
   Copy,
+  CreditCard,
   File,
   Folder,
   FolderLock,
@@ -42,6 +44,8 @@ import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Sn
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, gatewayBaseUrl, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
+import { AssistantView } from "./assistant";
+import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
 import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
 import type { TerminalStatus } from "./terminal";
 import { OnshellMark } from "../brand";
@@ -52,7 +56,18 @@ const SIDEBAR_COLLAPSE_KEY = "onshell-sidebar-collapsed";
 
 const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
 
-type ViewKey = "overview" | "hosts" | "terminal" | "sftp" | "vault" | "snippets" | "team" | "audit" | "settings";
+type ViewKey =
+  | "overview"
+  | "hosts"
+  | "terminal"
+  | "sftp"
+  | "vault"
+  | "snippets"
+  | "assistant"
+  | "team"
+  | "billing"
+  | "audit"
+  | "settings";
 
 interface TerminalTab {
   key: string;
@@ -81,7 +96,9 @@ const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "sftp", label: "Files", icon: FolderLock },
   { key: "vault", label: "Vault", icon: KeyRound },
   { key: "snippets", label: "Snippets", icon: Braces },
+  { key: "assistant", label: "AI Assistant", icon: Bot },
   { key: "team", label: "Team", icon: Users },
+  { key: "billing", label: "Plan & billing", icon: CreditCard },
   { key: "audit", label: "Audit", icon: ScrollText },
   { key: "settings", label: "Settings", icon: Settings }
 ];
@@ -107,6 +124,8 @@ function sessionErrorMessage(error: unknown): string {
       return "You've reached your plan's limit of concurrent sessions. Close an open session or upgrade your plan.";
     case "forbidden":
       return "Your role can't open sessions. Ask an admin for access.";
+    case "host_access_denied":
+      return "You haven't been granted access to this host. Ask an owner or admin to add it to your host access.";
     default:
       return error instanceof Error && error.message ? error.message : "Could not open the session.";
   }
@@ -131,6 +150,8 @@ export default function ConsolePage() {
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** Plan, usage, and referral data for the billing panel and upgrade nudge. */
+  const growth = useGrowth();
 
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -697,6 +718,7 @@ export default function ConsolePage() {
                   </div>
                 </div>
                 {loadError && <div className="error-banner">{loadError}</div>}
+                <UpgradeBanner growth={growth} onOpenBilling={() => setView("billing")} />
                 <div className="metrics-grid">
                   <Metric color="green" hint="registered" icon={Server} label="Hosts" value={hosts.length} />
                   <Metric color="cyan" hint="live now" icon={SquareTerminal} label="Active Sessions" value={activeSessions.length} />
@@ -896,12 +918,37 @@ export default function ConsolePage() {
             {view === "team" && (
               <TeamView
                 currentUser={identity.user}
+                hosts={hosts}
                 invitations={invitations}
                 loading={loading}
                 members={members}
                 notify={notify}
                 onChanged={() => void refreshAll()}
               />
+            )}
+
+            {view === "assistant" && (
+              <>
+                <div className="topbar">
+                  <div>
+                    <h1>AI Assistant</h1>
+                    <p>Ask about Onshell.cloud, or about the Linux and SSH work in front of you.</p>
+                  </div>
+                </div>
+                <AssistantView onUpgrade={() => setView("billing")} />
+              </>
+            )}
+
+            {view === "billing" && (
+              <>
+                <div className="topbar">
+                  <div>
+                    <h1>Plan &amp; billing</h1>
+                    <p>What your workspace is using, and what the next tier unlocks.</p>
+                  </div>
+                </div>
+                <PlanUsagePanel growth={growth} />
+              </>
             )}
 
             {view === "audit" && <AuditView loading={loading} logs={audit} memberNames={memberNames} />}
