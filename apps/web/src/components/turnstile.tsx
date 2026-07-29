@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSiteConfig, type TurnstileFormKey } from "../lib/site-config";
+import { invalidateSiteConfig, useSiteConfig, type TurnstileFormKey } from "../lib/site-config";
 
 const SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const SCRIPT_ID = "cf-turnstile-script";
@@ -182,9 +182,31 @@ export function useTurnstile(form: TurnstileFormKey) {
     setResetKey((key) => key + 1);
   }, []);
 
+  /**
+   * Recovers from a server-side captcha rejection.
+   *
+   * A `captcha_required` for a form that rendered no widget means this client's
+   * site config is stale or failed to load — it believes bot protection is off
+   * while the API requires it. Dropping the cached config and remounting the
+   * widget makes the challenge appear, so the retry can actually succeed instead
+   * of failing identically forever. Returns true when the error was captcha
+   * related, so callers can tailor the message.
+   */
+  const recoverFromServerRejection = useCallback(
+    (errorCode: string | undefined) => {
+      if (errorCode !== "captcha_required" && errorCode !== "captcha_unavailable") return false;
+      invalidateSiteConfig();
+      setToken(undefined);
+      setResetKey((key) => key + 1);
+      return true;
+    },
+    []
+  );
+
   return {
     token,
     required,
+    recoverFromServerRejection,
     /** False while a required challenge is still unsolved. */
     ready: !required || Boolean(token),
     reset,

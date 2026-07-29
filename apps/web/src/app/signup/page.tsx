@@ -205,6 +205,15 @@ export default function SignupPage() {
       }
 
       if (!response.ok) {
+        // A challenge this page never displayed means the site config it loaded
+        // is stale or failed — refetch it so the widget appears on the retry.
+        if (turnstile.recoverFromServerRejection(payload.error)) {
+          setStatus(
+            "error",
+            "Bot protection needs to load before you can sign up. Give it a moment and try again."
+          );
+          return;
+        }
         // Turnstile tokens are single-use, so a retry needs a fresh challenge.
         turnstile.reset();
         setStatus("error", errorText(payload, "We couldn't create your account."));

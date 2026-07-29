@@ -61,17 +61,26 @@ export async function loadSiteConfig(): Promise<SiteConfig> {
   if (cached) return cached;
   if (inFlight) return inFlight;
 
-  inFlight = fetch(`${apiBaseUrl}/public/site-config`, { credentials: "omit" })
-    .then((response) => (response.ok ? response.json() : FALLBACK))
+  inFlight = fetch(`${apiBaseUrl}/public/site-config`, {
+    credentials: "omit",
+    // The response decides whether a Turnstile widget is rendered; a stale copy
+    // means no challenge on screen while the API requires one.
+    cache: "no-store"
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`site_config_${response.status}`);
+      return response.json();
+    })
     .then((payload: SiteConfig) => {
       cached = payload;
       return payload;
     })
     .catch(() => {
       // API unreachable: fall back to "no challenge configured" so the form is
-      // still usable. The server re-verifies regardless, so a client that skips
-      // the widget when it should not simply gets rejected on submit.
-      cached = FALLBACK;
+      // still usable, but do NOT cache the failure. The server may well be
+      // requiring a challenge, in which case the submit is rejected and the form
+      // calls invalidateSiteConfig() to try again — which only works if a retry
+      // is actually possible.
       return FALLBACK;
     })
     .finally(() => {
@@ -79,6 +88,18 @@ export async function loadSiteConfig(): Promise<SiteConfig> {
     });
 
   return inFlight;
+}
+
+/**
+ * Drops the cached config so the next read re-fetches.
+ *
+ * Called when the API rejects a submit for a challenge the browser never showed:
+ * that means this client is working from a stale or failed config, and the only
+ * way out is to ask again.
+ */
+export function invalidateSiteConfig() {
+  cached = undefined;
+  inFlight = undefined;
 }
 
 /** Reads the site config, returning `undefined` until the first load resolves. */

@@ -92,8 +92,15 @@ export async function registerPublicRoutes(app: FastifyInstance, config: Runtime
    * Served from the API rather than baked into the bundle so an admin can rotate
    * the Turnstile site key or toggle the AI assistant without a rebuild.
    */
-  app.get("/public/site-config", async () => {
+  app.get("/public/site-config", async (_request, reply) => {
     const [turnstile, ai] = await Promise.all([getPublicTurnstileConfig(), getPublicAiConfig()]);
+
+    // Never cache this. It decides whether the browser renders a Turnstile
+    // widget, so a stale copy served by a CDN or the browser's heuristic cache
+    // means a visitor is shown no challenge while the API has started requiring
+    // one — every login then fails with captcha_required and nothing on screen
+    // to solve. The payload is tiny and read once per page load.
+    reply.header("cache-control", "no-store");
 
     return {
       site: {

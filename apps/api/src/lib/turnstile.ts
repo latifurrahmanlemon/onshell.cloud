@@ -6,6 +6,16 @@ import { prisma } from "./prisma.js";
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const VERIFY_TIMEOUT_MS = 5_000;
 
+/**
+ * Escape hatch for an operator who has locked themselves out.
+ *
+ * Protecting the login form means a Turnstile misconfiguration blocks every
+ * account — including the platform admin who would otherwise go and switch it
+ * off. Set TURNSTILE_DISABLED=true and restart to get back in without reaching
+ * for the database.
+ */
+const disabledByEnv = process.env.TURNSTILE_DISABLED === "true";
+
 /** The public forms Turnstile can guard, each independently toggleable. */
 export type TurnstileForm = "signup" | "login" | "passwordReset" | "contact" | "checkout" | "newsletter";
 
@@ -35,10 +45,25 @@ export async function getTurnstileSetting() {
   return prisma.turnstileSetting.findUnique({ where: { id: "global" } });
 }
 
+/**
+ * Whether Turnstile can actually challenge a browser right now.
+ *
+ * The site key is part of the test on purpose: without one the widget cannot be
+ * rendered, so "enabled" would mean every protected form rejects every visitor
+ * with a challenge they were never shown. This is the single source of truth for
+ * both the public config below and enforcement in `verifyTurnstile` — when the
+ * two disagreed, a half-configured row locked everyone out of a login form that
+ * displayed no captcha.
+ */
+export function isTurnstileUsable(setting: TurnstileSetting | null) {
+  if (disabledByEnv) return false;
+  return Boolean(setting?.enabled && setting.siteKey && setting.encryptedSecretKey);
+}
+
 /** The browser-safe subset: enough to render the widget, no secret. */
 export async function getPublicTurnstileConfig() {
   const setting = await getTurnstileSetting();
-  const enabled = Boolean(setting?.enabled && setting.siteKey && setting.encryptedSecretKey);
+  const enabled = isTurnstileUsable(setting);
 
   return {
     enabled,
@@ -83,17 +108,30 @@ export async function verifyTurnstile(input: {
   logger?: { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void };
 }): Promise<TurnstileVerification> {
   const setting = await getTurnstileSetting();
-  if (!setting?.enabled) return { ok: true };
+  if (!setting || !isTurnstileUsable(setting)) {
+    // Switched on but not actually usable. Enforcing here would reject every
+    // visitor over a widget the browser was never able to render — an outage
+    // dressed up as bot protection, and on the login form a lockout with no way
+    // back in. Let the request through and make the misconfiguration loud.
+    if (setting?.enabled && !disabledByEnv) {
+      input.logger?.error(
+        { form: input.form, hasSiteKey: Boolean(setting.siteKey), hasSecret: Boolean(setting.encryptedSecretKey) },
+        "Turnstile is enabled but incomplete (missing site key or secret); not enforcing"
+      );
+    }
+    return { ok: true };
+  }
 
   const protectsForm = setting[formToColumn[input.form]] === true;
   if (!protectsForm) return { ok: true };
 
   const secret = resolveSecret(setting, input.masterEncryptionKey);
   if (!secret) {
-    // Enabled but misconfigured. Refuse rather than silently accept.
+    // The row has a secret but it would not decrypt — usually a rotated
+    // MASTER_ENCRYPTION_KEY. Refuse rather than silently accept.
     input.logger?.error(
       { form: input.form },
-      "Turnstile is enabled but no secret key is stored; rejecting the request"
+      "Turnstile secret key could not be decrypted; rejecting the request"
     );
     return { ok: false, error: "captcha_unavailable" };
   }

@@ -209,6 +209,16 @@ export default function LoginPage() {
       }
 
       if (!response.ok) {
+        // A challenge this page never displayed means the site config it loaded
+        // is stale or failed — refetch it so the widget appears on the retry,
+        // instead of looping on the same rejection with nothing to solve.
+        if (loginTurnstile.recoverFromServerRejection(payload.error)) {
+          setStatus(
+            "error",
+            "Bot protection needs to load before you can sign in. Give it a moment and try again."
+          );
+          return;
+        }
         // Tokens are single-use; a rejected attempt needs a fresh challenge.
         loginTurnstile.reset();
         setStatus("error", errorText(payload, "We couldn't sign you in."));
