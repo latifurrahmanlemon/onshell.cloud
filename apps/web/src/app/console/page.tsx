@@ -30,6 +30,7 @@ import {
   PanelRight,
   PanelRightClose,
   Play,
+  Plus,
   RefreshCw,
   ScrollText,
   Server,
@@ -43,6 +44,7 @@ import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Sn
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
+import { FilesView } from "./files";
 import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
 import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
 import type { TerminalStatus } from "./terminal";
@@ -73,12 +75,6 @@ interface TerminalTab {
   hostName: string;
   websocketUrl: string;
   status: TerminalStatus;
-}
-
-interface SftpEntry {
-  name: string;
-  directory: boolean;
-  size?: number;
 }
 
 interface Toast {
@@ -168,16 +164,8 @@ export default function ConsolePage() {
   const [terminalLayout, setTerminalLayout] = useState<"single" | "split">("single");
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [snippetsPanelOpen, setSnippetsPanelOpen] = useState(false);
-
-  const [sftp, setSftp] = useState<{
-    /** Onshell session id — the gateway's own id stays server-side. */
-    sessionId: string;
-    hostName: string;
-    path: string;
-    entries: SftpEntry[];
-    busy: boolean;
-    error: string | null;
-  } | null>(null);
+  const [tabPickerOpen, setTabPickerOpen] = useState(false);
+  const tabPickerRef = useRef<HTMLDivElement>(null);
 
   const notify = useCallback((message: string, kind: "success" | "error" = "success") => {
     setToast({ message, kind });
@@ -204,6 +192,25 @@ export default function ConsolePage() {
     const requested = requestedView(window.location.search);
     if (requested) setView(requested);
   }, []);
+
+  // Dismiss the new-tab host picker on an outside click or Escape.
+  useEffect(() => {
+    if (!tabPickerOpen) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (tabPickerRef.current && !tabPickerRef.current.contains(event.target as Node)) setTabPickerOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setTabPickerOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [tabPickerOpen]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((current) => {
@@ -324,55 +331,19 @@ export default function ConsolePage() {
     };
   }, [refreshAll]);
 
-  /* SFTP */
-  const browseSftp = useCallback(async (sessionId: string, path: string, hostName: string) => {
-    setSftp((current) => (current ? { ...current, busy: true, error: null } : current));
-    try {
-      const payload: unknown = await consoleApi.listFiles(sessionId, path);
-      const rawEntries: unknown[] = Array.isArray(payload)
-        ? payload
-        : payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).entries)
-          ? ((payload as Record<string, unknown>).entries as unknown[])
-          : [];
-      const entries: SftpEntry[] = rawEntries.map((raw) => {
-        const item = raw as Record<string, unknown>;
-        return {
-          name: String(item.name ?? item.filename ?? "?"),
-          directory:
-            item.directory === true || item.isDirectory === true || item.type === "directory" || item.type === "d",
-          size: typeof item.size === "number" ? item.size : undefined
-        };
-      });
-      entries.sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
-      // Prefer the path the gateway resolved: for the local host "." lands in the
-      // account's home directory, and the breadcrumb should say where that is.
-      const resolvedPath =
-        payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).path === "string"
-          ? ((payload as Record<string, unknown>).path as string)
-          : path;
-      setSftp({ sessionId, hostName, path: resolvedPath, entries, busy: false, error: null });
-    } catch (error) {
-      setSftp((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error:
-                error instanceof ApiError && error.status === 409
-                  ? "This file session has closed. Open it again from the host list."
-                  : "Could not read that directory."
-            }
-          : current
-      );
-    }
-  }, []);
-
   /* sessions */
+  /**
+   * Opens a session and shows it.
+   *
+   * Returns whether it succeeded, and takes `quiet` so a caller opening several
+   * at once (a workspace) can summarise the outcome instead of firing one toast
+   * per host, of which the user would only ever see the last.
+   */
   const launchSession = useCallback(
-    async (host: Host, protocol: "ssh" | "sftp" | "rdp") => {
+    async (host: Host, protocol: "ssh" | "sftp" | "rdp", options?: { quiet?: boolean }): Promise<boolean> => {
       if (protocol === "rdp") {
         notify("RDP viewer ships in the next phase — the gateway bridge is ready, the browser client is not.", "error");
-        return;
+        return false;
       }
       try {
         const { session, websocketUrl } = await consoleApi.openSession({ hostId: host.id, protocol });
@@ -388,17 +359,65 @@ export default function ConsolePage() {
           setTabs((current) => [...current, tab]);
           setActiveTab(tab.key);
           setView("terminal");
-        } else {
-          setSftp({ sessionId: session.id, hostName: host.name, path: ".", entries: [], busy: true, error: null });
-          setView("sftp");
-          await browseSftp(session.id, ".", host.name);
         }
         void consoleApi.sessions().then(setSessions).catch(() => undefined);
+        return true;
       } catch (error) {
-        notify(sessionErrorMessage(error), "error");
+        if (!options?.quiet) notify(sessionErrorMessage(error), "error");
+        return false;
       }
     },
-    [notify, browseSftp]
+    [notify]
+  );
+
+  /**
+   * Opens an SFTP session for the Files view, which manages two of them itself.
+   * Throws on failure so the pane can render the reason in place.
+   */
+  const launchFileSession = useCallback(async (host: Host) => {
+    const { session } = await consoleApi.openSession({ hostId: host.id, protocol: "sftp" });
+    void consoleApi.sessions().then(setSessions).catch(() => undefined);
+    return session.id;
+  }, []);
+
+  /**
+   * Opens a terminal on every host in a saved workspace.
+   *
+   * Sequential on purpose: the plan's concurrent-session limit is checked per
+   * request, so firing them in parallel would fail the tail of the list with an
+   * error that looks random. Failures are collected and reported once.
+   */
+  const openWorkspaceTerminals = useCallback(
+    async (hostIds: string[]) => {
+      const targets = hostIds
+        .map((hostId) => hosts.find((host) => host.id === hostId))
+        .filter((host): host is Host => host !== undefined && host.type === "ssh");
+
+      if (targets.length === 0) {
+        notify("None of this workspace's hosts can open a terminal.", "error");
+        return;
+      }
+
+      setView("terminal");
+      let opened = 0;
+      const failed: string[] = [];
+      for (const host of targets) {
+        // eslint-disable-next-line no-await-in-loop -- deliberate: see above.
+        const ok = await launchSession(host, "ssh", { quiet: true });
+        if (ok) opened += 1;
+        else failed.push(host.name);
+      }
+
+      if (failed.length === 0) {
+        notify(`Opened ${opened} terminal${opened === 1 ? "" : "s"}.`);
+      } else {
+        notify(
+          `Opened ${opened} of ${targets.length}. Could not open: ${failed.join(", ")}.`,
+          opened === 0 ? "error" : "success"
+        );
+      }
+    },
+    [hosts, launchSession, notify]
   );
 
   const closeTab = useCallback((tab: TerminalTab) => {
@@ -530,6 +549,8 @@ export default function ConsolePage() {
   }, [members, identity]);
 
   const activeSessions = useMemo(() => sessions.filter((session) => session.status === "active"), [sessions]);
+  /** Terminal-capable hosts, for the new-tab picker and the Files launcher. */
+  const sshHosts = useMemo(() => hosts.filter((host) => host.type === "ssh"), [hosts]);
 
   if (!identity) {
     return (
@@ -817,102 +838,14 @@ export default function ConsolePage() {
                 onCredentialsChanged={() => void consoleApi.credentials().then(setCredentials)}
                 onDelete={deleteHost}
                 onLaunch={launchSession}
+                onOpenWorkspace={(hostIds) => void openWorkspaceTerminals(hostIds)}
                 onRefresh={() => void consoleApi.hosts().then(setHosts).catch(() => notify("Refresh failed.", "error"))}
                 role={role}
               />
             )}
 
             {view === "sftp" && (
-              <section className="panel">
-                <div className="panel-header tight">
-                  <div>
-                    <h2>Files</h2>
-                    <p>SFTP browser{sftp ? ` — ${sftp.hostName}` : ""}. Upload/download ship in the next phase.</p>
-                  </div>
-                </div>
-                {!sftp ? (
-                  <div className="terminal-empty">
-                    <FolderLock size={26} />
-                    <strong>No SFTP session</strong>
-                    <span>Open one from an SSH host.</span>
-                    <div className="inline-form" style={{ justifyContent: "center" }}>
-                      {hosts
-                        .filter((host) => host.type === "ssh")
-                        .slice(0, 4)
-                        .map((host) => (
-                          <button
-                            className="secondary-button"
-                            key={host.id}
-                            onClick={() => launchSession(host, "sftp")}
-                            type="button"
-                          >
-                            <FolderLock size={14} />
-                            {host.name}
-                          </button>
-                        ))}
-                      {hosts.filter((host) => host.type === "ssh").length === 0 && (
-                        <button className="primary-button" onClick={() => setView("hosts")} type="button">
-                          Add an SSH host first
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="sftp-path">
-                      <Folder size={14} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{sftp.path}</span>
-                      {sftp.busy && <Loader2 className="spin" size={14} />}
-                    </div>
-                    {sftp.error && <div className="error-banner">{sftp.error}</div>}
-                    <div>
-                      {sftp.path !== "." && sftp.path !== "/" && (
-                        <button
-                          className="sftp-row is-dir"
-                          onClick={() =>
-                            browseSftp(
-                              sftp.sessionId,
-                              sftp.path.split("/").slice(0, -1).join("/") || ".",
-                              sftp.hostName
-                            )
-                          }
-                          type="button"
-                        >
-                          <Folder size={15} />
-                          <strong>..</strong>
-                          <span />
-                          <span />
-                        </button>
-                      )}
-                      {sftp.entries.map((entry) => (
-                        <button
-                          className={cx("sftp-row", entry.directory && "is-dir")}
-                          disabled={!entry.directory}
-                          key={entry.name}
-                          onClick={() =>
-                            entry.directory
-                              ? browseSftp(
-                                  sftp.sessionId,
-                                  sftp.path === "." ? entry.name : `${sftp.path}/${entry.name}`,
-                                  sftp.hostName
-                                )
-                              : undefined
-                          }
-                          type="button"
-                        >
-                          {entry.directory ? <Folder size={15} /> : <File size={15} />}
-                          <strong>{entry.name}</strong>
-                          <span>{entry.directory ? "directory" : formatBytes(entry.size)}</span>
-                          <span />
-                        </button>
-                      ))}
-                      {!sftp.busy && sftp.entries.length === 0 && !sftp.error && (
-                        <EmptyState icon={<Folder size={20} />} title="Empty directory" />
-                      )}
-                    </div>
-                  </>
-                )}
-              </section>
+              <FilesView hosts={hosts} notify={notify} onLaunchFileSession={launchFileSession} />
             )}
 
             {view === "vault" && (
@@ -1073,6 +1006,46 @@ export default function ConsolePage() {
                     </button>
                   </div>
                 ))}
+
+                {/* Opening a second session otherwise meant leaving the terminal
+                    for the hosts list and coming back. */}
+                <div className="terminal-tab-add" ref={tabPickerRef}>
+                  <button
+                    aria-expanded={tabPickerOpen}
+                    aria-haspopup="menu"
+                    aria-label="Open a session on another host"
+                    className="terminal-tab-add-btn"
+                    onClick={() => setTabPickerOpen((open) => !open)}
+                    title="Open another host"
+                    type="button"
+                  >
+                    <Plus size={14} />
+                  </button>
+
+                  {tabPickerOpen && (
+                    <div className="terminal-tab-menu" role="menu">
+                      <p className="terminal-tab-menu-head">Open a terminal on</p>
+                      {sshHosts.length === 0 && (
+                        <p className="terminal-tab-menu-empty">No SSH hosts yet.</p>
+                      )}
+                      {sshHosts.map((host) => (
+                        <button
+                          key={host.id}
+                          onClick={() => {
+                            setTabPickerOpen(false);
+                            void launchSession(host, "ssh");
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Server size={14} />
+                          <span className="terminal-tab-menu-name">{host.name}</span>
+                          <small>{host.address}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="terminal-body">
                 <div

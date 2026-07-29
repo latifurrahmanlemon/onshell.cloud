@@ -1,0 +1,736 @@
+/*
+ * Dual-pane SFTP file manager. Every rule is prefixed `.fm-` so the component
+ * is self-contained and cannot collide with console.css or globals.css; only
+ * the shared button/panel classes and the theme tokens are borrowed.
+ */
+
+.fm-root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fm-clipboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 5px 6px 5px 11px;
+  border: 1px solid var(--accent-weak-border);
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.fm-clipboard svg {
+  flex-shrink: 0;
+}
+
+.fm-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+}
+
+/* ---------------------------------------------------------------- one pane */
+
+.fm-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.fm-pane.is-live {
+  border-color: var(--border-strong);
+}
+
+.fm-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.fm-pane-label {
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fm-host-select {
+  min-width: 0;
+  max-width: 190px;
+  height: 32px;
+  flex: 1;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.fm-host-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fm-pane-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------- empty pane */
+
+.fm-pane-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 220px;
+  flex: 1;
+  padding: 28px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.fm-pane-empty svg {
+  color: var(--soft);
+}
+
+.fm-pane-empty strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.fm-pane-empty-error {
+  color: var(--rose);
+}
+
+/* ----------------------------------------------------------- path controls */
+
+.fm-pathbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 10px 6px;
+}
+
+.fm-path-input {
+  min-width: 0;
+  height: 34px;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+}
+
+.fm-path-input[aria-invalid="true"] {
+  border-color: color-mix(in srgb, var(--rose) 55%, transparent);
+}
+
+.fm-path-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fm-go {
+  height: 34px;
+  flex-shrink: 0;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+.fm-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px 8px;
+}
+
+/* Deep paths scroll sideways rather than pushing the pane wider. */
+.fm-crumb-track {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  white-space: nowrap;
+}
+
+.fm-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.fm-crumb svg {
+  flex-shrink: 0;
+  color: var(--soft);
+}
+
+.fm-crumb-link {
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-text);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.fm-crumb-link:hover:not(:disabled) {
+  background: var(--accent-weak);
+}
+
+.fm-crumb-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fm-crumb-link:disabled {
+  color: var(--text);
+  cursor: default;
+  font-weight: 700;
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------- toolbar */
+
+.fm-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.fm-tool {
+  height: 32px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.fm-selection-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.fm-error,
+.fm-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.fm-error {
+  border: 1px solid color-mix(in srgb, var(--rose) 40%, transparent);
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+  color: var(--rose);
+}
+
+.fm-error svg,
+.fm-progress svg {
+  flex-shrink: 0;
+}
+
+.fm-progress {
+  border: 1px solid var(--accent-weak-border);
+  background: var(--accent-weak);
+  color: var(--accent-text);
+}
+
+/* ----------------------------------------------------------------- listing */
+
+.fm-list-head,
+.fm-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 82px 76px;
+  align-items: center;
+  gap: 6px;
+}
+
+.fm-list-head {
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--soft);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  min-height: 34px;
+}
+
+.fm-list {
+  /* Fixed height with internal scroll keeps both panes reachable — including
+     when they stack on a phone, where a full-length list would bury pane two. */
+  max-height: clamp(240px, calc(100vh - 430px), 720px);
+  min-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.fm-row {
+  padding: 0 10px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  transition: background-color 0.15s ease;
+}
+
+.fm-row:hover {
+  background: var(--surface-2);
+}
+
+.fm-row.is-selected {
+  background: var(--accent-weak);
+}
+
+.fm-check-cell {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+.fm-check-cell input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.fm-check-cell input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.fm-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  min-height: 38px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.fm-row-main svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.fm-row-main .fm-icon-dir {
+  color: var(--cyan);
+}
+
+.fm-row-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.fm-row-main:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.fm-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-col-size,
+.fm-col-time {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-empty-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px 16px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.fm-empty-row svg {
+  color: var(--soft);
+}
+
+/* ---------------------------------------------------------------- overlays */
+
+.fm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(5, 7, 5, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.fm-dialog {
+  width: min(100%, 440px);
+  max-height: min(86vh, 620px);
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.fm-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 10px;
+}
+
+.fm-dialog-head h3 {
+  margin: 0;
+  font-size: 15.5px;
+}
+
+.fm-dialog-head p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.fm-dialog-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+
+.fm-field {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.fm-field input {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font-weight: 400;
+}
+
+.fm-field input[aria-invalid="true"] {
+  border-color: color-mix(in srgb, var(--rose) 55%, transparent);
+}
+
+.fm-dialog-problem {
+  margin: 0;
+  color: var(--rose);
+  font-size: 12.5px;
+}
+
+.fm-dialog-list {
+  display: grid;
+  gap: 4px;
+  max-height: 190px;
+  margin: 0;
+  padding: 10px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.fm-dialog-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fm-dialog-list svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.fm-dialog-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-dialog-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  color: var(--amber);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.fm-dialog-warning svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.fm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ editor */
+
+.fm-editor {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 920px);
+  height: min(86vh, 780px);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.fm-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.fm-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fm-editor-title svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.fm-editor-title strong {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.fm-editor-title code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-editor-dirty {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fm-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fm-editor-area {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  border: 0;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: none;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.fm-editor-area:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.fm-editor-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 9px;
+  flex: 1;
+  padding: 30px 24px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.fm-editor-state svg {
+  color: var(--soft);
+}
+
+.fm-editor-state strong {
+  color: var(--text);
+  font-size: 14.5px;
+}
+
+.fm-editor-state span {
+  max-width: 46ch;
+  line-height: 1.5;
+}
+
+.fm-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--soft);
+  font-size: 11.5px;
+}
+
+/* -------------------------------------------------------------- responsive */
+
+@media (max-width: 900px) {
+  .fm-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Stacked panes each get a shorter list so the second one is not a scroll
+     away, and the toolbars stay above the fold of the pane being used. */
+  .fm-list {
+    max-height: min(46vh, 340px);
+    min-height: 140px;
+  }
+}
+
+@media (max-width: 640px) {
+  .fm-panes {
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .fm-pane-head {
+    flex-wrap: wrap;
+  }
+
+  .fm-host-select {
+    max-width: none;
+    flex: 1 1 140px;
+  }
+
+  .fm-pane-status {
+    order: 5;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .fm-tool {
+    flex: 1 1 auto;
+  }
+
+  .fm-selection-count {
+    width: 100%;
+    margin-left: 0;
+    text-align: center;
+  }
+
+  .fm-list-head,
+  .fm-row {
+    grid-template-columns: 34px minmax(0, 1fr) 72px;
+  }
+
+  .fm-col-time {
+    display: none;
+  }
+
+  .fm-editor {
+    height: 92vh;
+    width: 100%;
+  }
+
+  .fm-editor-title code {
+    display: none;
+  }
+}

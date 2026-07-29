@@ -15,7 +15,7 @@ import {
 } from "../../lib/ai.js";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
-import { sendSmtpTestEmail } from "../../lib/email.js";
+import { describeSmtpFailure, sendSmtpTestEmail } from "../../lib/email.js";
 import { prisma } from "../../lib/prisma.js";
 import { toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
@@ -768,11 +768,36 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const smtp = await prisma.smtpSetting.findUnique({ where: { id: "global" } });
       if (!smtp) return reply.code(404).send({ error: "smtp_settings_not_found" });
 
-      const result = await sendSmtpTestEmail({
-        smtp,
-        masterEncryptionKey: config.masterEncryptionKey,
-        recipient: body.recipient
-      });
+      let result: Awaited<ReturnType<typeof sendSmtpTestEmail>>;
+      try {
+        result = await sendSmtpTestEmail({
+          smtp,
+          masterEncryptionKey: config.masterEncryptionKey,
+          recipient: body.recipient
+        });
+      } catch (sendError) {
+        // A refused or misconfigured mail server is not an internal error, and
+        // this button's whole purpose is to say what went wrong — falling through
+        // to handleRouteError would answer a diagnostic with "internal_error".
+        const failure = describeSmtpFailure(sendError);
+        request.log.error({ err: sendError, recipient: body.recipient }, "SMTP test send failed");
+
+        await createAudit({
+          organizationId: actor.organizationId,
+          actorId: actor.id,
+          action: "admin.smtp.test.failed",
+          targetType: "smtp_settings",
+          ipAddress: request.ip,
+          metadata: { recipient: body.recipient, code: failure.code ?? null, responseCode: failure.responseCode ?? null }
+        });
+
+        return reply.code(failure.kind === "config" ? 400 : 502).send({
+          error: "smtp_test_failed",
+          message: failure.detail ? `${failure.message} (${failure.detail})` : failure.message,
+          code: failure.code,
+          responseCode: failure.responseCode
+        });
+      }
 
       await createAudit({
         organizationId: actor.organizationId,

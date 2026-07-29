@@ -85,21 +85,27 @@ export async function ensureFreeSubscription(organizationId: string) {
   return subscription.id;
 }
 
-/** Display name of the built-in host. Also what the console labels it. */
-export const LOCAL_HOST_NAME = "This computer";
+/**
+ * Display name of the built-in host.
+ *
+ * Deliberately names the server, not "this computer": the earlier wording read as
+ * the visitor's own machine, which is the opposite of what this host is.
+ */
+export const LOCAL_HOST_NAME = "Onshell server (local shell)";
 
 /**
- * Gives an organization its built-in local host — a terminal and file browser
- * on the machine the gateway runs on.
+ * Gives an organization a shell on the machine the gateway runs on.
  *
- * The point is a workspace that works the moment you sign in: no key to
- * generate, no credential to attach, nothing to configure. The address is
- * recorded as 127.0.0.1 for display only; a local session never opens a socket,
- * it spawns a shell in the gateway process (see the gateway's local transport).
+ * NOT the visitor's computer — the gateway's own host. On a shared deployment
+ * that is a shell on your server for every account that signs up, so this is
+ * gated behind LOCAL_SHELL_ENABLED, which defaults to off and is only sensible
+ * for a single-tenant or self-hosted install.
  *
- * Idempotent, so it is safe to call on every signup and as a lazy backfill for
- * organizations created before the feature existed. A no-op when
- * LOCAL_SHELL_ENABLED is off.
+ * The address is recorded as 127.0.0.1 for display only; a local session never
+ * opens a socket, it spawns a shell in the gateway process (see the gateway's
+ * local transport).
+ *
+ * Idempotent, so it is safe to call on every signup and as a lazy backfill.
  */
 export async function ensureLocalHost(organizationId: string) {
   if (!config.localShellEnabled) return undefined;
@@ -120,7 +126,8 @@ export async function ensureLocalHost(organizationId: string) {
       environment: "DEVELOPMENT",
       isLocal: true,
       health: "online",
-      notes: "Built-in shell and file browser on the machine Onshell runs on. No credential required."
+      notes:
+        "Shell and file browser on the machine Onshell itself runs on — not your own computer. No credential required."
     },
     select: { id: true }
   });

@@ -142,7 +142,9 @@ module.exports = {
         // than defaulted: a hardcoded fallback would be the same on every
         // deployment, which is no better than no secret at all.
         GATEWAY_SHARED_SECRET: env.GATEWAY_SHARED_SECRET || "",
-        LOCAL_SHELL_ENABLED: env.LOCAL_SHELL_ENABLED || "true",
+        // Off unless explicitly set: this is a shell on THIS server, not on the
+        // visitor's computer. See .env.example before enabling.
+        LOCAL_SHELL_ENABLED: env.LOCAL_SHELL_ENABLED || "false",
         // Lockout escape hatch only — see .env.example. Bot protection itself is
         // configured from /admin.
         TURNSTILE_DISABLED: env.TURNSTILE_DISABLED || "false",

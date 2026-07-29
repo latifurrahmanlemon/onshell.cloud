@@ -296,6 +296,49 @@ export interface GrowthOverview {
   referral: { code: string | null; url: string; signups: number };
 }
 
+/* ------------------------------------------------------------------ files */
+
+/** One entry in a remote directory listing. */
+export interface RemoteFileEntry {
+  name: string;
+  type: "file" | "directory" | "other";
+  size: number;
+  /** Unix seconds. 0 when the entry could not be stat'ed. */
+  modifiedAt: number;
+}
+
+export interface RemoteDirectory {
+  /** The path the server resolved — "." becomes an absolute path. */
+  path: string;
+  entries: RemoteFileEntry[];
+}
+
+/** Largest file the editor will open. Bigger files must be transferred, not edited. */
+export const MAX_EDITABLE_FILE_BYTES = 1024 * 1024;
+
+export interface RemoteFileContent {
+  path: string;
+  size: number;
+  /** UTF-8 text. Absent when `binary` is true. */
+  content?: string;
+  /** True when the bytes are not valid UTF-8, so the editor must refuse. */
+  binary: boolean;
+  /** True when the file exceeded MAX_EDITABLE_FILE_BYTES and was not read. */
+  tooLarge: boolean;
+}
+
+/* ------------------------------------------------------------- workspaces */
+
+/** A saved set of hosts that can be opened as terminals in one action. */
+export interface HostWorkspace {
+  id: string;
+  name: string;
+  description?: string | null;
+  hostIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const consoleApi = {
   me: () => request<CurrentIdentity>("/auth/me"),
   logout: () => request<{ ok?: boolean }>("/auth/logout", { method: "POST" }),
@@ -417,6 +460,48 @@ export const consoleApi = {
   aiDeleteThread: (id: string) => request<unknown>(`/ai/threads/${id}`, { method: "DELETE" }),
   aiSend: (body: { threadId?: string; message: string }) =>
     request<AiSendResult>("/ai/messages", { method: "POST", body: JSON.stringify(body) }),
+
+  /* ---- files (all session-scoped, all via the API so host access is re-checked) ---- */
+  readFile: (sessionId: string, path: string) =>
+    request<RemoteFileContent>(`/sessions/${sessionId}/files/content?path=${encodeURIComponent(path)}`),
+  writeFile: (sessionId: string, path: string, content: string) =>
+    request<{ ok: true; size: number }>(`/sessions/${sessionId}/files/content`, {
+      method: "PUT",
+      body: JSON.stringify({ path, content })
+    }),
+  makeDirectory: (sessionId: string, path: string) =>
+    request<{ ok: true; path: string }>(`/sessions/${sessionId}/files/mkdir`, {
+      method: "POST",
+      body: JSON.stringify({ path })
+    }),
+  renamePath: (sessionId: string, from: string, to: string) =>
+    request<{ ok: true; path: string }>(`/sessions/${sessionId}/files/rename`, {
+      method: "POST",
+      body: JSON.stringify({ from, to })
+    }),
+  deletePath: (sessionId: string, path: string, recursive = false) =>
+    request<{ ok: true }>(
+      `/sessions/${sessionId}/files?path=${encodeURIComponent(path)}&recursive=${recursive ? "true" : "false"}`,
+      { method: "DELETE" }
+    ),
+  /**
+   * Copies a file or directory from one open session to another — the paste half
+   * of the dual-pane browser. Both sessions live in the same gateway process, so
+   * the bytes never round-trip through the browser.
+   */
+  copyBetweenSessions: (body: { fromSessionId: string; fromPath: string; toSessionId: string; toPath: string }) =>
+    request<{ ok: true; bytes: number; files: number }>(`/sessions/${body.fromSessionId}/files/copy`, {
+      method: "POST",
+      body: JSON.stringify({ path: body.fromPath, toSessionId: body.toSessionId, toPath: body.toPath })
+    }),
+
+  /* ---- host workspaces ---- */
+  workspaces: async () => unwrapList<HostWorkspace>(await request("/host-workspaces"), "workspaces"),
+  createWorkspace: (body: { name: string; description?: string; hostIds: string[] }) =>
+    request<HostWorkspace>("/host-workspaces", { method: "POST", body: JSON.stringify(body) }),
+  updateWorkspace: (id: string, body: { name?: string; description?: string | null; hostIds?: string[] }) =>
+    request<HostWorkspace>(`/host-workspaces/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteWorkspace: (id: string) => request<unknown>(`/host-workspaces/${id}`, { method: "DELETE" }),
 
   growth: () => request<GrowthOverview>("/me/growth"),
   startCheckout: (body: { planCode: string; billingInterval: BillingInterval }) =>

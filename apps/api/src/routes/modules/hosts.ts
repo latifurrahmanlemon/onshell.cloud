@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { loadConfig } from "@onshell/config";
 import { canManageHosts } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
@@ -39,6 +40,8 @@ const hostQuerySchema = z.object({
 
 const hostInclude = { tags: true, group: true } as const;
 
+const config = loadConfig("api");
+
 async function resolveGroupId(organizationId: string, name: string) {
   const existing = await prisma.hostGroup.findFirst({ where: { organizationId, name } });
   if (existing) return existing.id;
@@ -54,13 +57,17 @@ export async function registerHostRoutes(app: FastifyInstance) {
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const query = hostQuerySchema.parse(request.query);
-      // Backfill the built-in local host for workspaces created before it
-      // existed. Idempotent and cheap: one indexed lookup on the hot path.
+      // Creates the gateway-local host on a single-tenant install, and is a no-op
+      // when LOCAL_SHELL_ENABLED is off (the default).
       await ensureLocalHost(user.organizationId);
       const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const hosts = await prisma.host.findMany({
         where: {
           ...accessFilter,
+          // Rows created while the flag was on stay in the database but drop out
+          // of the console once it is off, so turning the feature off actually
+          // removes it from view instead of leaving a host that only errors.
+          ...(config.localShellEnabled ? {} : { isLocal: false }),
           ...(query.type && { type: hostTypeToPrisma[query.type] }),
           ...(query.environment && { environment: environmentToPrisma[query.environment] }),
           ...(query.group && { group: { name: query.group } }),

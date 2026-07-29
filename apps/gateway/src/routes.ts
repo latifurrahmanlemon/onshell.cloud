@@ -3,18 +3,33 @@
  * =====================
  *
  * REST (called by the API service, never by browsers):
- *   - GET  /health                          liveness probe (never requires auth)
- *   - POST /sessions                        open a session (body: openSessionSchema below)
- *   - GET  /sessions                        list gateway sessions
- *   - GET  /sessions/:sessionId             inspect one gateway session
- *   - POST /sessions/:sessionId/close       terminate a gateway session
- *   - GET  /sessions/:sessionId/sftp/list   list a directory over SFTP (?path=/)
+ *   - GET    /health                          liveness probe (never requires auth)
+ *   - POST   /sessions                        open a session (body: openSessionSchema below)
+ *   - GET    /sessions                        list gateway sessions
+ *   - GET    /sessions/:sessionId             inspect one gateway session
+ *   - POST   /sessions/:sessionId/close       terminate a gateway session
+ *   File operations on an open sftp session (both transports, see below):
+ *   - GET    /sessions/:sessionId/sftp/list   list a directory (?path=.)
+ *   - GET    /sessions/:sessionId/sftp/read   read a text file (?path=)
+ *   - PUT    /sessions/:sessionId/sftp/write  write a text file ({path, content})
+ *   - POST   /sessions/:sessionId/sftp/mkdir  create one directory ({path})
+ *   - POST   /sessions/:sessionId/sftp/rename rename or move ({from, to})
+ *   - DELETE /sessions/:sessionId/sftp/remove delete (?path=&recursive=true|false)
+ *   - POST   /sessions/:sessionId/sftp/copy   copy into another open session
+ *                                             ({path, toSessionId, toPath})
+ *   Mutations answer `{ ok: true, ... }`; reads answer the payload directly.
+ *   Failures answer `{ error: "<code>", message }` — `path_not_found`,
+ *   `permission_denied`, `path_exists`, `file_too_large`, `recursive_required`,
+ *   `path_escapes_session_root`, … — with a status the API forwards for 4xx.
  *   When the GATEWAY_SHARED_SECRET environment variable is set, every REST
  *   endpoint except /health requires `Authorization: Bearer <secret>`.
  *
  *   POST /sessions accepts `transport: "local"`, which serves the shell and the
- *   directory listing from this machine instead of dialling out over SSH — the
- *   built-in host every workspace gets. See protocols/local.ts.
+ *   file operations from this machine instead of dialling out over SSH — the
+ *   built-in host every workspace gets. See protocols/local.ts. Every file
+ *   operation above works on either transport, and copy works between them in
+ *   both directions: the two sessions share this process, so the bytes are piped
+ *   from one session straight into the other rather than through the API.
  *
  * WebSocket /ws/ssh/:sessionId (browser terminal, e.g. xterm.js):
  *   server -> client:
@@ -31,18 +46,31 @@
  *   Opaque bidirectional relay of the Guacamole protocol between the browser
  *   client (guacamole-common-js) and guacd. Frames pass through untouched.
  */
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { z } from "zod";
 import {
   closeLocalShell,
-  listLocalDirectory,
+  createLocalTransport,
   openLocalFileSession,
   openLocalSession,
   openLocalShell
 } from "./protocols/local.js";
 import { openRdpSession } from "./protocols/rdp.js";
-import { listSftpDirectory, openSftpSession } from "./protocols/sftp.js";
+import {
+  FileOperationError,
+  MAX_TEXT_FILE_BYTES,
+  copyPath,
+  createSftpTransport,
+  listDirectory,
+  makeDirectory,
+  openSftpSession,
+  readTextFile,
+  removePath,
+  renamePath,
+  writeTextFile,
+  type FileTransport
+} from "./protocols/sftp.js";
 import { createGuacdTunnel } from "./protocols/rdp-connections.js";
 import { closeSshClient, openShell } from "./protocols/ssh-connections.js";
 import { openSshSession } from "./protocols/ssh.js";
@@ -80,6 +108,82 @@ const sharedSecret = process.env.GATEWAY_SHARED_SECRET;
 function isRestAuthorized(request: FastifyRequest) {
   if (!sharedSecret) return true;
   return request.headers.authorization === `Bearer ${sharedSecret}`;
+}
+
+const sessionParamsSchema = z.object({ sessionId: z.string() });
+
+/** Long enough for any real path; short enough that nothing here allocates wildly. */
+const pathSchema = z.string().min(1).max(4_096);
+
+/** "." is the session's own start directory on both transports. */
+const listQuerySchema = z.object({ path: z.string().max(4_096).default(".") });
+const readQuerySchema = z.object({ path: pathSchema });
+const writeBodySchema = z.object({ path: pathSchema, content: z.string() });
+const mkdirBodySchema = z.object({ path: pathSchema });
+const renameBodySchema = z.object({ from: pathSchema, to: pathSchema });
+const copyBodySchema = z.object({ path: pathSchema, toSessionId: z.string(), toPath: pathSchema });
+const removeQuerySchema = z.object({
+  path: pathSchema,
+  // Not z.coerce.boolean(): that turns the string "false" into true.
+  recursive: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true")
+});
+
+/**
+ * Opens the file transport for a session — the one place the local/remote branch
+ * is made, so every file route below is written once against `FileTransport`.
+ */
+function openFileTransport(session: GatewaySession): Promise<FileTransport> {
+  if (!isLocalSession(session)) return createSftpTransport(session.id);
+  const startPath = typeof session.metadata?.startPath === "string" ? session.metadata.startPath : undefined;
+  return Promise.resolve(createLocalTransport(startPath));
+}
+
+function replyFileError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
+  if (error instanceof FileOperationError) {
+    return reply.code(error.status).send({ error: error.code, message: error.message });
+  }
+  if (error instanceof z.ZodError) {
+    return reply.code(400).send({ error: "validation_failed", issues: error.issues });
+  }
+
+  request.log.error(error);
+  return reply.code(500).send({ error: "file_operation_failed" });
+}
+
+/**
+ * Runs one file operation for a session.
+ *
+ * Every single-session file route goes through here: looking the session up,
+ * picking the transport, releasing its channel, and naming the failure have to
+ * happen identically on all of them.
+ */
+async function withFileTransport(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  sessionId: string,
+  run: (transport: FileTransport) => Promise<unknown>
+) {
+  const session = getGatewaySession(sessionId);
+  if (!session || session.protocol !== "sftp") {
+    return reply.code(404).send({ error: "sftp_session_not_found" });
+  }
+
+  let transport: FileTransport;
+  try {
+    transport = await openFileTransport(session);
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(502).send({ error: "sftp_session_unavailable" });
+  }
+
+  try {
+    return await run(transport);
+  } finally {
+    transport.close();
+  }
 }
 
 export async function registerGatewayRoutes(app: FastifyInstance, config: RuntimeConfig) {
@@ -154,29 +258,139 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
     return session;
   });
 
+  // Returns the resolved absolute path alongside the entries, so the console's
+  // breadcrumb shows where "." actually landed on either transport.
   app.get("/sessions/:sessionId/sftp/list", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
     try {
+      const { sessionId } = sessionParamsSchema.parse(request.params);
+      const query = listQuerySchema.parse(request.query);
+      return await withFileTransport(request, reply, sessionId, (transport) => listDirectory(transport, query.path));
+    } catch (error) {
+      return replyFileError(request, reply, error);
+    }
+  });
+
+  app.get("/sessions/:sessionId/sftp/read", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    try {
+      const { sessionId } = sessionParamsSchema.parse(request.params);
+      const query = readQuerySchema.parse(request.query);
+      return await withFileTransport(request, reply, sessionId, (transport) => readTextFile(transport, query.path));
+    } catch (error) {
+      return replyFileError(request, reply, error);
+    }
+  });
+
+  app.put(
+    "/sessions/:sessionId/sftp/write",
+    // A file right at the 1 MiB editor ceiling does not fit in Fastify's default
+    // 1 MiB body limit once it is JSON-escaped, so this route gets its own.
+    { bodyLimit: 2 * MAX_TEXT_FILE_BYTES },
+    async (request, reply) => {
       if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
-      const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
-      const query = z.object({ path: z.string().default("/") }).parse(request.query);
-      const session = getGatewaySession(sessionId);
-      if (!session || session.protocol !== "sftp") {
+      try {
+        const { sessionId } = sessionParamsSchema.parse(request.params);
+        const body = writeBodySchema.parse(request.body);
+        return await withFileTransport(request, reply, sessionId, async (transport) => ({
+          ok: true,
+          ...(await writeTextFile(transport, body.path, body.content))
+        }));
+      } catch (error) {
+        return replyFileError(request, reply, error);
+      }
+    }
+  );
+
+  app.post("/sessions/:sessionId/sftp/mkdir", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    try {
+      const { sessionId } = sessionParamsSchema.parse(request.params);
+      const body = mkdirBodySchema.parse(request.body);
+      return await withFileTransport(request, reply, sessionId, async (transport) => ({
+        ok: true,
+        ...(await makeDirectory(transport, body.path))
+      }));
+    } catch (error) {
+      return replyFileError(request, reply, error);
+    }
+  });
+
+  app.post("/sessions/:sessionId/sftp/rename", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    try {
+      const { sessionId } = sessionParamsSchema.parse(request.params);
+      const body = renameBodySchema.parse(request.body);
+      return await withFileTransport(request, reply, sessionId, async (transport) => ({
+        ok: true,
+        ...(await renamePath(transport, body.from, body.to))
+      }));
+    } catch (error) {
+      return replyFileError(request, reply, error);
+    }
+  });
+
+  app.delete("/sessions/:sessionId/sftp/remove", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    try {
+      const { sessionId } = sessionParamsSchema.parse(request.params);
+      const query = removeQuerySchema.parse(request.query);
+      return await withFileTransport(request, reply, sessionId, async (transport) => ({
+        ok: true,
+        ...(await removePath(transport, query.path, query.recursive))
+      }));
+    } catch (error) {
+      return replyFileError(request, reply, error);
+    }
+  });
+
+  /**
+   * Copies between two open sessions.
+   *
+   * Both sessions are held in this process, so `copyPath` pipes the source
+   * session's channel into the destination session's — the payload never travels
+   * back through the API or the browser, whichever transports the two ends use.
+   *
+   * Authorisation of *both* session ids happens in the API service: the gateway
+   * has no notion of users, orgs or host grants, so all it can check is that both
+   * ids name an open file session.
+   */
+  app.post("/sessions/:sessionId/sftp/copy", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    try {
+      const { sessionId } = sessionParamsSchema.parse(request.params);
+      const body = copyBodySchema.parse(request.body);
+
+      const source = getGatewaySession(sessionId);
+      const target = getGatewaySession(body.toSessionId);
+      if (!source || source.protocol !== "sftp" || !target || target.protocol !== "sftp") {
         return reply.code(404).send({ error: "sftp_session_not_found" });
       }
 
-      if (isLocalSession(session)) {
-        // Returns the resolved absolute path, so the console's breadcrumb shows
-        // where "." actually landed.
-        return listLocalDirectory(String(session.metadata?.startPath ?? ""), query.path);
+      let from: FileTransport;
+      let to: FileTransport;
+      try {
+        from = await openFileTransport(source);
+      } catch (error) {
+        request.log.error(error);
+        return reply.code(502).send({ error: "sftp_session_unavailable" });
+      }
+      try {
+        to = await openFileTransport(target);
+      } catch (error) {
+        from.close();
+        request.log.error(error);
+        return reply.code(502).send({ error: "sftp_session_unavailable" });
       }
 
-      return {
-        path: query.path,
-        entries: await listSftpDirectory(sessionId, query.path)
-      };
+      try {
+        return { ok: true, ...(await copyPath(from, body.path, to, body.toPath)) };
+      } finally {
+        from.close();
+        to.close();
+      }
     } catch (error) {
-      request.log.error(error);
-      return reply.code(500).send({ error: "sftp_list_failed" });
+      return replyFileError(request, reply, error);
     }
   });
 

@@ -71,7 +71,11 @@ await app.register(rateLimit, {
 await app.register(cors, {
   credentials: true,
   origin: config.corsOrigins,
-  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  // PUT is here for the file editor (PUT /sessions/:id/files/content). Leaving a
+  // verb out of this list makes the browser block the request after a successful
+  // preflight, which surfaces as an opaque client-side failure and nothing at all
+  // in the server log — keep it in step with the routes that actually exist.
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   maxAge: 86_400
 });
 

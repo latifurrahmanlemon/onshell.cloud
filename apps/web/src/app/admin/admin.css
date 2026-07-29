@@ -758,6 +758,49 @@
   padding-bottom: 0;
 }
 
+/* Two-up section layout for the manage-user modal. The sections are short and
+   independent, so pairing them halves the height of a modal that otherwise
+   scrolls. Fields stay stacked inside each column — a half-width column is too
+   narrow for two controls side by side. */
+.adm-manage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+
+.adm-manage-grid > .span-two {
+  grid-column: 1 / -1;
+}
+
+.adm-modal-wide .adm-manage-grid .form-grid {
+  grid-template-columns: 1fr;
+}
+
+/* Two short forms side by side: a full-width rule above each action row reads as
+   a fragment rather than the end of a form, and right-aligning the buttons
+   exaggerates the height difference between the columns. Sit them under their
+   own fields instead. */
+.adm-manage-grid .form-actions {
+  justify-content: flex-start;
+  padding-top: 4px;
+  border-top: 0;
+  /* Two buttons at the shared 104px minimum are wider than half a modal, and a
+     flex row would otherwise overflow into the neighbouring column. */
+  flex-wrap: wrap;
+}
+
+.adm-manage-grid .form-actions .primary-button,
+.adm-manage-grid .form-actions .secondary-button {
+  min-width: 0;
+}
+
+
+@media (max-width: 680px) {
+  .adm-manage-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Billing provider list */
 
 .adm-provider-row {
@@ -1559,6 +1602,13 @@
 
 .adm-modal-wide .form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* The manage-user modal carries three sections plus an identity header, so it
+   gets more room than the 600px form modals. Declared after .adm-modal-wide:
+   same specificity, so source order decides which width applies. */
+.adm-modal-manage {
+  width: min(100%, 720px);
 }
 
 @media (max-width: 680px) {

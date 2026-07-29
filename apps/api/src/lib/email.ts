@@ -40,9 +40,78 @@ async function recordEmailLog(input: {
   }
 }
 
+/** Raised when SMTP cannot be used at all, as opposed to a send that failed. */
+export class SmtpDisabledError extends Error {
+  constructor() {
+    super("SMTP is disabled");
+    this.name = "SmtpDisabledError";
+  }
+}
+
+/**
+ * Turns a nodemailer failure into something an operator can act on.
+ *
+ * The test-email button exists to diagnose SMTP, so "internal_error" is the one
+ * answer that helps nobody. Only allow-listed fields are surfaced: the library's
+ * error code, the numeric SMTP reply, and the server's own response text. The
+ * password lives in the transport config, never in these fields, and the caller
+ * is already a platform admin looking at their own mail server's reply.
+ */
+export function describeSmtpFailure(error: unknown): {
+  /** Whether the problem is local configuration or the far end. */
+  kind: "config" | "upstream";
+  message: string;
+  code?: string;
+  responseCode?: number;
+  detail?: string;
+} {
+  if (error instanceof SmtpDisabledError) {
+    return { kind: "config", message: "SMTP is switched off. Enable it, save, then send the test again." };
+  }
+
+  const raw = (error ?? {}) as { code?: unknown; responseCode?: unknown; response?: unknown; message?: unknown };
+  const code = typeof raw.code === "string" ? raw.code : undefined;
+  const responseCode = typeof raw.responseCode === "number" ? raw.responseCode : undefined;
+  const response = typeof raw.response === "string" ? raw.response.trim().slice(0, 300) : undefined;
+  const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 300) : undefined;
+
+  const explanations: Record<string, string> = {
+    EAUTH: "The mail server rejected the username or password.",
+    ECONNECTION: "Could not open a connection to the mail server. Check the host, the port, and whether TLS should be on.",
+    ESOCKET: "The connection to the mail server failed — usually a TLS/port mismatch (465 needs TLS on, 587 needs it off).",
+    ETIMEDOUT: "The mail server did not respond in time. Check the host and port, and that outbound SMTP is not blocked.",
+    EDNS: "The mail server hostname could not be resolved.",
+    EENVELOPE: "The mail server rejected the sender or recipient address.",
+    EMESSAGE: "The mail server rejected the message itself."
+  };
+
+  /**
+   * The system errno inside the message is more specific than nodemailer's own
+   * code — a refused connection and a TLS version mismatch both arrive as
+   * ESOCKET, and only one of them is about TLS.
+   */
+  const haystack = `${message ?? ""} ${response ?? ""}`;
+  const errnoExplanations: Array<[RegExp, string]> = [
+    [/ECONNREFUSED/, "Nothing is listening on that host and port — check the SMTP host and port."],
+    [/ENOTFOUND|EAI_AGAIN/, "The mail server hostname could not be resolved. Check the host for a typo."],
+    [/ETIMEDOUT|ECONNRESET/, "The mail server did not respond. Check the port, and that the host allows outbound SMTP."],
+    [/wrong version number|SSL routines|unsupported protocol/i, "TLS mismatch: port 465 needs TLS on, 587 usually needs it off."],
+    [/self.signed|certificate/i, "The mail server's TLS certificate was rejected."]
+  ];
+  const byErrno = errnoExplanations.find(([pattern]) => pattern.test(haystack))?.[1];
+
+  return {
+    kind: code === "EAUTH" || code === "EENVELOPE" ? "config" : "upstream",
+    message: byErrno ?? (code && explanations[code]) ?? message ?? "The mail server refused the message.",
+    code,
+    responseCode,
+    detail: response ?? (code ? message : undefined)
+  };
+}
+
 function createTransport(smtp: SmtpSetting, masterEncryptionKey: string) {
   if (!smtp.enabled) {
-    throw new Error("SMTP is disabled");
+    throw new SmtpDisabledError();
   }
 
   const password =

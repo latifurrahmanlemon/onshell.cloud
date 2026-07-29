@@ -3166,6 +3166,7 @@ function AdminPanel() {
         )}
         {newUserModalOpen && (
           <Modal
+            className="adm-modal-wide"
             description="Creates the account and its own organization. Active packages can be assigned afterwards."
             icon={UserPlus}
             key="new-user-modal"
@@ -3241,6 +3242,7 @@ function AdminPanel() {
         )}
         {manageUser && (
           <Modal
+            className="adm-modal-wide adm-modal-manage"
             description={manageUser.email}
             icon={UserCog}
             key="manage-user-modal"
@@ -3282,105 +3284,110 @@ function AdminPanel() {
                 </div>
               </div>
 
-              <div className="adm-manage-section">
-                <p className="adm-manage-title">Access</p>
-                <div className="form-grid">
-                  <label>
-                    Role
-                    <select onChange={(event) => setManageRole(event.target.value as NewUserForm["role"])} value={manageRole}>
-                      {USER_ROLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="toggle-line package-toggle">
-                    <input
-                      checked={managePlatformAdmin}
-                      onChange={(event) => setManagePlatformAdmin(event.target.checked)}
-                      type="checkbox"
-                    />
-                    <span>Platform admin</span>
-                  </label>
-                  <div className="form-actions span-two">
-                    <button className="primary-button" disabled={savingUserAccess} onClick={saveUserAccess} type="button">
-                      {savingUserAccess ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
-                      <span>{savingUserAccess ? "Saving..." : "Save access"}</span>
-                    </button>
-                    {!manageUser.emailVerifiedAt && (
-                      <button className="secondary-button" disabled={savingUserVerify} onClick={markUserVerified} type="button">
-                        {savingUserVerify ? <Loader2 className="adm-spin" size={16} /> : <MailCheck size={16} />}
-                        <span>Mark email verified</span>
+              {/* Access and Subscription plan are short and unrelated, so they
+                  read better side by side than as two tall stacked blocks.
+                  Set password spans both columns — it carries a checklist. */}
+              <div className="adm-manage-grid">
+                <div className="adm-manage-section">
+                  <p className="adm-manage-title">Access</p>
+                  <div className="form-grid">
+                    <label>
+                      Role
+                      <select onChange={(event) => setManageRole(event.target.value as NewUserForm["role"])} value={manageRole}>
+                        {USER_ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="toggle-line package-toggle">
+                      <input
+                        checked={managePlatformAdmin}
+                        onChange={(event) => setManagePlatformAdmin(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>Platform admin</span>
+                    </label>
+                    <div className="form-actions span-two">
+                      <button className="primary-button" disabled={savingUserAccess} onClick={saveUserAccess} type="button">
+                        {savingUserAccess ? <Loader2 className="adm-spin" size={16} /> : <Save size={16} />}
+                        <span>{savingUserAccess ? "Saving..." : "Save access"}</span>
                       </button>
-                    )}
+                      {!manageUser.emailVerifiedAt && (
+                        <button className="secondary-button" disabled={savingUserVerify} onClick={markUserVerified} type="button">
+                          {savingUserVerify ? <Loader2 className="adm-spin" size={16} /> : <MailCheck size={16} />}
+                          <span>Mark email verified</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="adm-manage-section">
-                <p className="adm-manage-title">Subscription plan</p>
-                <div className="form-grid">
-                  <label>
-                    Plan
-                    <select onChange={(event) => setManagePlanId(event.target.value)} value={managePlanId}>
-                      <option value="">Select a plan…</option>
-                      {plans.map((plan) => (
-                        <option key={plan.id} value={plan.id}>
-                          {plan.name}
-                          {plan.isActive ? "" : " (hidden)"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Billing interval
-                    <select
-                      onChange={(event) => setManagePlanInterval(event.target.value as "monthly" | "yearly")}
-                      value={managePlanInterval}
-                    >
-                      <option value="monthly">Monthly</option>
-                      <option value="yearly">Yearly</option>
-                    </select>
-                  </label>
-                  <div className="form-actions span-two">
-                    <button
-                      className="secondary-button"
-                      disabled={savingUserPlan || !managePlanId}
-                      onClick={assignUserPlan}
-                      type="button"
-                    >
-                      {savingUserPlan ? <Loader2 className="adm-spin" size={16} /> : <CreditCard size={16} />}
-                      <span>{savingUserPlan ? "Assigning..." : "Assign plan"}</span>
-                    </button>
+                <div className="adm-manage-section">
+                  <p className="adm-manage-title">Subscription plan</p>
+                  <div className="form-grid">
+                    <label>
+                      Plan
+                      <select onChange={(event) => setManagePlanId(event.target.value)} value={managePlanId}>
+                        <option value="">Select a plan…</option>
+                        {plans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name}
+                            {plan.isActive ? "" : " (hidden)"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Billing interval
+                      <select
+                        onChange={(event) => setManagePlanInterval(event.target.value as "monthly" | "yearly")}
+                        value={managePlanInterval}
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                      </select>
+                    </label>
+                    <div className="form-actions span-two">
+                      <button
+                        className="secondary-button"
+                        disabled={savingUserPlan || !managePlanId}
+                        onClick={assignUserPlan}
+                        type="button"
+                      >
+                        {savingUserPlan ? <Loader2 className="adm-spin" size={16} /> : <CreditCard size={16} />}
+                        <span>{savingUserPlan ? "Assigning..." : "Assign plan"}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="adm-manage-section">
-                <p className="adm-manage-title">Set password</p>
-                <div className="form-grid">
-                  <label className="span-two">
-                    New password
-                    <input
-                      autoComplete="new-password"
-                      onChange={(event) => setManageNewPassword(event.target.value)}
-                      placeholder="New password for this user"
-                      type="text"
-                      value={manageNewPassword}
-                    />
-                    {manageNewPassword.length > 0 && <PasswordChecklist password={manageNewPassword} />}
-                  </label>
-                  <div className="form-actions span-two">
-                    <button
-                      className="secondary-button"
-                      disabled={savingUserPassword || !validatePassword(manageNewPassword).valid}
-                      onClick={setUserPassword}
-                      type="button"
-                    >
-                      {savingUserPassword ? <Loader2 className="adm-spin" size={16} /> : <KeyRound size={16} />}
-                      <span>{savingUserPassword ? "Saving..." : "Set password"}</span>
-                    </button>
+                <div className="adm-manage-section span-two">
+                  <p className="adm-manage-title">Set password</p>
+                  <div className="form-grid">
+                    <label className="span-two">
+                      New password
+                      <input
+                        autoComplete="new-password"
+                        onChange={(event) => setManageNewPassword(event.target.value)}
+                        placeholder="New password for this user"
+                        type="text"
+                        value={manageNewPassword}
+                      />
+                      {manageNewPassword.length > 0 && <PasswordChecklist password={manageNewPassword} />}
+                    </label>
+                    <div className="form-actions span-two">
+                      <button
+                        className="secondary-button"
+                        disabled={savingUserPassword || !validatePassword(manageNewPassword).valid}
+                        onClick={setUserPassword}
+                        type="button"
+                      >
+                        {savingUserPassword ? <Loader2 className="adm-spin" size={16} /> : <KeyRound size={16} />}
+                        <span>{savingUserPassword ? "Saving..." : "Set password"}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

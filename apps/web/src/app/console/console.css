@@ -2677,3 +2677,336 @@
   text-transform: uppercase;
   vertical-align: 1px;
 }
+
+/* New-tab host picker in the terminal tab strip. Opening a second session used
+   to mean leaving the terminal for the hosts list and coming back. */
+.terminal-tab-add {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+
+.terminal-tab-add-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-2);
+  color: var(--soft);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.terminal-tab-add-btn:hover,
+.terminal-tab-add-btn[aria-expanded="true"] {
+  background: var(--ink);
+  color: var(--text);
+}
+
+.terminal-tab-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.terminal-tab-menu-head {
+  margin: 2px 6px 4px;
+  color: var(--soft);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.terminal-tab-menu-empty {
+  margin: 4px 6px 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.terminal-tab-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.terminal-tab-menu button:hover {
+  background: var(--surface-2);
+}
+
+.terminal-tab-menu button svg {
+  flex: 0 0 auto;
+  color: var(--accent-text);
+}
+
+.terminal-tab-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tab-menu button small {
+  margin-left: auto;
+  color: var(--soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ---- Host workspaces -------------------------------------------------------
+   A saved set of hosts opened as several terminals at once. Rendered as a strip
+   above the hosts table, deliberately quieter than the table itself: it borrows
+   .host-bulk's card language (same inline margin, same surface) so the two read
+   as one toolbar area rather than two competing panels. */
+.hw-block {
+  display: grid;
+  gap: 8px;
+  /* 14px matches .host-row's inline padding, so every edge in the view lines up. */
+  margin: 0 14px 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.hw-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hw-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.hw-title svg {
+  color: var(--accent-text);
+}
+
+/* The count rides beside the label as a pill rather than in the text, so the
+   heading stays the same width whether there are 2 workspaces or 12. */
+.hw-title em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.hw-hint {
+  flex: 1 1 auto;
+  color: var(--soft);
+  font-size: 12.5px;
+}
+
+.hw-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.hw-save:hover:not(:disabled) {
+  border-color: var(--accent-line);
+  background: var(--elevated);
+}
+
+.hw-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hw-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.hw-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hw-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.hw-item:hover {
+  border-color: var(--border-strong);
+}
+
+/* min-width:0 lets the note below truncate instead of pushing the actions off
+   the right edge of the card. */
+.hw-item-main {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hw-item-main strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hw-item-main small {
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hosts that have gone away since the workspace was saved. Warm rather than red:
+   it is drift worth noticing, not a failure. */
+.hw-missing {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  /* --amber is already tuned per theme, so a bordered outline in it needs no
+     second colour to stay legible on either surface. */
+  color: var(--amber);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.hw-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.hw-open:hover:not(:disabled) {
+  background: var(--elevated);
+}
+
+.hw-open:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Read-only echo of what is about to be saved, so the name field is not the only
+   thing standing between a stray tick and a twenty-tab workspace. */
+.hw-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+.hw-chip {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.hw-replace {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.hw-replace input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  /* The hint is the first thing to go: on a phone the button's own label already
+     says what the control does. */
+  .hw-hint {
+    display: none;
+  }
+
+  .hw-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hw-item .row-actions {
+    align-self: stretch;
+  }
+
+  .hw-open {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

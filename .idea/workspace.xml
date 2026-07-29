@@ -3,15 +3,28 @@
   <component name="ChangeListManager">
     <list default="true" id="b5366667-7c4a-4df1-8ceb-6b2b1e560461" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/lib/turnstile.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/lib/turnstile.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/api/src/routes/modules/public.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/routes/modules/public.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/src/app/login/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/login/page.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/src/app/signup/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/signup/page.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/src/components/turnstile.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/components/turnstile.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/web/src/lib/site-config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/lib/site-config.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/prisma/schema.prisma" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/prisma/schema.prisma" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/lib/email.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/lib/email.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/lib/provisioning.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/lib/provisioning.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/routes/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/routes/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/routes/modules/admin.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/routes/modules/admin.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/routes/modules/hosts.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/routes/modules/hosts.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/api/src/routes/modules/sessions.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/api/src/routes/modules/sessions.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/gateway/src/protocols/local.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/gateway/src/protocols/local.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/gateway/src/protocols/sftp.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/gateway/src/protocols/sftp.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/gateway/src/routes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/gateway/src/routes.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/admin/admin.css" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/admin/admin.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/admin/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/admin/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/console/api.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/console/api.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/console/console.css" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/console/console.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/console/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/console/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/console/panels.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/console/panels.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/web/src/app/globals.css" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/src/app/globals.css" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/apps/web/tsconfig.tsbuildinfo" beforeDir="false" afterPath="$PROJECT_DIR$/apps/web/tsconfig.tsbuildinfo" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/changes-2026-07-29.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/changes-2026-07-29.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ecosystem.config.cjs" beforeDir="false" afterPath="$PROJECT_DIR$/ecosystem.config.cjs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/config/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/packages/config/src/index.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -59,7 +72,7 @@
       <option name="presentableId" value="Default" />
       <updated>1785301307532</updated>
       <workItem from="1785301309130" duration="17000" />
-      <workItem from="1785301344877" duration="4835000" />
+      <workItem from="1785301344877" duration="7186000" />
     </task>
     <servers />
   </component>

@@ -141,6 +141,7 @@ model User {
   authEvents          AuthEventLog[]
   hostAccessGrants    HostAccessGrant[]    @relation("HostAccessSubject")
   grantedHostAccess   HostAccessGrant[]    @relation("HostAccessGrantedBy")
+  hostWorkspaces      HostWorkspace[]      @relation("HostWorkspaceCreatedBy")
 
   @@index([referredById])
 }
@@ -162,6 +163,7 @@ model Organization {
   usageRecords  UsageRecord[]
   aiThreads     AiThread[]
   hostAccessGrants HostAccessGrant[]
+  hostWorkspaces   HostWorkspace[]
 }
 
 model OrganizationMember {
@@ -216,6 +218,7 @@ model Host {
   rdpConnection  RdpConnection?
   tunnelRules    TunnelRule[]
   accessGrants   HostAccessGrant[]
+  workspaces     HostWorkspaceHost[]
 }
 
 model HostGroup {
@@ -261,6 +264,58 @@ model HostAccessGrant {
   @@index([organizationId, userId])
   @@index([hostId])
   @@index([grantedById])
+}
+
+/// A named set of hosts opened together — the five app servers of one tier
+/// become five terminal tabs in a single action. Shared across the organization
+/// rather than owned privately, because the sets people want ("prod web tier")
+/// are a property of the estate, not of one operator's browser.
+///
+/// Membership never widens access: routes list and store hosts through
+/// `accessibleHostFilter`, so a member only ever sees the subset of a workspace
+/// they already hold a grant for.
+model HostWorkspace {
+  id             String              @id @default(cuid())
+  organizationId String
+  name           String
+  /// Free prose about what the set is for and how to use it ("deploy order:
+  /// canary first"). `@db.Text` because it is a note, not a label.
+  description    String?             @db.Text
+  /// Who saved it. Nulled rather than cascaded when that account is deleted so a
+  /// team's shared set outlives the person who created it.
+  createdById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?               @relation("HostWorkspaceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  hosts          HostWorkspaceHost[]
+
+  /// One name per organization: two "prod web" workspaces are indistinguishable
+  /// in the picker, and the collision is far more often a double-submit than an
+  /// intent. Surfaces to the client as 409 via handleRouteError.
+  @@unique([organizationId, name])
+  @@index([createdById])
+}
+
+/// Joins a workspace to a host. Written as an explicit join model rather than an
+/// implicit many-to-many so the open order can be stored: "web-01 then web-02"
+/// has to survive a reload, and an implicit relation table has no room for it.
+model HostWorkspaceHost {
+  id          String        @id @default(cuid())
+  workspaceId String
+  hostId      String
+  /// Zero-based position the host opens in, so the tab order is the order the
+  /// operator picked instead of whatever the database happens to return.
+  position    Int           @default(0)
+  createdAt   DateTime      @default(now())
+  workspace   HostWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  host        Host          @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  /// A host appearing twice would open a duplicate terminal for no reason.
+  @@unique([workspaceId, hostId])
+  /// Deleting a host cascades through this index rather than table-scanning
+  /// every workspace in the install.
+  @@index([hostId])
 }
 
 model Credential {

@@ -1378,6 +1378,15 @@ button:disabled {
   accent-color: var(--green);
 }
 
+/* `.form-grid label` (0,1,1) outranks `.toggle-line` (0,1,0), so inside a form
+   grid a toggle was falling back to the stacked label-above-field layout — the
+   checkbox sat on top of its own caption. Match the specificity to keep it a row. */
+.form-grid label.toggle-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .user-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 130px 84px;

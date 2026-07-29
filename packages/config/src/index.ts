@@ -33,13 +33,16 @@ export interface RuntimeConfig {
   /** Requests behind Nginx/Cloudflare need X-Forwarded-* honoured for correct client IPs. */
   trustProxy: boolean;
   /**
-   * Whether every workspace gets the built-in "This computer" host — a shell and
-   * file browser on the machine the gateway runs on, with no credential.
+   * Whether workspaces get a shell on **the machine Onshell itself runs on**.
    *
-   * On by default: a new workspace should have something to open a terminal on
-   * before it has registered a server. Set LOCAL_SHELL_ENABLED=false on a shared
-   * multi-tenant deployment, where handing every signup a shell on the gateway
-   * box is not what you want.
+   * Read that again before switching it on. This is not the visitor's computer —
+   * a web page cannot open a shell on the machine you are browsing from. It is
+   * the gateway's own host, so on a shared deployment enabling this hands every
+   * account that signs up a shell on your server, all of them the same server,
+   * with the gateway process's privileges.
+   *
+   * Off by default. Only sensible for a single-tenant or self-hosted install
+   * where the operator and the only user are the same person.
    */
   localShellEnabled: boolean;
 }
@@ -187,7 +190,7 @@ export function loadConfig(service: ServiceName): RuntimeConfig {
     guacdHost: env("GUACD_HOST", "localhost"),
     guacdPort: envNumber("GUACD_PORT", 4822),
     trustProxy: envBoolean("TRUST_PROXY", isProduction),
-    localShellEnabled: envBoolean("LOCAL_SHELL_ENABLED", true)
+    localShellEnabled: envBoolean("LOCAL_SHELL_ENABLED", false)
   };
 
   assertProductionSecrets(config);

@@ -32,6 +32,7 @@ import {
   FileUp,
   Inbox,
   KeyRound,
+  Layers,
   Loader2,
   LogOut,
   Mail,
@@ -70,7 +71,13 @@ import {
   validatePassword,
 } from "@onshell/shared";
 import { cx } from "@onshell/ui";
-import type { HostExportFormat, MemberHostAccess, PendingInvitation, TeamMember } from "./api";
+import type {
+  HostExportFormat,
+  HostWorkspace,
+  MemberHostAccess,
+  PendingInvitation,
+  TeamMember,
+} from "./api";
 import { consoleApi } from "./api";
 import { HostTransferPanel } from "./host-transfer";
 import type { AccentValue, ThemeMode } from "../theme";
@@ -512,6 +519,7 @@ export function HostsView({
   onRefresh,
   onCreated,
   onCredentialsChanged,
+  onOpenWorkspace,
   notify,
 }: {
   hosts: Host[];
@@ -524,6 +532,18 @@ export function HostsView({
   onRefresh: () => void;
   onCreated: () => void;
   onCredentialsChanged: () => void;
+  /**
+   * Opens one terminal per host id, in the order given — the point of a
+   * workspace. Only this view knows which of a workspace's hosts are still
+   * reachable, so it does the filtering and hands over a list that is ready to
+   * launch.
+   *
+   * Optional only until page.tsx passes it: the console owns the tab strip, and
+   * a required prop here would break the build of a file this change does not
+   * touch. The button is disabled while it is absent rather than silently
+   * doing nothing.
+   */
+  onOpenWorkspace: (hostIds: string[]) => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [query, setQuery] = useState("");
@@ -596,6 +616,137 @@ export function HostsView({
   }, [allVisibleSelected, filtered]);
 
   const exportLabel = selectedIds.length > 0 ? `Export ${selectedIds.length} selected` : "Export all";
+
+  /* ---- saved host workspaces ---- */
+
+  const [workspaces, setWorkspaces] = useState<HostWorkspace[]>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [savingWorkspace, setSavingWorkspace] = useState(false);
+  const [editingWorkspace, setEditingWorkspace] = useState<HostWorkspace | null>(null);
+  const [deletingWorkspace, setDeletingWorkspace] = useState<HostWorkspace | null>(null);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+
+  // Workspaces load independently of the hosts list: a failure here must not
+  // take down the table, which is the reason this view exists.
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      setWorkspaces(await consoleApi.workspaces());
+      setWorkspaceError(null);
+    } catch (err) {
+      setWorkspaceError(err instanceof Error ? err.message : "Could not load workspaces.");
+    } finally {
+      setWorkspacesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWorkspaces();
+  }, [loadWorkspaces]);
+
+  const hostIdSet = useMemo(() => new Set(hosts.map((host) => host.id)), [hosts]);
+
+  /**
+   * Workspace names are unique per organization, so the API answers a clash with
+   * the generic `already_exists` code. Translated here rather than in the API:
+   * the code is what other callers key off, and only this form knows that the
+   * colliding thing was a name the user just typed.
+   */
+  function workspaceFailure(err: unknown, fallback: string) {
+    const message = err instanceof Error ? err.message : "";
+    if (message === "already_exists") return "A workspace with that name already exists.";
+    return message || fallback;
+  }
+
+  /**
+   * A workspace's hosts as they stand right now. A host can be deleted, or a
+   * grant revoked, long after the workspace was saved, so the stored ids are
+   * intersected with the hosts actually on hand before anything is opened —
+   * launching a session for a host that is gone would only produce an error per
+   * tab.
+   */
+  const liveHostIds = useCallback(
+    (workspace: HostWorkspace) => workspace.hostIds.filter((id) => hostIdSet.has(id)),
+    [hostIdSet],
+  );
+
+  function openWorkspace(workspace: HostWorkspace) {
+    const ids = liveHostIds(workspace);
+    if (ids.length === 0) {
+      notify(`No host in "${workspace.name}" is available right now.`, "error");
+      return;
+    }
+    onOpenWorkspace(ids);
+  }
+
+  async function submitWorkspace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setWorkspaceBusy(true);
+    try {
+      const saved = await consoleApi.createWorkspace({
+        name: String(data.get("name") ?? ""),
+        description: String(data.get("description") ?? "") || undefined,
+        hostIds: selectedIds,
+      });
+      // The API stores only the hosts this member holds a grant for, so the count
+      // it echoes back — not the number ticked — is what the workspace will open.
+      const dropped = selectedIds.length - saved.hostIds.length;
+      notify(
+        dropped > 0
+          ? `Saved "${saved.name}" with ${saved.hostIds.length} hosts — ${dropped} were unavailable.`
+          : `Saved "${saved.name}" with ${saved.hostIds.length} hosts.`,
+        dropped > 0 ? "error" : "success",
+      );
+      setSavingWorkspace(false);
+      setSelectedIds([]);
+      await loadWorkspaces();
+    } catch (err) {
+      notify(workspaceFailure(err, "Could not save workspace."), "error");
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  async function submitWorkspaceEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingWorkspace) return;
+    const data = new FormData(event.currentTarget);
+    const replaceHosts = data.get("replaceHosts") === "on";
+    setWorkspaceBusy(true);
+    try {
+      await consoleApi.updateWorkspace(editingWorkspace.id, {
+        name: String(data.get("name") ?? ""),
+        // Null clears the note; an empty string would only store whitespace.
+        description: String(data.get("description") ?? "") || null,
+        // Left off entirely unless asked for, so a rename never rewrites the set.
+        ...(replaceHosts && { hostIds: selectedIds }),
+      });
+      notify("Workspace updated.", "success");
+      setEditingWorkspace(null);
+      if (replaceHosts) setSelectedIds([]);
+      await loadWorkspaces();
+    } catch (err) {
+      notify(workspaceFailure(err, "Could not update workspace."), "error");
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  async function confirmWorkspaceDelete() {
+    if (!deletingWorkspace) return;
+    setWorkspaceBusy(true);
+    try {
+      await consoleApi.deleteWorkspace(deletingWorkspace.id);
+      notify(`Workspace "${deletingWorkspace.name}" deleted.`, "success");
+      setDeletingWorkspace(null);
+      await loadWorkspaces();
+    } catch (err) {
+      notify(workspaceFailure(err, "Could not delete workspace."), "error");
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
 
   // Attach a vault credential to a host without disturbing its other hosts.
   async function attachCredential(credentialId: string, hostId: string) {
@@ -818,6 +969,102 @@ export function HostsView({
               </a>
             ))}
           </span>
+        </div>
+      )}
+
+      {/* Workspaces sit above the table, not below it: their whole value is being
+          one click from a set of terminals, and a launcher you have to scroll
+          past the estate to find is not that. Hidden from auditors, who cannot
+          open a session at all. */}
+      {canOpenSession(role) && (
+        <div className="hw-block">
+          <div className="hw-head">
+            <span className="hw-title">
+              <Layers size={14} />
+              Workspaces
+              {workspaces.length > 0 && <em>{workspaces.length}</em>}
+            </span>
+            <span className="hw-hint">
+              {selectedIds.length > 0
+                ? `Save the ${selectedIds.length} ticked hosts as a set you can open in one action.`
+                : "Saved sets of hosts, opened as terminals together. Tick hosts below to make one."}
+            </span>
+            <button
+              className="hw-save"
+              disabled={selectedIds.length === 0}
+              onClick={() => setSavingWorkspace(true)}
+              title={
+                selectedIds.length === 0
+                  ? "Tick the hosts you want in the workspace first."
+                  : undefined
+              }
+              type="button"
+            >
+              <Plus size={14} />
+              {selectedIds.length > 0 ? `Save ${selectedIds.length} selected` : "Save selection"}
+            </button>
+          </div>
+
+          {workspaceError && <div className="error-banner">{workspaceError}</div>}
+
+          {workspacesLoading ? (
+            <div className="hw-empty">Loading workspaces…</div>
+          ) : workspaces.length === 0 ? (
+            <div className="hw-empty">
+              No workspaces yet — tick a few hosts and save them as one.
+            </div>
+          ) : (
+            <ul className="hw-list">
+              {workspaces.map((workspace) => {
+                const live = liveHostIds(workspace);
+                const missing = workspace.hostIds.length - live.length;
+                return (
+                  <li className="hw-item" key={workspace.id}>
+                    <div className="hw-item-main">
+                      <strong>{workspace.name}</strong>
+                      <small>
+                        {live.length} host{live.length === 1 ? "" : "s"}
+                        {/* Surfaced rather than hidden: a workspace quietly
+                            opening fewer tabs than it used to is exactly the
+                            kind of drift someone needs to know about. */}
+                        {missing > 0 && <span className="hw-missing">{missing} unavailable</span>}
+                        {workspace.description ? ` · ${workspace.description}` : ""}
+                      </small>
+                    </div>
+                    <div className="row-actions">
+                      <button
+                        className="hw-open"
+                        disabled={live.length === 0}
+                        onClick={() => openWorkspace(workspace)}
+                        type="button"
+                      >
+                        <SquareTerminal size={14} />
+                        Open terminals
+                      </button>
+                      <button
+                        aria-label={`Rename ${workspace.name}`}
+                        className="icon-button compact"
+                        onClick={() => setEditingWorkspace(workspace)}
+                        title="Rename workspace"
+                        type="button"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        aria-label={`Delete ${workspace.name}`}
+                        className="icon-button compact"
+                        onClick={() => setDeletingWorkspace(workspace)}
+                        title="Delete workspace"
+                        type="button"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
@@ -1110,6 +1357,90 @@ export function HostsView({
           </form>
         )}
       </Drawer>
+
+      <Drawer
+        onClose={() => setSavingWorkspace(false)}
+        open={savingWorkspace}
+        subtitle={`${selectedIds.length} host${selectedIds.length === 1 ? "" : "s"} will be saved in the order you ticked them.`}
+        title="Save workspace"
+      >
+        <form className="form-grid" onSubmit={submitWorkspace}>
+          <label className="span-two">
+            Name
+            <input name="name" placeholder="prod web tier" required />
+          </label>
+          <label className="span-two">
+            Note (optional)
+            <input name="description" placeholder="Deploy order: canary first" />
+          </label>
+          <div className="hw-preview span-two">
+            {selectedIds.map((id) => {
+              const host = hosts.find((item) => item.id === id);
+              return (
+                <span className="hw-chip" key={id}>
+                  {host?.name ?? id}
+                </span>
+              );
+            })}
+          </div>
+          <div className="form-actions span-two">
+            <SubmitButton busy={workspaceBusy} label="Save Workspace" />
+          </div>
+        </form>
+      </Drawer>
+
+      <Drawer
+        onClose={() => setEditingWorkspace(null)}
+        open={editingWorkspace !== null}
+        subtitle="Rename it, or point it at the hosts you have ticked now."
+        title={editingWorkspace ? `Edit ${editingWorkspace.name}` : "Edit workspace"}
+      >
+        {editingWorkspace && (
+          <form className="form-grid" key={editingWorkspace.id} onSubmit={submitWorkspaceEdit}>
+            <label className="span-two">
+              Name
+              <input defaultValue={editingWorkspace.name} name="name" required />
+            </label>
+            <label className="span-two">
+              Note (optional)
+              <input defaultValue={editingWorkspace.description ?? ""} name="description" />
+            </label>
+            {/* Only offered when there is a selection to swap in — an unchecked
+                box that could not do anything is just a dead control. */}
+            {selectedIds.length > 0 && (
+              <label className="hw-replace span-two">
+                <input name="replaceHosts" type="checkbox" />
+                <span>
+                  Replace its {editingWorkspace.hostIds.length} host
+                  {editingWorkspace.hostIds.length === 1 ? "" : "s"} with the {selectedIds.length}{" "}
+                  ticked in the table
+                </span>
+              </label>
+            )}
+            <div className="form-actions span-two">
+              <SubmitButton busy={workspaceBusy} label="Save Changes" />
+            </div>
+          </form>
+        )}
+      </Drawer>
+
+      <ConfirmModal
+        busy={workspaceBusy}
+        message={
+          deletingWorkspace ? (
+            <>
+              Delete workspace <strong>{deletingWorkspace.name}</strong>? The hosts in it are not
+              touched — only the saved grouping goes away.
+            </>
+          ) : (
+            ""
+          )
+        }
+        onClose={() => setDeletingWorkspace(null)}
+        onConfirm={() => void confirmWorkspaceDelete()}
+        open={deletingWorkspace !== null}
+        title="Delete workspace"
+      />
     </section>
   );
 }
