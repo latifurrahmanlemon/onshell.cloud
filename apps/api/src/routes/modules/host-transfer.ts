@@ -33,6 +33,17 @@ const IMPORT_BODY_LIMIT = 12 * 1024 * 1024;
 /** Rows written per transaction. Keeps any single statement batch bounded. */
 const INSERT_CHUNK = 50;
 
+/**
+ * Ceiling on a selective export's id list.
+ *
+ * Set by the URL, not the database: the export is a direct browser navigation, so
+ * the ids ride in the query string and the whole request line plus cookies has to
+ * fit Fastify's max header size. Measured empirically, ~550 cuids is where it
+ * starts returning 431 — this sits below that so an over-large selection gets the
+ * message below instead of an opaque "Request Header Fields Too Large".
+ */
+const MAX_EXPORT_IDS = 400;
+
 const environmentEnum = z.enum(["production", "staging", "development"]);
 
 const previewSchema = z.object({
@@ -61,7 +72,25 @@ const exportQuerySchema = z.object({
   format: z.enum(exportFormats).default("json"),
   environment: environmentEnum.optional(),
   type: z.enum(["ssh", "rdp", "vnc"]).optional(),
-  group: z.string().max(120).optional()
+  group: z.string().max(120).optional(),
+  /**
+   * Comma-separated host ids, for exporting a hand-picked selection from the
+   * console's hosts table. Unknown ids are ignored rather than rejected: a
+   * selection can go stale between a refresh and the download. Capped so the
+   * list cannot build an unbounded `IN (…)` clause.
+   */
+  ids: z
+    .string()
+    .max(40_000)
+    .optional()
+    .transform((value) =>
+      value ? [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))] : undefined
+    )
+    // Rejected rather than truncated: silently exporting 1000 of 1200 selected
+    // hosts would look like a complete export.
+    .refine((ids) => !ids || ids.length <= MAX_EXPORT_IDS, {
+      message: `Select at most ${MAX_EXPORT_IDS} hosts per export.`
+    })
 });
 
 type Disposition = "new" | "duplicate-in-file" | "exists";
@@ -387,7 +416,11 @@ export async function registerHostTransferRoutes(app: FastifyInstance) {
 
       const hosts = await prisma.host.findMany({
         where: {
+          // The access filter is spread first and `id: { in: … }` only narrows
+          // it, so a selection can never reach a host the caller cannot see —
+          // unauthorised ids simply fall out of the result set.
           ...accessFilter,
+          ...(query.ids && { id: { in: query.ids } }),
           ...(query.type && { type: hostTypeToPrisma[query.type] }),
           ...(query.environment && { environment: environmentToPrisma[query.environment] }),
           ...(query.group && { group: { name: query.group } })
@@ -407,7 +440,7 @@ export async function registerHostTransferRoutes(app: FastifyInstance) {
         action: "host.export",
         targetType: "host",
         ipAddress: request.ip,
-        metadata: { format: query.format, count: hosts.length }
+        metadata: { format: query.format, count: hosts.length, selected: query.ids?.length ?? null }
       });
 
       const stamp = new Date().toISOString().slice(0, 10);

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { DM_Sans, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { AiChatWidget } from "../components/ai-chat-widget";
 import { siteUrl } from "../lib/site";
 import { themeBootstrapScript } from "./theme";
 import "./globals.css";
@@ -122,6 +123,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         {children}
+        {/* Mounted at the root so the assistant is reachable from the marketing
+            pages, the auth screens, and the console alike. It renders nothing
+            until an admin enables the assistant. */}
+        <AiChatWidget />
       </body>
     </html>
   );

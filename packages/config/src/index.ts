@@ -32,6 +32,16 @@ export interface RuntimeConfig {
   guacdPort: number;
   /** Requests behind Nginx/Cloudflare need X-Forwarded-* honoured for correct client IPs. */
   trustProxy: boolean;
+  /**
+   * Whether every workspace gets the built-in "This computer" host — a shell and
+   * file browser on the machine the gateway runs on, with no credential.
+   *
+   * On by default: a new workspace should have something to open a terminal on
+   * before it has registered a server. Set LOCAL_SHELL_ENABLED=false on a shared
+   * multi-tenant deployment, where handing every signup a shell on the gateway
+   * box is not what you want.
+   */
+  localShellEnabled: boolean;
 }
 
 const defaultPorts: Record<ServiceName, number> = {
@@ -176,7 +186,8 @@ export function loadConfig(service: ServiceName): RuntimeConfig {
     googleRedirectUri: env("GOOGLE_REDIRECT_URI", `${apiBaseUrl}/auth/google/callback`),
     guacdHost: env("GUACD_HOST", "localhost"),
     guacdPort: envNumber("GUACD_PORT", 4822),
-    trustProxy: envBoolean("TRUST_PROXY", isProduction)
+    trustProxy: envBoolean("TRUST_PROXY", isProduction),
+    localShellEnabled: envBoolean("LOCAL_SHELL_ENABLED", true)
   };
 
   assertProductionSecrets(config);

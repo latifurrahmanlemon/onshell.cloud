@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
+import { loadConfig } from "@onshell/config";
 import { prisma } from "./prisma.js";
+
+const config = loadConfig("api");
 
 /**
  * Referral codes are shown in URLs, so they avoid look-alike characters and are
@@ -80,4 +83,47 @@ export async function ensureFreeSubscription(organizationId: string) {
   });
 
   return subscription.id;
+}
+
+/** Display name of the built-in host. Also what the console labels it. */
+export const LOCAL_HOST_NAME = "This computer";
+
+/**
+ * Gives an organization its built-in local host — a terminal and file browser
+ * on the machine the gateway runs on.
+ *
+ * The point is a workspace that works the moment you sign in: no key to
+ * generate, no credential to attach, nothing to configure. The address is
+ * recorded as 127.0.0.1 for display only; a local session never opens a socket,
+ * it spawns a shell in the gateway process (see the gateway's local transport).
+ *
+ * Idempotent, so it is safe to call on every signup and as a lazy backfill for
+ * organizations created before the feature existed. A no-op when
+ * LOCAL_SHELL_ENABLED is off.
+ */
+export async function ensureLocalHost(organizationId: string) {
+  if (!config.localShellEnabled) return undefined;
+
+  const existing = await prisma.host.findFirst({
+    where: { organizationId, isLocal: true },
+    select: { id: true }
+  });
+  if (existing) return existing.id;
+
+  const host = await prisma.host.create({
+    data: {
+      organizationId,
+      name: LOCAL_HOST_NAME,
+      type: "SSH",
+      address: "127.0.0.1",
+      port: 22,
+      environment: "DEVELOPMENT",
+      isLocal: true,
+      health: "online",
+      notes: "Built-in shell and file browser on the machine Onshell runs on. No credential required."
+    },
+    select: { id: true }
+  });
+
+  return host.id;
 }

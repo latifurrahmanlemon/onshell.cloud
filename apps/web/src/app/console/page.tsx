@@ -6,7 +6,6 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowLeftRight,
-  Bot,
   Braces,
   CheckCircle2,
   ChevronDown,
@@ -42,9 +41,8 @@ import {
 } from "lucide-react";
 import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
 import { cx } from "@onshell/ui";
-import { ApiError, consoleApi, gatewayBaseUrl, sessionWebsocketUrl } from "./api";
+import { ApiError, consoleApi, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
-import { AssistantView } from "./assistant";
 import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
 import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
 import type { TerminalStatus } from "./terminal";
@@ -63,7 +61,6 @@ type ViewKey =
   | "sftp"
   | "vault"
   | "snippets"
-  | "assistant"
   | "team"
   | "billing"
   | "audit"
@@ -96,12 +93,21 @@ const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "sftp", label: "Files", icon: FolderLock },
   { key: "vault", label: "Vault", icon: KeyRound },
   { key: "snippets", label: "Snippets", icon: Braces },
-  { key: "assistant", label: "AI Assistant", icon: Bot },
   { key: "team", label: "Team", icon: Users },
   { key: "billing", label: "Plan & billing", icon: CreditCard },
   { key: "audit", label: "Audit", icon: ScrollText },
   { key: "settings", label: "Settings", icon: Settings }
 ];
+
+/**
+ * Resolves `/console?view=billing` to a view key, so links from outside the
+ * console (the profile menu, the assistant's upgrade prompt) land on the right
+ * panel instead of the overview. Returns null for anything unrecognised.
+ */
+function requestedView(search: string): ViewKey | null {
+  const requested = new URLSearchParams(search).get("view");
+  return navItems.find((item) => item.key === requested)?.key ?? null;
+}
 
 function avatarInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -164,7 +170,8 @@ export default function ConsolePage() {
   const [snippetsPanelOpen, setSnippetsPanelOpen] = useState(false);
 
   const [sftp, setSftp] = useState<{
-    gatewaySessionId: string;
+    /** Onshell session id — the gateway's own id stays server-side. */
+    sessionId: string;
     hostName: string;
     path: string;
     entries: SftpEntry[];
@@ -189,6 +196,13 @@ export default function ConsolePage() {
     } catch {
       /* storage unavailable */
     }
+  }, []);
+
+  // Honour ?view= after mount rather than in the initial state, so the server
+  // and client render the same first frame.
+  useEffect(() => {
+    const requested = requestedView(window.location.search);
+    if (requested) setView(requested);
   }, []);
 
   const toggleCollapsed = useCallback(() => {
@@ -311,14 +325,10 @@ export default function ConsolePage() {
   }, [refreshAll]);
 
   /* SFTP */
-  const browseSftp = useCallback(async (gatewaySessionId: string, path: string, hostName: string) => {
+  const browseSftp = useCallback(async (sessionId: string, path: string, hostName: string) => {
     setSftp((current) => (current ? { ...current, busy: true, error: null } : current));
     try {
-      const response = await fetch(
-        `${gatewayBaseUrl}/sessions/${gatewaySessionId}/sftp/list?path=${encodeURIComponent(path)}`
-      );
-      const payload: unknown = await response.json();
-      if (!response.ok) throw new Error("Could not list this directory.");
+      const payload: unknown = await consoleApi.listFiles(sessionId, path);
       const rawEntries: unknown[] = Array.isArray(payload)
         ? payload
         : payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).entries)
@@ -334,11 +344,24 @@ export default function ConsolePage() {
         };
       });
       entries.sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
-      setSftp({ gatewaySessionId, hostName, path, entries, busy: false, error: null });
+      // Prefer the path the gateway resolved: for the local host "." lands in the
+      // account's home directory, and the breadcrumb should say where that is.
+      const resolvedPath =
+        payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).path === "string"
+          ? ((payload as Record<string, unknown>).path as string)
+          : path;
+      setSftp({ sessionId, hostName, path: resolvedPath, entries, busy: false, error: null });
     } catch (error) {
       setSftp((current) =>
         current
-          ? { ...current, busy: false, error: error instanceof Error ? error.message : "SFTP listing failed." }
+          ? {
+              ...current,
+              busy: false,
+              error:
+                error instanceof ApiError && error.status === 409
+                  ? "This file session has closed. Open it again from the host list."
+                  : "Could not read that directory."
+            }
           : current
       );
     }
@@ -366,10 +389,9 @@ export default function ConsolePage() {
           setActiveTab(tab.key);
           setView("terminal");
         } else {
-          const gatewaySessionId = session.gatewaySessionId ?? session.id;
-          setSftp({ gatewaySessionId, hostName: host.name, path: ".", entries: [], busy: true, error: null });
+          setSftp({ sessionId: session.id, hostName: host.name, path: ".", entries: [], busy: true, error: null });
           setView("sftp");
-          await browseSftp(gatewaySessionId, ".", host.name);
+          await browseSftp(session.id, ".", host.name);
         }
         void consoleApi.sessions().then(setSessions).catch(() => undefined);
       } catch (error) {
@@ -849,7 +871,7 @@ export default function ConsolePage() {
                           className="sftp-row is-dir"
                           onClick={() =>
                             browseSftp(
-                              sftp.gatewaySessionId,
+                              sftp.sessionId,
                               sftp.path.split("/").slice(0, -1).join("/") || ".",
                               sftp.hostName
                             )
@@ -870,7 +892,7 @@ export default function ConsolePage() {
                           onClick={() =>
                             entry.directory
                               ? browseSftp(
-                                  sftp.gatewaySessionId,
+                                  sftp.sessionId,
                                   sftp.path === "." ? entry.name : `${sftp.path}/${entry.name}`,
                                   sftp.hostName
                                 )
@@ -925,18 +947,6 @@ export default function ConsolePage() {
                 notify={notify}
                 onChanged={() => void refreshAll()}
               />
-            )}
-
-            {view === "assistant" && (
-              <>
-                <div className="topbar">
-                  <div>
-                    <h1>AI Assistant</h1>
-                    <p>Ask about Onshell.cloud, or about the Linux and SSH work in front of you.</p>
-                  </div>
-                </div>
-                <AssistantView onUpgrade={() => setView("billing")} />
-              </>
             )}
 
             {view === "billing" && (

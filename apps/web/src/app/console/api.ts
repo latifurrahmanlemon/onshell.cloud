@@ -239,19 +239,45 @@ export interface UsageEntry {
   nearLimit: boolean;
 }
 
+/** A plan as offered in the console's upgrade grid. */
+export interface ConsolePlan {
+  code: string;
+  name: string;
+  description: string;
+  tagline: string | null;
+  badge: string | null;
+  isFree: boolean;
+  isFeatured: boolean;
+  displayOrder: number;
+  priceMonthlyCents: number;
+  priceYearlyCents: number;
+  currency: string;
+  maxUsers: number | null;
+  maxHosts: number | null;
+  maxConcurrentSessions: number | null;
+  monthlyAiMessages: number | null;
+  auditRetentionDays: number;
+  trialDays: number;
+  features: string[];
+}
+
+export type BillingInterval = "monthly" | "yearly";
+
+export interface CheckoutStart {
+  status: string;
+  /** False when no payment provider is configured — the request became a sales enquiry. */
+  selfServe: boolean;
+  provider: string;
+  checkoutUrl: string | null;
+  plan: ConsolePlan;
+  billingInterval: BillingInterval;
+  message?: string;
+}
+
 export interface GrowthOverview {
-  plan: {
-    id: string;
-    code: string;
-    name: string;
-    isFree: boolean;
-    tagline: string | null;
-    priceMonthlyCents: number;
-    priceYearlyCents: number;
-    currency: string;
-    auditRetentionDays: number;
-    trialDays: number;
-  } | null;
+  plan: (ConsolePlan & { id: string }) | null;
+  plans: ConsolePlan[];
+  canManageBilling: boolean;
   subscription: {
     id: string;
     status: string;
@@ -266,21 +292,7 @@ export interface GrowthOverview {
     concurrentSessions: UsageEntry;
     aiMessages: UsageEntry;
   };
-  upgrade: {
-    shouldPrompt: boolean;
-    plan: {
-      code: string;
-      name: string;
-      tagline: string | null;
-      priceMonthlyCents: number;
-      priceYearlyCents: number;
-      currency: string;
-      maxUsers: number | null;
-      maxHosts: number | null;
-      trialDays: number;
-      features: string[];
-    };
-  } | null;
+  upgrade: { shouldPrompt: boolean; plan: ConsolePlan } | null;
   referral: { code: string | null; url: string; signups: number };
 }
 
@@ -306,8 +318,16 @@ export const consoleApi = {
    * Exports via a direct browser navigation rather than fetch: the response is a
    * file download with Content-Disposition, and letting the browser handle it
    * avoids buffering the whole export in memory just to build a blob.
+   *
+   * `ids` narrows the export to a hand-picked set. It is left off entirely when
+   * empty so the URL stays the "everything I can see" export the API defaults to
+   * — an `ids=` with no value would otherwise read as "export nothing".
    */
-  hostExportUrl: (format: HostExportFormat) => `${apiBaseUrl}/hosts/export?format=${format}`,
+  hostExportUrl: (format: HostExportFormat, ids?: string[]) => {
+    const params = new URLSearchParams({ format });
+    if (ids && ids.length > 0) params.set("ids", ids.join(","));
+    return `${apiBaseUrl}/hosts/export?${params.toString()}`;
+  },
 
   credentials: async () => unwrapList<CredentialSummary>(await request("/credentials"), "credentials"),
   createCredential: (body: Record<string, unknown>) =>
@@ -327,6 +347,15 @@ export const consoleApi = {
     };
   },
   closeSession: (id: string) => request<unknown>(`/sessions/${id}/close`, { method: "POST" }),
+  /**
+   * Lists a directory on an open SFTP session. Goes through the API rather than
+   * straight to the gateway so the request carries the caller's session and is
+   * re-checked against their host access.
+   */
+  listFiles: (sessionId: string, path: string) =>
+    request<{ path?: string; entries?: unknown[] }>(
+      `/sessions/${sessionId}/files?path=${encodeURIComponent(path)}`
+    ),
 
   snippets: async () => unwrapList<Snippet>(await request("/snippets"), "snippets"),
   createSnippet: (body: Record<string, unknown>) =>
@@ -389,7 +418,9 @@ export const consoleApi = {
   aiSend: (body: { threadId?: string; message: string }) =>
     request<AiSendResult>("/ai/messages", { method: "POST", body: JSON.stringify(body) }),
 
-  growth: () => request<GrowthOverview>("/me/growth")
+  growth: () => request<GrowthOverview>("/me/growth"),
+  startCheckout: (body: { planCode: string; billingInterval: BillingInterval }) =>
+    request<CheckoutStart>("/me/billing/checkout", { method: "POST", body: JSON.stringify(body) })
 };
 
 /** Resolve a session's terminal WebSocket URL, falling back to the gateway convention. */

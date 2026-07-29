@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "dev": "yarn turbo build --filter='./packages/*' && yarn turbo dev --parallel",
     "build": "yarn turbo build",
     "lint": "yarn turbo lint",

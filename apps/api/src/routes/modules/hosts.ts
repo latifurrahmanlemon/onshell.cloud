@@ -10,6 +10,7 @@ import {
   recordAudit,
   toHost
 } from "../../lib/prisma-mappers.js";
+import { ensureLocalHost } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 
 const hostSchema = z.object({
@@ -53,6 +54,9 @@ export async function registerHostRoutes(app: FastifyInstance) {
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const query = hostQuerySchema.parse(request.query);
+      // Backfill the built-in local host for workspaces created before it
+      // existed. Idempotent and cheap: one indexed lookup on the hot path.
+      await ensureLocalHost(user.organizationId);
       const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const hosts = await prisma.host.findMany({
         where: {
@@ -165,6 +169,14 @@ export async function registerHostRoutes(app: FastifyInstance) {
       if (!existing) {
         return reply.code(404).send({ error: "host_not_found" });
       }
+      if (existing.isLocal) {
+        // Its address and port are display-only — editing them would suggest the
+        // local shell can be pointed somewhere it cannot go.
+        return reply.code(400).send({
+          error: "local_host_immutable",
+          message: "The built-in local host cannot be edited."
+        });
+      }
 
       const groupId =
         body.group === undefined
@@ -220,6 +232,13 @@ export async function registerHostRoutes(app: FastifyInstance) {
       });
       if (!existing) {
         return reply.code(404).send({ error: "host_not_found" });
+      }
+      if (existing.isLocal) {
+        // Deleting it would only make the console re-create it on the next list.
+        return reply.code(400).send({
+          error: "local_host_immutable",
+          message: "The built-in local host cannot be removed."
+        });
       }
 
       await prisma.$transaction([

@@ -88,21 +88,44 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
           : reply.code(404).send({ error: "host_not_found" });
       }
 
-      const credential = body.credentialId
-        ? await prisma.credential.findFirst({
-            where: { id: body.credentialId, organizationId: actor.organizationId }
-          })
-        : host.credentials[0];
-      if (!credential) {
+      if (host.isLocal) {
+        if (body.protocol === "rdp") {
+          return reply.code(400).send({
+            error: "protocol_unsupported_for_local_host",
+            message: "The built-in local host serves a terminal and files, not a remote desktop."
+          });
+        }
+        // Re-checked here, not just at provisioning: turning the flag off has to
+        // disable rows that already exist.
+        if (!config.localShellEnabled) {
+          return reply.code(403).send({
+            error: "local_shell_disabled",
+            message: "Local shell access is disabled on this deployment."
+          });
+        }
+      }
+
+      // The local host runs the shell inside the gateway process, so there is
+      // nothing to authenticate against and no credential to look up.
+      const credential = host.isLocal
+        ? null
+        : body.credentialId
+          ? await prisma.credential.findFirst({
+              where: { id: body.credentialId, organizationId: actor.organizationId }
+            })
+          : host.credentials[0];
+      if (!credential && !host.isLocal) {
         return body.credentialId
           ? reply.code(404).send({ error: "credential_not_found" })
           : reply.code(400).send({ error: "no_credential_for_host" });
       }
 
       // Record when this credential was last used to open a session (best-effort).
-      void prisma.credential
-        .update({ where: { id: credential.id }, data: { lastUsedAt: new Date() } })
-        .catch(() => undefined);
+      if (credential) {
+        void prisma.credential
+          .update({ where: { id: credential.id }, data: { lastUsedAt: new Date() } })
+          .catch(() => undefined);
+      }
 
       const subscription = await prisma.subscription.findFirst({
         where: {
@@ -128,21 +151,29 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
         }
       }
 
-      const secret = decryptSecret(
-        {
-          encryptedPayload: credential.encryptedPayload,
-          nonce: credential.nonce,
-          authTag: credential.authTag
-        },
-        config.masterEncryptionKey
-      );
+      const secret = credential
+        ? decryptSecret(
+            {
+              encryptedPayload: credential.encryptedPayload,
+              nonce: credential.nonce,
+              authTag: credential.authTag
+            },
+            config.masterEncryptionKey
+          )
+        : null;
       const gatewayBody = {
         protocol: body.protocol,
         hostId: host.id,
         address: host.address,
         port: host.port,
         username: host.username ?? undefined,
-        ...(credential.kind === "SSH_KEY" ? { privateKey: secret } : { password: secret })
+        // "local" tells the gateway to spawn a shell / read the filesystem in
+        // process rather than dial out over SSH.
+        ...(host.isLocal
+          ? { transport: "local" as const }
+          : credential?.kind === "SSH_KEY"
+            ? { privateKey: secret ?? undefined }
+            : { password: secret ?? undefined })
       };
 
       let gateway: GatewayOpenResponse;
@@ -205,7 +236,8 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
         metadata: {
           sessionId: session.id,
           gatewaySessionId: gateway.session.id,
-          credentialId: credential.id
+          credentialId: credential?.id ?? null,
+          ...(host.isLocal && { local: true })
         }
       });
 
@@ -218,6 +250,65 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
         session: toRemoteSession(session),
         websocketUrl
       });
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Lists a directory for an open SFTP session.
+   *
+   * This exists so the browser never talks to the gateway's REST API directly.
+   * The gateway trusts whoever can reach it — it has no notion of users, orgs, or
+   * host grants — so a listing requested straight from the browser is only as
+   * protected as the unguessability of a gateway session id. Routing it through
+   * here re-applies the caller's organization and per-host access, and lets the
+   * gateway sit behind GATEWAY_SHARED_SECRET where nothing but this service can
+   * reach it.
+   *
+   * Keyed by the Onshell session id, not the gateway's: the gateway id is an
+   * internal handle and no longer needs to be exposed to the client at all.
+   */
+  app.get("/sessions/:sessionId/files", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
+      const query = z.object({ path: z.string().max(4_096).default(".") }).parse(request.query);
+
+      const accessFilter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
+      const session = await prisma.session.findFirst({
+        where: { id: sessionId, organizationId: actor.organizationId, host: accessFilter }
+      });
+      if (!session) return reply.code(404).send({ error: "session_not_found" });
+      if (session.protocol !== "SFTP") {
+        return reply.code(400).send({ error: "not_a_file_session" });
+      }
+      if (!session.gatewaySessionId || session.status === "CLOSED" || session.status === "FAILED") {
+        return reply.code(409).send({
+          error: "session_not_open",
+          message: "This file session is no longer open. Open it again from the host list."
+        });
+      }
+
+      let payload: unknown;
+      try {
+        const response = await fetch(
+          `${config.gatewayBaseUrl}/sessions/${session.gatewaySessionId}/sftp/list?path=${encodeURIComponent(query.path)}`,
+          { headers: gatewayHeaders() }
+        );
+        if (!response.ok) throw new Error(`gateway responded with status ${response.status}`);
+        payload = await response.json();
+      } catch (gatewayError) {
+        request.log.error({ err: gatewayError, sessionId: session.id }, "sftp listing failed");
+        return reply.code(502).send({
+          error: "sftp_list_failed",
+          message: "Could not read that directory. The session may have expired."
+        });
+      }
+
+      return payload;
     } catch (error) {
       return handleRouteError(reply, error);
     }

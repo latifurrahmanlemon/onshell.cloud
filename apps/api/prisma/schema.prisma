@@ -200,6 +200,10 @@ model Host {
   environment    Environment
   notes          String?         @db.Text
   health         String          @default("unknown")
+  /// The machine the gateway itself runs on. Sessions to it need no credential
+  /// and never open a network connection — see lib/provisioning.ts. One row per
+  /// organization, created on signup.
+  isLocal        Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)

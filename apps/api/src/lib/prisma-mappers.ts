@@ -145,6 +145,7 @@ export function toHost(host: HostWithRelations, lastSessionAt?: Date | null): Ho
     group: host.group?.name,
     notes: host.notes ?? undefined,
     health: host.health as Host["health"],
+    isLocal: host.isLocal,
     lastSessionAt: lastSessionAt?.toISOString(),
     createdAt: host.createdAt.toISOString(),
     updatedAt: host.updatedAt.toISOString()

@@ -15,7 +15,12 @@ import { encryptSecret, decryptSecret } from "../../lib/encryption.js";
 import { clearLoginFailures, getLoginLock, recordLoginFailure } from "../../lib/login-throttle.js";
 import { prisma } from "../../lib/prisma.js";
 import { toPublicUser, type UserWithMembership } from "../../lib/prisma-mappers.js";
-import { ensureFreeSubscription, generateReferralCode, resolveReferrer } from "../../lib/provisioning.js";
+import {
+  ensureFreeSubscription,
+  ensureLocalHost,
+  generateReferralCode,
+  resolveReferrer
+} from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { store } from "../../lib/store.js";
 import { resolveSessionCookie } from "../../lib/session-cookie.js";
@@ -556,8 +561,10 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
 
       const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
       // Start every new workspace on the Free tier so the freemium funnel and
-      // the console's usage/upgrade surfaces have a plan to read from.
-      await ensureFreeSubscription(user.organizationId);
+      // the console's usage/upgrade surfaces have a plan to read from, and give
+      // it the built-in local host so there is something to open a terminal on
+      // before any server has been registered.
+      await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user.organizationId)]);
       await createAudit({
         organizationId: user.organizationId,
         actorId: user.id,
@@ -1033,7 +1040,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       const googleProfile = await getGoogleProfile(config, query.code);
       const prismaUser = await upsertGoogleUser(googleProfile);
       const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
-      await ensureFreeSubscription(user.organizationId);
+      await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user.organizationId)]);
 
       await createAudit({
         organizationId: user.organizationId,

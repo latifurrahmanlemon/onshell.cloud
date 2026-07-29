@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Circle,
   Copy,
+  Download,
   Eye,
   EyeOff,
   FileUp,
@@ -34,6 +35,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MonitorSmartphone,
   MonitorUp,
   Palette,
   Pencil,
@@ -68,7 +70,7 @@ import {
   validatePassword,
 } from "@onshell/shared";
 import { cx } from "@onshell/ui";
-import type { MemberHostAccess, PendingInvitation, TeamMember } from "./api";
+import type { HostExportFormat, MemberHostAccess, PendingInvitation, TeamMember } from "./api";
 import { consoleApi } from "./api";
 import { HostTransferPanel } from "./host-transfer";
 import type { AccentValue, ThemeMode } from "../theme";
@@ -488,6 +490,17 @@ const protocolIcons = {
   vnc: MonitorUp,
 } as const;
 
+/**
+ * Export formats offered straight from the hosts table. Deliberately the same
+ * set (and order) as the import/export workspace so the two do not drift; the
+ * labels are shorter here because they sit in a toolbar, not on a card.
+ */
+const HOST_EXPORT_FORMATS: Array<{ value: HostExportFormat; label: string; hint: string }> = [
+  { value: "json", label: "JSON", hint: "Re-importable into Onshell. Keeps groups, tags, and notes." },
+  { value: "csv", label: "CSV", hint: "Opens in Excel or Sheets. Also imports into Termius." },
+  { value: "ssh-config", label: "SSH config", hint: "Drop into ~/.ssh/config. SSH hosts only." },
+];
+
 export function HostsView({
   hosts,
   credentials,
@@ -522,6 +535,12 @@ export function HostsView({
   const [busy, setBusy] = useState(false);
   /** "hosts" is the table; "transfer" is the import/export workspace. */
   const [hostsTab, setHostsTab] = useState<"hosts" | "transfer">("hosts");
+  /**
+   * Export selection, keyed by host id rather than by row index so it survives
+   * searching, type filtering and sorting — a selection that silently retargeted
+   * itself when the filter changed would be a data-leak footgun on export.
+   */
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   // The vault credential (if any) currently attached to a host.
   const credentialForHost = (hostId: string) =>
@@ -537,6 +556,46 @@ export function HostsView({
       }),
     [hosts, query, typeFilter],
   );
+
+  // A host can vanish between refreshes (deleted here or elsewhere, or a grant
+  // revoked). Dropping its id keeps the count honest and stops the export URL
+  // carrying ids the API would only ignore. Returning `prev` unchanged when
+  // nothing was stale keeps this from looping.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const live = prev.filter((id) => hosts.some((host) => host.id === id));
+      return live.length === prev.length ? prev : live;
+    });
+  }, [hosts]);
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedVisibleCount = filtered.reduce(
+    (total, host) => total + (selectedSet.has(host.id) ? 1 : 0),
+    0,
+  );
+  const allVisibleSelected = filtered.length > 0 && selectedVisibleCount === filtered.length;
+  const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+
+  const toggleSelected = useCallback((hostId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId],
+    );
+  }, []);
+
+  // Select-all works on what is currently on screen; hosts hidden by the filter
+  // keep whatever state they had, so narrowing the filter is never destructive.
+  const toggleAllVisible = useCallback(() => {
+    const visibleIds = filtered.map((host) => host.id);
+    setSelectedIds((prev) => {
+      if (allVisibleSelected) {
+        const visible = new Set(visibleIds);
+        return prev.filter((id) => !visible.has(id));
+      }
+      return [...new Set([...prev, ...visibleIds])];
+    });
+  }, [allVisibleSelected, filtered]);
+
+  const exportLabel = selectedIds.length > 0 ? `Export ${selectedIds.length} selected` : "Export all";
 
   // Attach a vault credential to a host without disturbing its other hosts.
   async function attachCredential(credentialId: string, hostId: string) {
@@ -718,6 +777,50 @@ export function HostsView({
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {/* Sits between the header and the rows rather than up in .table-tools:
+          the count only means anything next to the checkboxes it counts, and the
+          header is already carrying five controls. */}
+      {canManageHosts(role) && !loading && hosts.length > 0 && (
+        <div className={cx("host-bulk", selectedIds.length > 0 && "has-selection")}>
+          {selectedIds.length > 0 ? (
+            <span className="host-bulk-count">
+              <Check size={14} />
+              <strong>{selectedIds.length} selected</strong>
+              <button
+                className="host-bulk-clear"
+                onClick={() => setSelectedIds([])}
+                type="button"
+              >
+                Clear
+              </button>
+            </span>
+          ) : (
+            <span className="host-bulk-hint">Tick hosts to export only those.</span>
+          )}
+          <span className="host-bulk-spacer" />
+          <span className="host-bulk-label">
+            <Download size={14} />
+            {exportLabel}
+          </span>
+          <span className="host-bulk-formats">
+            {HOST_EXPORT_FORMATS.map((option) => (
+              // Plain anchors: the download is a direct navigation so the browser
+              // streams the file instead of us buffering it into a blob.
+              <a
+                className="host-bulk-format"
+                download
+                href={consoleApi.hostExportUrl(option.value, selectedIds)}
+                key={option.value}
+                title={option.hint}
+              >
+                {option.label}
+              </a>
+            ))}
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <>
           <div className="skeleton-row" />
@@ -735,8 +838,26 @@ export function HostsView({
           title={hosts.length === 0 ? "No hosts yet" : "Nothing found"}
         />
       ) : (
-        <div className="host-table">
+        // "has-select" widens the grid by one track; without it the table keeps
+        // its original six columns for roles that cannot export.
+        <div className={cx("host-table", canManageHosts(role) && "has-select")}>
           <div className="host-row table-head">
+            {canManageHosts(role) && (
+              <span className="host-select-cell">
+                <input
+                  aria-label={allVisibleSelected ? "Select no hosts" : "Select all hosts"}
+                  checked={allVisibleSelected}
+                  className="host-select-box"
+                  onChange={toggleAllVisible}
+                  ref={(node) => {
+                    // React exposes no prop for the tri-state, so the partial
+                    // "some but not all" mark has to be set on the DOM node.
+                    if (node) node.indeterminate = someVisibleSelected;
+                  }}
+                  type="checkbox"
+                />
+              </span>
+            )}
             <span>Name</span>
             <span>Address</span>
             <span>Environment</span>
@@ -746,22 +867,45 @@ export function HostsView({
           </div>
           {filtered.map((host) => {
             const Icon = protocolIcons[host.type] ?? SquareTerminal;
+            const selected = selectedSet.has(host.id);
             return (
-              <div className="host-row" key={host.id}>
+              <div className={cx("host-row", selected && "is-selected")} key={host.id}>
+                {canManageHosts(role) && (
+                  <div
+                    className="host-select-cell"
+                    // Rows carry their own click affordances (and the cursor to
+                    // match), so ticking a box must not also open the host.
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      aria-label={`Select ${host.name}`}
+                      checked={selected}
+                      className="host-select-box"
+                      onChange={() => toggleSelected(host.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      type="checkbox"
+                    />
+                  </div>
+                )}
                 <div className="host-title">
-                  <Icon className={cx("protocol-icon", host.type)} size={16} />
+                  {host.isLocal ? (
+                    <MonitorSmartphone className="protocol-icon ssh" size={16} />
+                  ) : (
+                    <Icon className={cx("protocol-icon", host.type)} size={16} />
+                  )}
                   <div>
-                    <strong>{host.name}</strong>
+                    <strong>
+                      {host.name}
+                      {host.isLocal && <span className="host-builtin">Built-in</span>}
+                    </strong>
                     <small>
-                      {host.type.toUpperCase()}
+                      {host.isLocal ? "Shell + files on this machine" : host.type.toUpperCase()}
                       {host.group ? ` · ${host.group}` : ""}
                       {host.tags.length > 0 ? ` · ${host.tags.join(", ")}` : ""}
                     </small>
                   </div>
                 </div>
-                <span>
-                  {host.address}:{host.port}
-                </span>
+                <span>{host.isLocal ? "No credential needed" : `${host.address}:${host.port}`}</span>
                 <span className={cx("env-pill", host.environment)}>
                   {host.environment}
                 </span>
@@ -785,7 +929,9 @@ export function HostsView({
                       <Play size={14} />
                     </button>
                   )}
-                  {canManageHosts(role) && (
+                  {/* The built-in local host has no address to edit and the API
+                      refuses to delete it, so it gets neither control. */}
+                  {canManageHosts(role) && !host.isLocal && (
                     <button
                       aria-label={`Edit ${host.name}`}
                       className="icon-button compact"
@@ -796,7 +942,7 @@ export function HostsView({
                       <Pencil size={14} />
                     </button>
                   )}
-                  {canManageHosts(role) && (
+                  {canManageHosts(role) && !host.isLocal && (
                     <button
                       aria-label={`Delete ${host.name}`}
                       className="icon-button compact"

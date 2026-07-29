@@ -138,6 +138,11 @@ module.exports = {
         GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET || "",
         GOOGLE_REDIRECT_URI: env.GOOGLE_REDIRECT_URI || `${API_BASE_URL}/auth/google/callback`,
         CONTACT_NOTIFY_EMAIL: env.CONTACT_NOTIFY_EMAIL || "support@onshell.cloud",
+        // Shared with the gateway process below. Left empty when unset rather
+        // than defaulted: a hardcoded fallback would be the same on every
+        // deployment, which is no better than no secret at all.
+        GATEWAY_SHARED_SECRET: env.GATEWAY_SHARED_SECRET || "",
+        LOCAL_SHELL_ENABLED: env.LOCAL_SHELL_ENABLED || "true",
       },
     },
     {
@@ -155,6 +160,9 @@ module.exports = {
         GATEWAY_BASE_URL,
         GUACD_HOST: env.GUACD_HOST || "localhost",
         GUACD_PORT: env.GUACD_PORT || "4822",
+        // Must match the API's value; when set, the gateway's REST routes stop
+        // answering unauthenticated callers.
+        GATEWAY_SHARED_SECRET: env.GATEWAY_SHARED_SECRET || "",
       },
     },
   ],

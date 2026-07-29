@@ -63,6 +63,11 @@ export interface Host {
   group?: string;
   notes?: string;
   health: "unknown" | "online" | "degraded" | "offline";
+  /**
+   * The machine the gateway runs on. Opens a shell and browses files without a
+   * credential, and cannot be edited or deleted from the console.
+   */
+  isLocal?: boolean;
   lastSessionAt?: string;
   createdAt: string;
   updatedAt: string;
