@@ -5,15 +5,15 @@ browser SSH terminals, SFTP file operations, RDP sessions, saved hosts, encrypte
 credentials, snippets, audit logs, an OpenAI-powered assistant, subscriptions,
 packages, SMTP, and platform administration.
 
-Production domain: **https://onshell.cloud** (API on `api.onshell.cloud`, gateway on
-`gateway.onshell.cloud`).
+Production domain: **https://onshell.cloud** — one host, with the API under `/api` and
+the gateway under `/gateway` (see [docs/deploy-cloudpanel.md](docs/deploy-cloudpanel.md)).
 
 ## Apps
 
 * `apps/web` - Next.js public SaaS page, customer console, and admin panel
 * `apps/api` - Fastify API with auth, hosts, credentials, sessions, billing, plans, SMTP, settings, and audit routes
 * `apps/gateway` - SSH/SFTP/RDP gateway service skeleton
-* `apps/agent` - the program a customer installs on their own machine so a browser can open that machine's terminal (see [docs/agent.md](docs/agent.md))
+* `apps/agent` - the program a customer installs on their own machine so a browser can open that machine's terminal (see [docs/agent.md](docs/agent.md); what is left to ship it is in [docs/rollout.md](docs/rollout.md))
 * `packages/agent-protocol` - the wire protocol between an agent and the gateway
 * `packages/shared` - shared types and RBAC/business helpers
 * `packages/config` - environment config loader
@@ -156,15 +156,15 @@ The Compose stack includes:
 2. Configure DNS for `onshell.cloud`:
 
 ```text
-A/AAAA  onshell.cloud          -> server
-CNAME   www.onshell.cloud      -> onshell.cloud
-A       api.onshell.cloud      -> server
-A       gateway.onshell.cloud  -> server   (needs WebSocket upgrade in Nginx)
+A/AAAA  onshell.cloud      -> server
+CNAME   www.onshell.cloud  -> onshell.cloud
 ```
 
-   All three are subdomains of one registrable domain, so the session cookie
-   (`Domain=.onshell.cloud`) is same-site and `SameSite=Lax` still blocks
-   cross-site POSTs while allowing the console's XHR.
+   One host serves everything: Nginx routes `/api` to the API and `/gateway` to
+   the gateway, which needs `Upgrade`/`Connection` headers and a long
+   `proxy_read_timeout` for the terminal and agent WebSockets. Because it is all
+   one origin, the session cookie is first-party and there is no cross-site
+   request for a browser to reason about.
 
 3. Set production environment variables (see `.env.example`; `SITE_URL`,
    `API_BASE_URL`, `GATEWAY_BASE_URL`, and `CORS_ORIGINS` all default to the
@@ -332,7 +332,7 @@ Email/password login remains enabled. Google login is available after setting:
 ```env
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=https://api.onshell.cloud/auth/google/callback
+GOOGLE_REDIRECT_URI=https://onshell.cloud/api/auth/google/callback
 ```
 
 For local development use:

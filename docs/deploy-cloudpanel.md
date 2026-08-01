@@ -1,14 +1,14 @@
-# Deploy onshell.cloud on CloudPanel — `web.onshell.cloud`
+# Deploy onshell.cloud on CloudPanel — `onshell.cloud`
 
 CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + Fastify API + Gateway + MySQL + Redis) কীভাবে
-একটা subdomain `web.onshell.cloud` এ host করবে, তার step-by-step runbook।
+একটা subdomain `onshell.cloud` এ host করবে, তার step-by-step runbook।
 
 ## Architecture (single subdomain, path routing)
 
 সব traffic একটাই domain দিয়ে ঢুকবে; CloudPanel এর Nginx সেটা ভেতরের ৩টা Node process এ route করবে:
 
 ```
-                         https://web.onshell.cloud   (CloudPanel Nginx + Let's Encrypt SSL)
+                         https://onshell.cloud   (CloudPanel Nginx + Let's Encrypt SSL)
                                         │
         ┌───────────────────────────────┼───────────────────────────────┐
         │ location /                     │ location /api/                 │ location /gateway/
@@ -21,7 +21,7 @@ CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + F
 ```
 
 - Node process গুলো শুধু `127.0.0.1` এ listen করে — বাইরে থেকে সরাসরি reachable নয়। শুধু `80/443` public.
-- Browser-এর API call যায় `https://web.onshell.cloud/api/...` এ, Nginx সেটা `/api` prefix বাদ দিয়ে API তে পাঠায়।
+- Browser-এর API call যায় `https://onshell.cloud/api/...` এ, Nginx সেটা `/api` prefix বাদ দিয়ে API তে পাঠায়।
 - Same-origin, তাই JWT cookie আর CORS নিয়ে বাড়তি ঝামেলা নেই।
 
 ---
@@ -44,7 +44,7 @@ CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + F
 
 > Cloudflare ব্যবহার করলে প্রথমে **DNS only (grey cloud)** রাখো যাতে Let's Encrypt issue করা যায়। SSL ঠিকমতো হওয়ার পর orange cloud (proxy) অন করতে পারো।
 
-`dig +short web.onshell.cloud` দিয়ে verify করো IP ঠিক আসছে কিনা।
+`dig +short onshell.cloud` দিয়ে verify করো IP ঠিক আসছে কিনা।
 
 ---
 
@@ -85,14 +85,14 @@ mysql://onshell:<DB_PASSWORD>@127.0.0.1:3306/onshell_cloud
 
 CloudPanel UI → **Sites** → **Add Site** → **Create a Node.js Site**:
 
-- **Domain Name:** `web.onshell.cloud`
+- **Domain Name:** `onshell.cloud`
 - **Node.js Version:** `22`
 - **App Port:** `5018`  ← আমাদের web app এই port-এ চলবে
 - **Site User:** `onshell` (একটা system user তৈরি হবে)
 - **Site User Password:** নোট করে রাখো
 
 Create করলে CloudPanel:
-- একটা Linux user + home dir বানায়: `/home/onshell/htdocs/web.onshell.cloud`
+- একটা Linux user + home dir বানায়: `/home/onshell/htdocs/onshell.cloud`
 - একটা Nginx vhost বানায় যেটা `443/80` → `127.0.0.1:5018` reverse-proxy করে (এটা আমরা পরে edit করে `/api` আর `/gateway` যোগ করবো)।
 
 > Button/tab-এর নাম CloudPanel version ভেদে সামান্য আলাদা হতে পারে, কিন্তু ধাপগুলো একই।
@@ -130,7 +130,7 @@ pm2 -v
 ## 6. কোড আনা + `.env` বানানো
 
 ```bash
-cd ~/htdocs/web.onshell.cloud
+cd ~/htdocs/onshell.cloud
 # htdocs খালি থাকলে সরাসরি এখানে clone করো (অথবা temp-এ clone করে content move করো):
 git clone <YOUR_REPO_URL> .
 ```
@@ -158,13 +158,13 @@ API_PORT=5017
 GATEWAY_PORT=5019
 
 # Public base URLs — single subdomain, path routing
-PUBLIC_BASE_URL=https://web.onshell.cloud
-API_BASE_URL=https://web.onshell.cloud/api
-GATEWAY_BASE_URL=https://web.onshell.cloud/gateway
+PUBLIC_BASE_URL=https://onshell.cloud
+API_BASE_URL=https://onshell.cloud/api
+GATEWAY_BASE_URL=https://onshell.cloud/gateway
 
 # Web (Next.js) client bundle — build time-এ bake হয়
-NEXT_PUBLIC_API_BASE_URL=https://web.onshell.cloud/api
-NEXT_PUBLIC_GATEWAY_BASE_URL=https://web.onshell.cloud/gateway
+NEXT_PUBLIC_API_BASE_URL=https://onshell.cloud/api
+NEXT_PUBLIC_GATEWAY_BASE_URL=https://onshell.cloud/gateway
 
 # Database (CloudPanel MySQL) + Redis
 DATABASE_URL=mysql://onshell:<DB_PASSWORD>@127.0.0.1:3306/onshell_cloud
@@ -173,7 +173,7 @@ REDIS_URL=redis://127.0.0.1:6379
 # Secrets — অবশ্যই বদলাও
 JWT_SECRET=<long-random-string>
 MASTER_ENCRYPTION_KEY=<32-byte-base64-key>
-CORS_ORIGINS=https://web.onshell.cloud
+CORS_ORIGINS=https://onshell.cloud
 
 # Admin seed account
 ADMIN_EMAIL=you@example.com
@@ -182,7 +182,7 @@ ADMIN_PASSWORD=<strong-admin-password>
 # Google OAuth (optional; না লাগলে খালি রাখো)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=https://web.onshell.cloud/api/auth/google/callback
+GOOGLE_REDIRECT_URI=https://onshell.cloud/api/auth/google/callback
 
 # SMTP (optional)
 SMTP_HOST=smtp.example.com
@@ -212,7 +212,7 @@ openssl rand -base64 32   # MASTER_ENCRYPTION_KEY
 ## 7. Install → Build → Migrate → Seed
 
 ```bash
-cd ~/htdocs/web.onshell.cloud
+cd ~/htdocs/onshell.cloud
 set -a && source .env && set +a      # .env কে shell env-এ load করো
 
 # Prisma CLI apps/api/ থেকে run হয়, তাই root .env এর একটা symlink দিয়ে দাও
@@ -241,7 +241,7 @@ Repo-তে already একটা `ecosystem.config.cjs` আছে (web=5018, api
 নিজে থেকেই root `.env` load করে নেয়, তাই আলাদা করে source করা লাগে না (shell-এ set করা থাকলে সেটাই অগ্রাধিকার পায়):
 
 ```bash
-cd ~/htdocs/web.onshell.cloud
+cd ~/htdocs/onshell.cloud
 pm2 start ecosystem.config.cjs
 pm2 status
 pm2 logs                              # সব service-এর log
@@ -267,7 +267,7 @@ pm2 save
 
 ## 9. Nginx vhost edit — `/api` আর `/gateway` route যোগ করা
 
-CloudPanel UI → **Sites** → `web.onshell.cloud` → **Vhost** tab।
+CloudPanel UI → **Sites** → `onshell.cloud` → **Vhost** tab।
 
 ডিফল্ট vhost-এ শুধু `location / { ... :5018 }` আছে। HTTPS `server { }` block-এর ভেতরে, `location / { }` এর **পাশে/উপরে** নিচের দুইটা block যোগ করো:
 
@@ -319,7 +319,7 @@ Save করলে CloudPanel config test করে Nginx reload করে। Err
 
 ## 10. SSL (Let's Encrypt)
 
-CloudPanel UI → **Sites** → `web.onshell.cloud` → **SSL/TLS** → **Actions → New Let's Encrypt Certificate** → **Create and Install**।
+CloudPanel UI → **Sites** → `onshell.cloud` → **SSL/TLS** → **Actions → New Let's Encrypt Certificate** → **Create and Install**।
 
 DNS ঠিকমতো point করা থাকলে কয়েক সেকেন্ডে issue হবে এবং HTTP→HTTPS redirect অন হবে। (Cloudflare proxy অন থাকলে issue fail করতে পারে — আগে grey cloud রাখো।)
 
@@ -338,12 +338,12 @@ curl -s http://127.0.0.1:5019/health             # gateway
 বাইরে থেকে (public, path routing সহ):
 
 ```bash
-curl -s https://web.onshell.cloud/api/health     # => API health JSON
-curl -s https://web.onshell.cloud/gateway/health # => gateway health JSON
-curl -sI https://web.onshell.cloud               # => 200, Next.js web
+curl -s https://onshell.cloud/api/health     # => API health JSON
+curl -s https://onshell.cloud/gateway/health # => gateway health JSON
+curl -sI https://onshell.cloud               # => 200, Next.js web
 ```
 
-Browser-এ `https://web.onshell.cloud` খুলে `/login` এ seed করা admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD`) দিয়ে login করে দেখো। Browser DevTools → Network-এ API call গুলো `https://web.onshell.cloud/api/...` এ যাচ্ছে কিনা confirm করো।
+Browser-এ `https://onshell.cloud` খুলে `/login` এ seed করা admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD`) দিয়ে login করে দেখো। Browser DevTools → Network-এ API call গুলো `https://onshell.cloud/api/...` এ যাচ্ছে কিনা confirm করো।
 
 ---
 
@@ -368,7 +368,7 @@ sudo ufw status
 Google Cloud Console → OAuth client → **Authorized redirect URIs**-এ যোগ করো:
 
 ```
-https://web.onshell.cloud/api/auth/google/callback
+https://onshell.cloud/api/auth/google/callback
 ```
 
 আর `.env`-এ `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` বসিয়ে rebuild/restart করো (ধাপ ১৪)।
@@ -378,7 +378,7 @@ https://web.onshell.cloud/api/auth/google/callback
 ## 14. আপডেট / redeploy (নতুন কোড push করলে)
 
 ```bash
-cd ~/htdocs/web.onshell.cloud
+cd ~/htdocs/onshell.cloud
 set -a && source .env && set +a
 git pull
 yarn install --immutable
@@ -410,7 +410,7 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 | সমস্যা | কারণ / সমাধান |
 |---|---|
 | `502 Bad Gateway` | PM2 process down বা ভুল port। `pm2 status`, `pm2 logs onshell-web` দেখো; vhost-এর port (5018/5017/5019) মিলিয়ে দেখো। |
-| `525 SSL handshake failed` | Cloudflare error — Cloudflare ↔ origin এর মধ্যে TLS handshake ফেল। কারণ: Cloudflare proxy (orange) অন কিন্তু origin-এ valid SSL cert নেই (grey cloud না রেখে Let's Encrypt issue করায় বসেনি), বা SSL/TLS mode ভুল। মূল পেজ cache থেকে load হলেও `/api/*` (dynamic) origin hit করে বলে ওখানেই 525 দেখা যায়। **সমাধান:** grey cloud করে Let's Encrypt issue করো (ধাপ ১০), **অথবা** Cloudflare Origin Certificate origin-এ বসাও; তারপর SSL/TLS mode = **Full (strict)**। "Flexible" ব্যবহার করো না। Verify (Cloudflare bypass করে origin টেস্ট): `curl -sv --resolve web.onshell.cloud:443:<VPS_IP> https://web.onshell.cloud/api/health`। |
+| `525 SSL handshake failed` | Cloudflare error — Cloudflare ↔ origin এর মধ্যে TLS handshake ফেল। কারণ: Cloudflare proxy (orange) অন কিন্তু origin-এ valid SSL cert নেই (grey cloud না রেখে Let's Encrypt issue করায় বসেনি), বা SSL/TLS mode ভুল। মূল পেজ cache থেকে load হলেও `/api/*` (dynamic) origin hit করে বলে ওখানেই 525 দেখা যায়। **সমাধান:** grey cloud করে Let's Encrypt issue করো (ধাপ ১০), **অথবা** Cloudflare Origin Certificate origin-এ বসাও; তারপর SSL/TLS mode = **Full (strict)**। "Flexible" ব্যবহার করো না। Verify (Cloudflare bypass করে origin টেস্ট): `curl -sv --resolve onshell.cloud:443:<VPS_IP> https://onshell.cloud/api/health`। |
 | Web খোলে, কিন্তু login/API fail | `NEXT_PUBLIC_API_BASE_URL` ভুল বা build-এ bake হয়নি → `.env` ঠিক করে `yarn build` আবার চালাও। DevTools-এ actual call URL দেখো। |
 | `P1001: can't reach database` | `DATABASE_URL` ভুল, MySQL down, বা password-এ special char URL-encode হয়নি। `mysql -u onshell -p onshell_cloud` দিয়ে test করো। |
 | Migration fail / access denied | CloudPanel-এ DB user-এর privilege, host `127.0.0.1` ঠিক আছে কিনা দেখো। |
@@ -436,7 +436,7 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 
 একটাই path routing-এর বদলে চাইলে আলাদা subdomain-ও করা যায় (cleaner separation, তবে ৩টা site + ৩টা SSL):
 
-- `web.onshell.cloud` → web (5018)
+- `onshell.cloud` → web (5018)
 - `api.onshell.cloud` → api (5017)
 - `gateway.onshell.cloud` → gateway (5019)
 

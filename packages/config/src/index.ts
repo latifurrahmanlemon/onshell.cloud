@@ -53,9 +53,17 @@ const defaultPorts: Record<ServiceName, number> = {
   web: 3000
 };
 
+/**
+ * Production defaults, used when the environment does not say otherwise.
+ *
+ * One host with path prefixes rather than three subdomains: that is what the
+ * deployment actually runs (see docs/deploy-cloudpanel.md), and defaults that
+ * disagree with the deployment are worse than no defaults — they fail late, in
+ * production, with a DNS error nobody expected.
+ */
 const PRODUCTION_SITE_URL = "https://onshell.cloud";
-const PRODUCTION_API_URL = "https://api.onshell.cloud";
-const PRODUCTION_GATEWAY_URL = "https://gateway.onshell.cloud";
+const PRODUCTION_API_URL = "https://onshell.cloud/api";
+const PRODUCTION_GATEWAY_URL = "https://onshell.cloud/gateway";
 
 /**
  * Placeholder secrets that ship in `.env.example`. Booting production with any
@@ -109,7 +117,7 @@ function optionalBoolean(name: string) {
 
 /**
  * Derives the registrable domain so one cookie covers `onshell.cloud`,
- * `www.onshell.cloud`, and `api.onshell.cloud`. Returns undefined for
+ * `www.onshell.cloud`, and any future subdomain. Returns undefined for
  * localhost and bare IPs, where a `Domain` attribute would break the cookie.
  */
 function deriveCookieDomain(siteUrl: string) {

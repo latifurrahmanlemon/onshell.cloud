@@ -54,8 +54,16 @@ function toBuffer(data: RawData): Buffer {
   return Buffer.from(new Uint8Array(data as ArrayBuffer));
 }
 
+/**
+ * Builds the tunnel URL from the configured gateway base.
+ *
+ * Appended to the base *path*, not resolved against it. The gateway is not its
+ * own host: the deployment puts it behind a path prefix
+ * (`https://onshell.cloud/gateway`), and `new URL("/ws/agent", base)` would
+ * silently drop that prefix and dial a URL that does not exist.
+ */
 function websocketUrl(gatewayBaseUrl: string) {
-  const url = new URL("/ws/agent", gatewayBaseUrl);
+  const url = new URL(`${gatewayBaseUrl.replace(/\/+$/, "")}/ws/agent`);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

@@ -15,6 +15,17 @@ import { isApprovalMode, type ApprovalMode } from "./consent.js";
 
 export const AGENT_VERSION = "0.1.0";
 
+/**
+ * Where a freshly installed agent looks, before anyone has told it otherwise.
+ *
+ * One constant, because the API and the gateway sit behind path prefixes on the
+ * same host (`/api` and `/gateway`) rather than on subdomains — see
+ * docs/deploy-cloudpanel.md. An agent shipped to a customer has no environment
+ * and no config file yet, so if these are wrong, `onshell-agent pair` fails
+ * before it can be told anything.
+ */
+const PRODUCTION_SITE_URL = "https://onshell.cloud";
+
 export interface AgentConfig {
   apiBaseUrl: string;
   gatewayBaseUrl: string;
@@ -78,8 +89,8 @@ export async function loadAgentConfig(): Promise<AgentConfig> {
   // Environment wins over the file so a developer can point one machine at a
   // local gateway without editing (and later re-committing) stored state.
   return {
-    apiBaseUrl: process.env.ONSHELL_API_URL ?? stored.apiBaseUrl ?? "https://api.onshell.cloud",
-    gatewayBaseUrl: process.env.ONSHELL_GATEWAY_URL ?? stored.gatewayBaseUrl ?? "https://gateway.onshell.cloud",
+    apiBaseUrl: process.env.ONSHELL_API_URL ?? stored.apiBaseUrl ?? `${PRODUCTION_SITE_URL}/api`,
+    gatewayBaseUrl: process.env.ONSHELL_GATEWAY_URL ?? stored.gatewayBaseUrl ?? `${PRODUCTION_SITE_URL}/gateway`,
     deviceId: process.env.ONSHELL_DEVICE_ID ?? stored.deviceId,
     deviceToken: process.env.ONSHELL_DEVICE_TOKEN ?? stored.deviceToken,
     ownerUserId: stored.ownerUserId,

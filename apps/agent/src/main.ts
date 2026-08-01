@@ -38,8 +38,9 @@ const USAGE = `onshell-agent ${AGENT_VERSION}
   onshell-agent --version      Print the version
 
 Environment:
-  ONSHELL_API_URL              API base URL (default https://api.onshell.cloud)
-  ONSHELL_GATEWAY_URL          Gateway base URL (default https://gateway.onshell.cloud)
+  ONSHELL_API_URL              API base URL (default https://onshell.cloud/api)
+  ONSHELL_GATEWAY_URL          Gateway base URL (default https://onshell.cloud/gateway)
+  ONSHELL_APPROVAL             trusted | ask | always (overrides the stored setting)
 `;
 
 const APPROVAL_SUMMARY: Record<ApprovalMode, string> = {

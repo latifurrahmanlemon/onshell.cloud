@@ -5,10 +5,10 @@
  * on their own ports (the web app talks to them).
  *
  * DNS + Nginx for the domain (see docs/deployment.md):
- *   A/AAAA  onshell.cloud          -> server
- *   CNAME   www.onshell.cloud      -> onshell.cloud
- *   A       api.onshell.cloud      -> server
- *   A       gateway.onshell.cloud  -> server
+ *   A/AAAA  onshell.cloud      -> server
+ *   CNAME   www.onshell.cloud  -> onshell.cloud
+ *
+ *   One host; Nginx routes /api and /gateway to the two services below.
  *
  *   Prereqs (run once):
  *     yarn install
@@ -63,15 +63,15 @@ const GATEWAY_PORT = Number(env.GATEWAY_PORT) || 5019;
 const DATABASE_URL = env.DATABASE_URL || "mysql://onshell:onshell@localhost:3306/onshell_cloud";
 const REDIS_URL = env.REDIS_URL || "redis://localhost:6379";
 
-// Public domain. Nginx terminates TLS for onshell.cloud and reverse-proxies to
-// the local ports above:
-//   onshell.cloud          -> 127.0.0.1:WEB_PORT
-//   api.onshell.cloud      -> 127.0.0.1:API_PORT
-//   gateway.onshell.cloud  -> 127.0.0.1:GATEWAY_PORT   (WebSocket upgrade)
+// Public domain. Nginx terminates TLS for onshell.cloud and reverse-proxies by
+// path to the local ports above:
+//   onshell.cloud/          -> 127.0.0.1:WEB_PORT
+//   onshell.cloud/api/      -> 127.0.0.1:API_PORT
+//   onshell.cloud/gateway/  -> 127.0.0.1:GATEWAY_PORT   (WebSocket upgrade)
 const SITE_URL = env.SITE_URL || "https://onshell.cloud";
 const PUBLIC_BASE_URL = env.PUBLIC_BASE_URL || SITE_URL;
-const API_BASE_URL = env.API_BASE_URL || "https://api.onshell.cloud";
-const GATEWAY_BASE_URL = env.GATEWAY_BASE_URL || "https://gateway.onshell.cloud";
+const API_BASE_URL = env.API_BASE_URL || `${SITE_URL}/api`;
+const GATEWAY_BASE_URL = env.GATEWAY_BASE_URL || `${SITE_URL}/gateway`;
 const CORS_ORIGINS = env.CORS_ORIGINS || `${SITE_URL},https://www.onshell.cloud`;
 const COOKIE_DOMAIN = env.COOKIE_DOMAIN || ".onshell.cloud";
 

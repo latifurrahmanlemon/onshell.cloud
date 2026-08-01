@@ -55,7 +55,7 @@ flowchart LR
 
 Two paths, one agent:
 
-**Tunnel (default).** The agent dials *out* to `gateway.onshell.cloud` and holds the
+**Tunnel (default).** The agent dials *out* to `onshell.cloud/gateway` and holds the
 connection open. Works behind any NAT or firewall that allows outbound HTTPS, which is
 all of them. Lets a phone in another country reach a desktop at home. Every byte is
 attributable in the audit log.
