@@ -1,8 +1,30 @@
 export const roles = ["owner", "admin", "devops", "developer", "auditor"] as const;
 export type Role = (typeof roles)[number];
 
-export const hostTypes = ["ssh", "rdp", "vnc"] as const;
+export const hostTypes = ["ssh", "rdp", "vnc", "agent"] as const;
 export type HostType = (typeof hostTypes)[number];
+
+/**
+ * Host types that name something to connect *to*.
+ *
+ * An agent host is never typed in, imported, or given an address — it comes
+ * into existence when a machine enrols itself and disappears when that device
+ * is deleted. Anything that asks a user for a host type wants this, not
+ * `HostType`.
+ */
+export type DialableHostType = Exclude<HostType, "agent">;
+
+/**
+ * Host types that give you a shell and a filesystem, as opposed to a screen.
+ *
+ * `ssh` reaches a server by dialling it; `agent` reaches a personal machine
+ * through the tunnel it holds open to us. The console treats them the same
+ * everywhere it offers a terminal or a file pane, which is why this predicate
+ * exists rather than a `type === "ssh"` check repeated in three places.
+ */
+export function isShellHost(host: { type: HostType }) {
+  return host.type === "ssh" || host.type === "agent";
+}
 
 export const environments = ["production", "staging", "development"] as const;
 export type Environment = (typeof environments)[number];
@@ -68,7 +90,43 @@ export interface Host {
    * credential, and cannot be edited or deleted from the console.
    */
   isLocal?: boolean;
+  /**
+   * A machine running the Onshell Agent. Reached through the tunnel that
+   * machine holds open to the gateway, so it needs no credential and no
+   * reachable address — see docs/agent.md.
+   */
+  isAgent?: boolean;
   lastSessionAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One shell an agent offers, as advertised by the machine itself. */
+export interface AgentShellOption {
+  token: string;
+  label: string;
+  default: boolean;
+}
+
+/** An enrolled machine, as the console renders it. */
+export interface AgentDevice {
+  id: string;
+  organizationId: string;
+  hostId: string;
+  name: string;
+  platform: string;
+  arch: string;
+  osVersion?: string;
+  agentVersion?: string;
+  hostname?: string;
+  /** Whether the machine is connected to the gateway right now. */
+  online: boolean;
+  /** Shells the machine advertised on its current connection. Empty when offline. */
+  shells: AgentShellOption[];
+  lastSeenAt?: string;
+  revokedAt?: string;
+  /** Absent once the person who paired the machine has been deleted. */
+  enrolledById?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -4,6 +4,7 @@ import { canEditFiles, canOpenSession } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { decryptSecret } from "../../lib/encryption.js";
+import { gatewayHeaders } from "../../lib/gateway.js";
 import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import {
@@ -17,7 +18,12 @@ import { handleRouteError } from "../../lib/reply.js";
 const openSessionSchema = z.object({
   hostId: z.string(),
   protocol: z.enum(["ssh", "sftp", "rdp"]).default("ssh"),
-  credentialId: z.string().optional()
+  credentialId: z.string().optional(),
+  /**
+   * Agent hosts only: which of the machine's advertised shells to start
+   * (`powershell`, `cmd`, `bash`, …). Omitted means that machine's default.
+   */
+  shell: z.string().max(64).optional()
 });
 
 const listSessionsQuerySchema = z.object({
@@ -52,16 +58,14 @@ const deletePathQuerySchema = z.object({
 });
 
 interface GatewayOpenResponse {
-  session: { id: string; status: string; websocketPath?: string };
+  session: {
+    id: string;
+    status: string;
+    websocketPath?: string;
+    metadata?: { localTicket?: unknown; localPort?: unknown };
+  };
   connectUrl: string;
   websocketUrl?: string;
-}
-
-function gatewayHeaders() {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  const sharedSecret = process.env.GATEWAY_SHARED_SECRET;
-  if (sharedSecret) headers.authorization = `Bearer ${sharedSecret}`;
-  return headers;
 }
 
 function toWebsocketUrl(gatewayBaseUrl: string, path: string) {
@@ -216,7 +220,7 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
       const accessFilter = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
       const host = await prisma.host.findFirst({
         where: { ...accessFilter, id: body.hostId },
-        include: { credentials: { orderBy: { createdAt: "asc" }, take: 1 } }
+        include: { credentials: { orderBy: { createdAt: "asc" }, take: 1 }, agentDevice: true }
       });
       if (!host) {
         // Separate "you have no grant" from "no such host" so the console can
@@ -229,6 +233,38 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
         return inOrganization > 0
           ? reply.code(403).send({ error: "host_access_denied" })
           : reply.code(404).send({ error: "host_not_found" });
+      }
+
+      if (host.isAgent) {
+        if (body.protocol === "rdp") {
+          return reply.code(400).send({
+            error: "protocol_unsupported_for_agent_host",
+            message: "An agent host serves a terminal and files, not a remote desktop."
+          });
+        }
+        if (!host.agentDevice) {
+          return reply.code(409).send({ error: "agent_device_missing" });
+        }
+        if (host.agentDevice.revokedAt) {
+          return reply.code(403).send({
+            error: "agent_device_revoked",
+            message: "Access to this machine was revoked. Pair it again to restore access."
+          });
+        }
+        // Per-device policy, so one machine can offer files without a shell, or
+        // the other way round.
+        if (body.protocol === "ssh" && !host.agentDevice.allowShell) {
+          return reply.code(403).send({
+            error: "agent_shell_disabled",
+            message: "Terminal access is turned off for this machine."
+          });
+        }
+        if (body.protocol === "sftp" && !host.agentDevice.allowFiles) {
+          return reply.code(403).send({
+            error: "agent_files_disabled",
+            message: "File access is turned off for this machine."
+          });
+        }
       }
 
       if (host.isLocal) {
@@ -248,16 +284,18 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
         }
       }
 
-      // The local host runs the shell inside the gateway process, so there is
-      // nothing to authenticate against and no credential to look up.
-      const credential = host.isLocal
+      // Neither the local host nor an agent host is dialled: the first spawns a
+      // shell inside the gateway process, the second is already connected to us
+      // from the far end. There is nothing to authenticate against either way.
+      const credentialless = host.isLocal || host.isAgent;
+      const credential = credentialless
         ? null
         : body.credentialId
           ? await prisma.credential.findFirst({
               where: { id: body.credentialId, organizationId: actor.organizationId }
             })
           : host.credentials[0];
-      if (!credential && !host.isLocal) {
+      if (!credential && !credentialless) {
         return body.credentialId
           ? reply.code(404).send({ error: "credential_not_found" })
           : reply.code(400).send({ error: "no_credential_for_host" });
@@ -311,12 +349,22 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
         port: host.port,
         username: host.username ?? undefined,
         // "local" tells the gateway to spawn a shell / read the filesystem in
-        // process rather than dial out over SSH.
-        ...(host.isLocal
-          ? { transport: "local" as const }
-          : credential?.kind === "SSH_KEY"
-            ? { privateKey: secret ?? undefined }
-            : { password: secret ?? undefined })
+        // process rather than dial out over SSH; "agent" tells it to route
+        // through the tunnel the named machine is holding open.
+        ...(host.isAgent
+          ? {
+              transport: "agent" as const,
+              deviceId: host.agentDevice?.id,
+              shell: body.shell,
+              // The machine decides for itself whether to allow this, and needs
+              // to know who is asking to make that a real decision.
+              requestedBy: { id: actor.id, name: actor.name, email: actor.email }
+            }
+          : host.isLocal
+            ? { transport: "local" as const }
+            : credential?.kind === "SSH_KEY"
+              ? { privateKey: secret ?? undefined }
+              : { password: secret ?? undefined })
       };
 
       let gateway: GatewayOpenResponse;
@@ -326,6 +374,26 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
           headers: gatewayHeaders(),
           body: JSON.stringify(gatewayBody)
         });
+        // 409 is the gateway saying "that machine is not connected". Nothing
+        // failed, so it must not be reported as an outage — the user needs to
+        // go turn their computer on, not retry.
+        if (response.status === 409 && host.isAgent) {
+          const failure = (await response.json().catch(() => ({}))) as { error?: string };
+          // Told apart because they call for opposite things from the user: one
+          // means go and switch the machine on, the other means go and ask the
+          // person sitting at it.
+          if (failure.error === "consent_denied") {
+            return reply.code(403).send({
+              error: "agent_consent_denied",
+              message: "Someone at that computer declined this session."
+            });
+          }
+
+          return reply.code(409).send({
+            error: "agent_offline",
+            message: "That machine is not connected to Onshell right now."
+          });
+        }
         if (!response.ok) {
           throw new Error(`gateway responded with status ${response.status}`);
         }
@@ -389,9 +457,19 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
           ? null
           : toWebsocketUrl(config.gatewayBaseUrl, `/ws/${body.protocol}/${gateway.session.id}`);
 
+      // An agent on the same machine as this browser can be reached directly.
+      // Offered, never required: the console verifies the machine on the other
+      // end and falls back to `websocketUrl` if anything about it does not work.
+      const metadata = gateway.session.metadata ?? {};
+      const localRoute =
+        typeof metadata.localTicket === "string" && typeof metadata.localPort === "number"
+          ? { port: metadata.localPort, ticket: metadata.localTicket, deviceId: host.agentDevice?.id }
+          : undefined;
+
       return reply.code(201).send({
         session: toRemoteSession(session),
-        websocketUrl
+        websocketUrl,
+        localRoute
       });
     } catch (error) {
       return handleRouteError(reply, error);

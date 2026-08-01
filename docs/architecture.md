@@ -22,7 +22,8 @@ flowchart LR
 
 * `apps/web`: renders the public SaaS page, customer console, admin panel, host list, terminal/RDP surfaces, snippets, and audit views.
 * `apps/api`: owns authentication, organizations, RBAC, hosts, credential metadata, session records, snippets, public packages, checkout contracts, subscriptions, SMTP settings, platform settings, users, and audit events.
-* `apps/gateway`: owns protocol sessions and performs server-side SSH, SFTP, tunnel, and RDP connection work.
+* `apps/gateway`: owns protocol sessions and performs server-side SSH, SFTP, tunnel, and RDP connection work, and terminates the tunnels held open by customer agents.
+* `apps/agent`: runs on a *customer's own machine* and dials out to the gateway, so a browser can open that machine's shell. See [agent.md](agent.md).
 * MySQL: durable system of record.
 * Redis: session coordination, rate limits, queue state, and gateway coordination.
 * guacd: RDP protocol bridge.
@@ -38,4 +39,4 @@ flowchart LR
 
 ## Browser Port Forwarding Constraint
 
-Browsers cannot open arbitrary local TCP ports. Onshell.cloud should implement first-party forwarding as backend-side SSH tunnels exposed through short-lived, access-controlled web proxy URLs. A future desktop agent can support desktop-style local port forwarding.
+Browsers cannot open arbitrary local TCP ports. Onshell.cloud should implement first-party forwarding as backend-side SSH tunnels exposed through short-lived, access-controlled web proxy URLs. Desktop-style local port forwarding belongs to the agent (`apps/agent`), which is the only component running on the user's own machine.

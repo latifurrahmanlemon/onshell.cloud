@@ -43,9 +43,35 @@ Production requirements:
 
 Filters:
 
-* `type`: `ssh`, `rdp`, or `vnc`
+* `type`: `ssh`, `rdp`, `vnc`, or `agent`
 * `environment`: `production`, `staging`, or `development`
 * `search`: host name, address, or tag query
+
+Hosts with `isAgent` are created by a machine enrolling itself and cannot be added or
+imported by hand — see Agents below.
+
+## Agents
+
+Machines running the Onshell Agent. Full design in [agent.md](agent.md).
+
+* `POST /agents/pairing-codes`
+* `POST /agents/enroll`
+* `POST /agents/token`
+* `GET /agents`
+* `POST /agents/:deviceId/revoke`
+* `DELETE /agents/:deviceId`
+
+`/agents/enroll` and `/agents/token` carry no user session: the caller is a program on a
+customer's own machine, and the credential is the request body — a pairing code, or the
+device token issued in exchange for one. Both are rate-limited.
+
+`GET /agents` merges stored devices with live connection state from the gateway, so
+`online` reflects this moment rather than a column that would go stale the moment a
+laptop lid closed.
+
+Agent hosts accept `ssh` and `sftp` sessions, gated per device by `allowShell` and
+`allowFiles`; `rdp` is refused. `POST /sessions` also takes an optional `shell` for agent
+hosts, naming one of the tokens that machine advertised.
 
 ## Credentials
 

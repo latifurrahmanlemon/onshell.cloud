@@ -31,6 +31,16 @@
  *   both directions: the two sessions share this process, so the bytes are piped
  *   from one session straight into the other rather than through the API.
  *
+ *   It also accepts `transport: "agent"` with a `deviceId`, which serves the
+ *   shell from a *customer's own machine* over the tunnel that machine holds
+ *   open to us. See protocols/agent.ts and docs/agent.md.
+ *   - GET    /agents                          list agents connected to this node
+ *
+ * WebSocket /ws/agent (the agent itself, never a browser):
+ *   Authenticated with `Authorization: Bearer <agent JWT>`, minted by the API
+ *   from the device's long-lived token. Frames are the protocol in
+ *   packages/agent-protocol: JSON text for control, binary for pty bytes.
+ *
  * WebSocket /ws/ssh/:sessionId (browser terminal, e.g. xterm.js):
  *   server -> client:
  *     - UTF-8 text frames containing raw terminal output (stdout/stderr).
@@ -48,7 +58,20 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
+import { requesterSchema, verifyAgentToken } from "@onshell/agent-protocol";
+import type { RawData, WebSocket } from "ws";
 import { z } from "zod";
+import {
+  AgentUnavailableError,
+  allowDevice,
+  denyDevice,
+  getDevice,
+  getOrCreateDevice,
+  isDeviceDenied,
+  listDevices
+} from "./agents/registry.js";
+import { createAgentTransport } from "./agents/file-transport.js";
+import { closeAgentShell, openAgentFileSession, openAgentSession, openAgentShell } from "./protocols/agent.js";
 import {
   closeLocalShell,
   createLocalTransport,
@@ -81,27 +104,59 @@ function isLocalSession(session: GatewaySession) {
   return session.metadata?.transport === "local";
 }
 
-const openSessionSchema = z.object({
-  protocol: z.enum(["ssh", "sftp", "rdp"]),
-  hostId: z.string(),
-  address: z.string(),
-  port: z.number().int().min(1).max(65535),
-  /**
-   * "local" runs the shell and the file listing in this process instead of
-   * dialling out — the built-in host every workspace gets. Credentials, address,
-   * and port are ignored for it.
-   */
-  transport: z.enum(["ssh", "local"]).default("ssh"),
-  username: z.string().optional(),
-  password: z.string().optional(),
-  privateKey: z.string().optional(),
-  passphrase: z.string().optional(),
-  domain: z.string().optional(),
-  security: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  startPath: z.string().optional()
-});
+/** Agent sessions reach a customer's machine through its own outbound tunnel. */
+function isAgentSession(session: GatewaySession) {
+  return session.metadata?.transport === "agent";
+}
+
+const openSessionSchema = z
+  .object({
+    protocol: z.enum(["ssh", "sftp", "rdp"]),
+    hostId: z.string(),
+    address: z.string(),
+    /**
+     * Zero is allowed because it is what a host that is never dialled stores:
+     * the local transport spawns a shell in this process, and an agent host is
+     * already connected to us. `superRefine` below still demands a real port
+     * from anything that opens a socket.
+     */
+    port: z.number().int().min(0).max(65535),
+    /**
+     * "local" runs the shell and the file listing in this process instead of
+     * dialling out — the built-in host every workspace gets. "agent" reaches a
+     * customer's own machine through the tunnel its agent holds open, and needs
+     * `deviceId`. Credentials, address, and port are ignored for both.
+     */
+    transport: z.enum(["ssh", "local", "agent"]).default("ssh"),
+    /** Required for `transport: "agent"`: which enrolled machine to reach. */
+    deviceId: z.string().max(64).optional(),
+    /** Optional shell token from that agent's advertised list. */
+    shell: z.string().max(64).optional(),
+    /**
+     * Who is opening this session. Forwarded to the agent so a customer's
+     * machine can log who reached it and, under its own policy, refuse anyone
+     * its owner has not approved.
+     */
+    requestedBy: requesterSchema.optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    privateKey: z.string().optional(),
+    passphrase: z.string().optional(),
+    domain: z.string().optional(),
+    security: z.string().optional(),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    startPath: z.string().optional()
+  })
+  .superRefine((body, ctx) => {
+    // Only the transports that actually open a socket need somewhere to open it.
+    if (body.transport === "ssh" && body.port < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["port"], message: "a dialled host needs a port" });
+    }
+    if (body.transport === "agent" && !body.deviceId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["deviceId"], message: "agent transport needs a deviceId" });
+    }
+  });
 
 const sharedSecret = process.env.GATEWAY_SHARED_SECRET;
 
@@ -136,9 +191,15 @@ const removeQuerySchema = z.object({
  * is made, so every file route below is written once against `FileTransport`.
  */
 function openFileTransport(session: GatewaySession): Promise<FileTransport> {
-  if (!isLocalSession(session)) return createSftpTransport(session.id);
   const startPath = typeof session.metadata?.startPath === "string" ? session.metadata.startPath : undefined;
-  return Promise.resolve(createLocalTransport(startPath));
+
+  if (isAgentSession(session)) {
+    const deviceId = typeof session.metadata?.deviceId === "string" ? session.metadata.deviceId : "";
+    return Promise.resolve(createAgentTransport(deviceId, startPath));
+  }
+  if (isLocalSession(session)) return Promise.resolve(createLocalTransport(startPath));
+
+  return createSftpTransport(session.id);
 }
 
 function replyFileError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
@@ -151,6 +212,22 @@ function replyFileError(request: FastifyRequest, reply: FastifyReply, error: unk
 
   request.log.error(error);
   return reply.code(500).send({ error: "file_operation_failed" });
+}
+
+/**
+ * Reports a transport that could not be opened.
+ *
+ * An agent host that is simply switched off is not an outage — the console
+ * should say the machine is not connected rather than blame the service — so it
+ * answers 409 while a genuine failure stays a 502.
+ */
+function replyTransportUnavailable(request: FastifyRequest, reply: FastifyReply, error: unknown) {
+  if (error instanceof AgentUnavailableError) {
+    return reply.code(409).send({ error: error.code });
+  }
+
+  request.log.error(error);
+  return reply.code(502).send({ error: "sftp_session_unavailable" });
 }
 
 /**
@@ -175,8 +252,7 @@ async function withFileTransport(
   try {
     transport = await openFileTransport(session);
   } catch (error) {
-    request.log.error(error);
-    return reply.code(502).send({ error: "sftp_session_unavailable" });
+    return replyTransportUnavailable(request, reply, error);
   }
 
   try {
@@ -184,6 +260,74 @@ async function withFileTransport(
   } finally {
     transport.close();
   }
+}
+
+/**
+ * A terminal, whichever transport produced it. Both the local shell and an
+ * agent shell satisfy this, which is what lets one message pump serve both.
+ */
+interface TerminalStream {
+  onData(listener: (chunk: string) => void): void;
+  onExit(listener: () => void): void;
+  write(data: string): void;
+  resize(columns: number, rows: number): void;
+  end(): void;
+}
+
+/** `ws` hands back whichever of its three shapes was cheapest to produce. */
+function toBuffer(data: RawData): Buffer {
+  if (Array.isArray(data)) return Buffer.concat(data);
+  if (Buffer.isBuffer(data)) return data;
+  return Buffer.from(new Uint8Array(data as ArrayBuffer));
+}
+
+/** The `{"type":"system"}` control frame the browser terminal renders as a notice. */
+function systemMessage(socket: WebSocket, data: string) {
+  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "system", data }));
+}
+
+/**
+ * Pumps a terminal in both directions over the browser WebSocket.
+ *
+ * Shared by the local and agent transports so the control-frame vocabulary
+ * (`resize`, `data`, and raw-input fallback) cannot drift between them — a
+ * divergence there would show up as a terminal that mysteriously ignores
+ * window resizes on one kind of host.
+ */
+function attachTerminal(
+  socket: WebSocket,
+  shell: TerminalStream,
+  options: { closedReason: string; onClose: () => void }
+) {
+  shell.onData((chunk) => {
+    if (socket.readyState === socket.OPEN) socket.send(chunk);
+  });
+  shell.onExit(() => {
+    if (socket.readyState === socket.OPEN) socket.close(1000, options.closedReason);
+  });
+
+  socket.on("message", (message: Buffer | ArrayBuffer | Buffer[]) => {
+    const text = message.toString();
+    if (text.startsWith("{")) {
+      try {
+        const frame = JSON.parse(text) as { type?: string; cols?: number; rows?: number; data?: string };
+        if (frame.type === "resize" && typeof frame.cols === "number" && typeof frame.rows === "number") {
+          shell.resize(frame.cols, frame.rows);
+          return;
+        }
+        if (frame.type === "data" && typeof frame.data === "string") {
+          shell.write(frame.data);
+          return;
+        }
+      } catch {
+        // Not a JSON control frame — treat it as raw keyboard input.
+      }
+    }
+
+    shell.write(text);
+  });
+
+  socket.on("close", options.onClose);
 }
 
 export async function registerGatewayRoutes(app: FastifyInstance, config: RuntimeConfig) {
@@ -199,9 +343,101 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
     return listGatewaySessions();
   });
 
+  /**
+   * Agents currently connected to *this* node.
+   *
+   * The API calls it to show a machine as online and to decide whether opening
+   * a terminal is even worth attempting. Once there is more than one gateway
+   * this becomes a Redis lookup rather than a local map — see agents/registry.ts.
+   */
+  app.get("/agents", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    return listDevices();
+  });
+
+  /**
+   * Drops an agent's tunnel immediately.
+   *
+   * Called by the API when a device is revoked. Without it, revocation would
+   * only take effect when the agent next refreshed its 15-minute token — so an
+   * open connection, and every terminal on it, would survive being revoked for
+   * up to a quarter of an hour. Ending a machine's access has to mean now.
+   */
+  app.post("/agents/:deviceId/disconnect", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    const { deviceId } = z.object({ deviceId: z.string() }).parse(request.params);
+    const reason = z.object({ reason: z.string().max(200).default("access revoked") }).parse(request.body ?? {});
+
+    // Refused first, so a token minted before the revocation cannot simply
+    // reconnect: this gateway validates signatures, not database state.
+    denyDevice(deviceId);
+
+    const device = getDevice(deviceId);
+    // Not an error: a machine that is already offline is in exactly the state
+    // the caller wanted, and it is now denied either way.
+    if (!device) return { ok: true, wasConnected: false };
+
+    device.kill(reason.reason);
+    return { ok: true, wasConnected: true };
+  });
+
+  /**
+   * Lifts a denial, for a machine that has just been paired again.
+   *
+   * Without this, re-pairing a revoked computer would appear to succeed and then
+   * fail to connect for up to fifteen minutes while the denial aged out — which
+   * looks exactly like a broken product.
+   */
+  app.post("/agents/:deviceId/allow", async (request, reply) => {
+    if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
+    const { deviceId } = z.object({ deviceId: z.string() }).parse(request.params);
+    allowDevice(deviceId);
+    return { ok: true };
+  });
+
   app.post("/sessions", async (request, reply) => {
     if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
     const body = openSessionSchema.parse(request.body);
+
+    if (body.transport === "agent") {
+      if (!body.deviceId) return reply.code(400).send({ error: "agent_transport_requires_device_id" });
+      // There is no screen to stream from an agent: it serves a shell and a
+      // filesystem, not a remote desktop.
+      if (body.protocol === "rdp") {
+        return reply.code(400).send({ error: "agent_transport_supports_ssh_and_sftp_only" });
+      }
+
+      try {
+        const agent =
+          body.protocol === "ssh"
+            ? await openAgentSession({
+                hostId: body.hostId,
+                deviceId: body.deviceId,
+                shell: body.shell,
+                startPath: body.startPath,
+                requestedBy: body.requestedBy
+              })
+            : await openAgentFileSession({
+                hostId: body.hostId,
+                deviceId: body.deviceId,
+                startPath: body.startPath,
+                requestedBy: body.requestedBy
+              });
+
+        return reply.code(201).send({
+          session: agent,
+          connectUrl: `${config.gatewayBaseUrl}/sessions/${agent.id}`,
+          websocketUrl: agent.websocketPath ? `${config.gatewayBaseUrl}${agent.websocketPath}` : undefined
+        });
+      } catch (error) {
+        if (error instanceof AgentUnavailableError) {
+          // 409, not 502: nothing failed, the machine is simply not connected
+          // right now, and the console should say so rather than blaming us.
+          return reply.code(409).send({ error: error.code });
+        }
+        throw error;
+      }
+    }
 
     if (body.transport === "local") {
       if (body.protocol === "rdp") {
@@ -250,6 +486,7 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
     const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
     closeSshClient(sessionId);
     closeLocalShell(sessionId);
+    closeAgentShell(sessionId);
     const session = updateGatewaySession(sessionId, { status: "closed" });
     if (!session) {
       return reply.code(404).send({ error: "gateway_session_not_found" });
@@ -372,15 +609,13 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       try {
         from = await openFileTransport(source);
       } catch (error) {
-        request.log.error(error);
-        return reply.code(502).send({ error: "sftp_session_unavailable" });
+        return replyTransportUnavailable(request, reply, error);
       }
       try {
         to = await openFileTransport(target);
       } catch (error) {
         from.close();
-        request.log.error(error);
-        return reply.code(502).send({ error: "sftp_session_unavailable" });
+        return replyTransportUnavailable(request, reply, error);
       }
 
       try {
@@ -402,50 +637,54 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       return;
     }
 
+    if (isAgentSession(session)) {
+      try {
+        const shell = await openAgentShell(session);
+        systemMessage(
+          socket,
+          shell.pty
+            ? "Connected to your machine."
+            : "Connected to your machine (no pty available — job control and resize are disabled)."
+        );
+
+        // The tunnel can drop and come back under a session that stays open, so
+        // the agent transport has something the others do not: news for the
+        // user mid-session.
+        shell.onNotice((text) => systemMessage(socket, text));
+        attachTerminal(socket, shell, {
+          closedReason: "Agent shell closed",
+          onClose: () => closeAgentShell(sessionId)
+        });
+      } catch (error) {
+        if (error instanceof AgentUnavailableError) {
+          request.log.warn({ sessionId, reason: error.code }, "agent shell unavailable");
+          systemMessage(socket, `That machine is not reachable right now (${error.code}).`);
+          socket.close(1011, error.code);
+          return;
+        }
+
+        request.log.error(error);
+        socket.close(1011, "Agent shell failed");
+      }
+      return;
+    }
+
     if (isLocalSession(session)) {
       try {
         const shell = await openLocalShell(sessionId);
         if (!shell.pty) {
           request.log.warn({ sessionId, reason: shell.ptyError }, "local shell running without a pty");
         }
-        socket.send(
-          JSON.stringify({
-            type: "system",
-            data: shell.pty
-              ? "Onshell.cloud local shell connected."
-              : "Onshell.cloud local shell connected (no pty available — job control and resize are disabled)."
-          })
+        systemMessage(
+          socket,
+          shell.pty
+            ? "Onshell.cloud local shell connected."
+            : "Onshell.cloud local shell connected (no pty available — job control and resize are disabled)."
         );
 
-        shell.onData((chunk) => {
-          if (socket.readyState === socket.OPEN) socket.send(chunk);
-        });
-        shell.onExit(() => {
-          if (socket.readyState === socket.OPEN) socket.close(1000, "Local shell closed");
-        });
-
-        socket.on("message", (message: Buffer | ArrayBuffer | Buffer[]) => {
-          const text = message.toString();
-          if (text.startsWith("{")) {
-            try {
-              const frame = JSON.parse(text) as { type?: string; cols?: number; rows?: number; data?: string };
-              if (frame.type === "resize" && typeof frame.cols === "number" && typeof frame.rows === "number") {
-                shell.resize(frame.cols, frame.rows);
-                return;
-              }
-              if (frame.type === "data" && typeof frame.data === "string") {
-                shell.write(frame.data);
-                return;
-              }
-            } catch {
-              // Not a JSON control frame — treat it as raw keyboard input.
-            }
-          }
-
-          shell.write(text);
-        });
-        socket.on("close", () => {
-          closeLocalShell(sessionId);
+        attachTerminal(socket, shell, {
+          closedReason: "Local shell closed",
+          onClose: () => closeLocalShell(sessionId)
         });
       } catch (error) {
         request.log.error(error);
@@ -495,6 +734,49 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       request.log.error(error);
       socket.close(1011, "SSH shell failed");
     }
+  });
+
+  /**
+   * The agent's own connection. Never a browser.
+   *
+   * Authentication is a short-lived JWT the API minted from the device's
+   * long-lived token, so the gateway checks a signature and reads the claims
+   * without a database — the same shape as everything else it does. The token
+   * pins `typ: "agent"`, which is what stops an ordinary user access token,
+   * signed with the very same secret, from being presented here.
+   */
+  app.get("/ws/agent", { websocket: true }, (socket, request) => {
+    const header = request.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
+    const claims = token ? verifyAgentToken(token, config.jwtSecret) : undefined;
+    if (!claims) {
+      socket.close(1008, "Unauthorized");
+      return;
+    }
+    if (isDeviceDenied(claims.sub)) {
+      request.log.warn({ deviceId: claims.sub }, "refused a revoked device still holding a valid token");
+      socket.close(1008, "Revoked");
+      return;
+    }
+
+    const device = getOrCreateDevice(claims.sub, claims.organizationId, (message, detail) =>
+      request.log.info(detail ?? {}, message)
+    );
+    device.attach(socket);
+
+    socket.on("message", (message: RawData, isBinary: boolean) => {
+      device.handleMessage(toBuffer(message), isBinary);
+    });
+
+    socket.on("close", () => {
+      // Terminals are not killed here: the device holds them for a grace window
+      // so a laptop switching networks does not lose a running build.
+      device.detach(socket);
+    });
+
+    socket.on("error", (error) => {
+      request.log.warn({ err: error, deviceId: claims.sub }, "agent socket error");
+    });
   });
 
   app.get("/ws/rdp/:sessionId", { websocket: true }, (socket, request) => {

@@ -19,6 +19,9 @@ enum HostType {
   SSH
   RDP
   VNC
+  /// A customer's own machine, reached through the tunnel its agent holds open
+  /// to the gateway rather than by dialling out. See docs/agent.md.
+  AGENT
 }
 
 enum Environment {
@@ -142,6 +145,8 @@ model User {
   hostAccessGrants    HostAccessGrant[]    @relation("HostAccessSubject")
   grantedHostAccess   HostAccessGrant[]    @relation("HostAccessGrantedBy")
   hostWorkspaces      HostWorkspace[]      @relation("HostWorkspaceCreatedBy")
+  enrolledAgents      AgentDevice[]        @relation("AgentEnrolledBy")
+  agentPairingCodes   AgentPairingCode[]   @relation("AgentPairingCreatedBy")
 
   @@index([referredById])
 }
@@ -164,6 +169,8 @@ model Organization {
   aiThreads     AiThread[]
   hostAccessGrants HostAccessGrant[]
   hostWorkspaces   HostWorkspace[]
+  agentDevices     AgentDevice[]
+  agentPairingCodes AgentPairingCode[]
 }
 
 model OrganizationMember {
@@ -206,8 +213,13 @@ model Host {
   /// and never open a network connection — see lib/provisioning.ts. One row per
   /// organization, created on signup.
   isLocal        Boolean         @default(false)
+  /// Backed by an enrolled machine running the Onshell Agent. Sessions to it
+  /// need no credential and open no outbound connection — the machine is
+  /// already connected to us. One row per device.
+  isAgent        Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+  agentDevice    AgentDevice?
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   group          HostGroup?      @relation(fields: [groupId], references: [id])
   tags           HostTag[]
@@ -316,6 +328,73 @@ model HostWorkspaceHost {
   /// Deleting a host cascades through this index rather than table-scanning
   /// every workspace in the install.
   @@index([hostId])
+}
+
+/// A machine running the Onshell Agent.
+///
+/// Backed one-to-one by a `Host` row, which is what makes access control free:
+/// `HostAccessGrant`, workspaces, tags, snippets and audit all keep working
+/// without knowing an agent exists. See docs/agent.md.
+model AgentDevice {
+  id             String       @id @default(cuid())
+  organizationId String
+  hostId         String       @unique
+  name           String
+  /// Stable machine identifier, used to recognise a device re-enrolling after a
+  /// reinstall so the host list does not accumulate duplicates. Spoofable by
+  /// design and never trusted for authentication.
+  fingerprint    String
+  platform       String
+  arch           String
+  osVersion      String?
+  agentVersion   String?
+  hostname       String?
+  /// SHA-256 of the long-lived device token. The token itself is shown once, at
+  /// enrolment, and is exchanged for a short-lived connection JWT after that.
+  tokenHash      String       @unique
+  lastSeenAt     DateTime?
+  /// Who paired it. Nulled rather than blocking if that person is deleted — the
+  /// machine is still there and still legitimate; only the provenance is lost.
+  enrolledById   String?
+  /// Set when access is withdrawn. Revoked devices keep their row so the audit
+  /// trail still names the machine that was reachable.
+  revokedAt      DateTime?
+  /// Policy, enforced by the agent on the machine itself.
+  allowShell     Boolean      @default(true)
+  allowFiles     Boolean      @default(true)
+  /// Whether the person at the machine must approve a session before it starts.
+  requireApproval Boolean     @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host           Host         @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  enrolledBy     User?        @relation("AgentEnrolledBy", fields: [enrolledById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, fingerprint])
+  @@index([organizationId])
+  @@index([enrolledById])
+}
+
+/// A short-lived code someone types into the agent to pair a machine.
+///
+/// The only moment a human transcribes a secret in this flow, which is why it
+/// is single-use, expires in minutes, and is rate-limited on both ends.
+model AgentPairingCode {
+  id             String       @id @default(cuid())
+  organizationId String
+  createdById    String
+  codeHash       String       @unique
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Cascade, unlike the device: an outstanding code belonging to someone who
+  /// has been removed from the workspace must not stay redeemable.
+  createdBy      User         @relation("AgentPairingCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([createdById])
+  @@index([expiresAt])
 }
 
 model Credential {

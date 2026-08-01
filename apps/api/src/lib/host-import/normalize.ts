@@ -1,8 +1,8 @@
-import type { Environment, HostType } from "@onshell/shared";
+import type { DialableHostType, Environment } from "@onshell/shared";
 import type { ParsedHost } from "./types.js";
 
 /** Default port per protocol, used when the source file omits one. */
-export const DEFAULT_PORTS: Record<HostType, number> = {
+export const DEFAULT_PORTS: Record<DialableHostType, number> = {
   ssh: 22,
   rdp: 3389,
   vnc: 5900
@@ -79,8 +79,14 @@ export function inferEnvironment(...hints: Array<string | undefined>): Environme
   return "development";
 }
 
-/** Infers the protocol from a port or an explicit protocol string. */
-export function inferHostType(protocol: string | undefined, port: number | undefined): HostType {
+/**
+ * Infers the protocol from a port or an explicit protocol string.
+ *
+ * Never yields `agent`: those hosts are created by a machine enrolling itself,
+ * so a file claiming to import one would produce a host with no device behind
+ * it that could never open a session.
+ */
+export function inferHostType(protocol: string | undefined, port: number | undefined): DialableHostType {
   const value = (protocol ?? "").toLowerCase();
   if (value.includes("rdp") || value.includes("remotedesktop")) return "rdp";
   if (value.includes("vnc")) return "vnc";
@@ -128,7 +134,7 @@ export function cleanUsername(raw: string | undefined): string | undefined {
  */
 export function finalizeHost(input: {
   name?: string;
-  type?: HostType;
+  type?: DialableHostType;
   address?: string;
   port?: number;
   username?: string;

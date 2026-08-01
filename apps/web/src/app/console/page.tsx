@@ -18,6 +18,7 @@ import {
   Folder,
   FolderLock,
   KeyRound,
+  Laptop,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -40,13 +41,23 @@ import {
   Users,
   X
 } from "lucide-react";
-import type { AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
+import type { AgentDevice, AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
+import { isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
 import { FilesView } from "./files";
 import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
-import { AuditView, EmptyState, HostsView, SettingsView, SnippetsView, TeamView, VaultView } from "./panels";
+import {
+  AgentsView,
+  AuditView,
+  EmptyState,
+  HostsView,
+  SettingsView,
+  SnippetsView,
+  TeamView,
+  VaultView
+} from "./panels";
 import type { TerminalStatus } from "./terminal";
 import { OnshellMark } from "../brand";
 import { useTheme } from "../theme";
@@ -59,6 +70,7 @@ const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
 type ViewKey =
   | "overview"
   | "hosts"
+  | "agents"
   | "terminal"
   | "sftp"
   | "vault"
@@ -85,6 +97,7 @@ interface Toast {
 const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
   { key: "hosts", label: "Hosts", icon: Server },
+  { key: "agents", label: "My computers", icon: Laptop },
   { key: "terminal", label: "Terminal", icon: SquareTerminal },
   { key: "sftp", label: "Files", icon: FolderLock },
   { key: "vault", label: "Vault", icon: KeyRound },
@@ -147,6 +160,7 @@ export default function ConsolePage() {
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
   const [sessions, setSessions] = useState<RemoteSession[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [agents, setAgents] = useState<AgentDevice[]>([]);
   const [audit, setAudit] = useState<AuditLog[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
@@ -276,13 +290,15 @@ export default function ConsolePage() {
       consoleApi.snippets(),
       consoleApi.audit(80),
       consoleApi.organization(),
-      consoleApi.invitations().catch(() => [] as PendingInvitation[])
+      consoleApi.invitations().catch(() => [] as PendingInvitation[]),
+      consoleApi.agents()
     ]);
-    const [hostsR, credentialsR, sessionsR, snippetsR, auditR, orgR, invitationsR] = results;
+    const [hostsR, credentialsR, sessionsR, snippetsR, auditR, orgR, invitationsR, agentsR] = results;
     if (hostsR.status === "fulfilled") setHosts(hostsR.value);
     if (credentialsR.status === "fulfilled") setCredentials(credentialsR.value);
     if (sessionsR.status === "fulfilled") setSessions(sessionsR.value);
     if (snippetsR.status === "fulfilled") setSnippets(snippetsR.value);
+    if (agentsR.status === "fulfilled") setAgents(agentsR.value);
     if (auditR.status === "fulfilled") setAudit(auditR.value);
     if (invitationsR.status === "fulfilled") setInvitations(invitationsR.value);
     if (orgR.status === "fulfilled") {
@@ -391,7 +407,7 @@ export default function ConsolePage() {
     async (hostIds: string[]) => {
       const targets = hostIds
         .map((hostId) => hosts.find((host) => host.id === hostId))
-        .filter((host): host is Host => host !== undefined && host.type === "ssh");
+        .filter((host): host is Host => host !== undefined && isShellHost(host));
 
       if (targets.length === 0) {
         notify("None of this workspace's hosts can open a terminal.", "error");
@@ -550,7 +566,7 @@ export default function ConsolePage() {
 
   const activeSessions = useMemo(() => sessions.filter((session) => session.status === "active"), [sessions]);
   /** Terminal-capable hosts, for the new-tab picker and the Files launcher. */
-  const sshHosts = useMemo(() => hosts.filter((host) => host.type === "ssh"), [hosts]);
+  const shellHosts = useMemo(() => hosts.filter(isShellHost), [hosts]);
 
   if (!identity) {
     return (
@@ -859,6 +875,21 @@ export default function ConsolePage() {
               />
             )}
 
+            {view === "agents" && (
+              <AgentsView
+                devices={agents}
+                loading={loading}
+                notify={notify}
+                // Pairing creates a host too, so the hosts list has to catch up
+                // or the newly connected machine is missing from it until reload.
+                onChanged={() => {
+                  void consoleApi.agents().then(setAgents);
+                  void consoleApi.hosts().then(setHosts);
+                }}
+                role={role}
+              />
+            )}
+
             {view === "snippets" && (
               <SnippetsView
                 hasActiveTerminal={Boolean(activeTab)}
@@ -1025,10 +1056,10 @@ export default function ConsolePage() {
                   {tabPickerOpen && (
                     <div className="terminal-tab-menu" role="menu">
                       <p className="terminal-tab-menu-head">Open a terminal on</p>
-                      {sshHosts.length === 0 && (
+                      {shellHosts.length === 0 && (
                         <p className="terminal-tab-menu-empty">No SSH hosts yet.</p>
                       )}
-                      {sshHosts.map((host) => (
+                      {shellHosts.map((host) => (
                         <button
                           key={host.id}
                           onClick={() => {

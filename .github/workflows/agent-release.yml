@@ -1,0 +1,57 @@
+name: Agent build
+
+# Builds the customer-installed agent for every platform it supports.
+#
+# The matrix is not a convenience: node-pty is a native module, so each
+# platform's `.node` binary has to be produced on that platform. Cross-compiling
+# it is not an option, which is why this job exists separately from CI.
+#
+# Signing is deliberately *not* here yet. It needs an Authenticode certificate
+# and an Apple Developer ID in repository secrets, and a build pipeline that
+# claims to sign but silently does not would be worse than one that admits it
+# does not. See docs/agent.md.
+
+on:
+  push:
+    tags: ["agent-v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32-x64
+          - os: macos-13
+            target: darwin-x64
+          - os: macos-14
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn turbo build --filter='./packages/*'
+      - run: yarn workspace @onshell/agent typecheck
+      - run: yarn agent:build --target ${{ matrix.target }}
+
+      # Proves the artifact actually starts, rather than only that it compiled.
+      # `status` touches config loading, shell discovery and the audit path —
+      # enough to catch a bundle that is missing something.
+      - run: node dist/agent/${{ matrix.target }}/onshell-agent.cjs status
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onshell-agent-${{ matrix.target }}
+          path: dist/agent/${{ matrix.target }}
+          if-no-files-found: error

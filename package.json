@@ -24,7 +24,8 @@
     "db:seed": "yarn workspace @onshell/api prisma db seed",
     "db:studio": "yarn workspace @onshell/api prisma studio",
     "db:backup": "bash scripts/backup-mysql.sh",
-    "db:backup:win": "powershell -ExecutionPolicy Bypass -File scripts/backup-mysql.ps1"
+    "db:backup:win": "powershell -ExecutionPolicy Bypass -File scripts/backup-mysql.ps1",
+    "agent:build": "node scripts/build-agent.mjs"
   },
   "devDependencies": {
     "prettier": "^3.4.2",

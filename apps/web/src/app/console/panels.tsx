@@ -32,6 +32,7 @@ import {
   FileUp,
   Inbox,
   KeyRound,
+  Laptop,
   Layers,
   Loader2,
   LogOut,
@@ -54,6 +55,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  AgentDevice,
   AuditLog,
   CredentialSummary,
   Host,
@@ -495,6 +497,9 @@ const protocolIcons = {
   ssh: SquareTerminal,
   rdp: MonitorUp,
   vnc: MonitorUp,
+  // Someone's own computer rather than a server, and the list should read that
+  // way at a glance.
+  agent: Laptop,
 } as const;
 
 /**
@@ -2039,6 +2044,325 @@ export function SnippetsView({
             <SubmitButton busy={busy} label="Save Snippet" />
           </div>
         </form>
+      </Drawer>
+    </section>
+  );
+}
+
+/* ---------- My computers ---------- */
+
+const PLATFORM_LABELS: Record<string, string> = {
+  win32: "Windows",
+  darwin: "macOS",
+  linux: "Linux",
+};
+
+/** Whole minutes left on a pairing code, floored, never negative. */
+function minutesUntil(iso: string) {
+  return Math.max(0, Math.floor((new Date(iso).getTime() - Date.now()) / 60_000));
+}
+
+export function AgentsView({
+  devices,
+  loading,
+  role,
+  onChanged,
+  notify,
+}: {
+  devices: AgentDevice[];
+  loading: boolean;
+  role: Role;
+  onChanged: () => void;
+  notify: (message: string, kind?: "success" | "error") => void;
+}) {
+  const [pairing, setPairing] = useState(false);
+  const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [revoking, setRevoking] = useState<AgentDevice | null>(null);
+  const [removing, setRemoving] = useState<AgentDevice | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+
+  const manage = canManageHosts(role);
+
+  async function generateCode() {
+    setBusy(true);
+    try {
+      setCode(await consoleApi.createAgentPairingCode());
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Could not create a pairing code.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openPairing() {
+    // A fresh code every time the drawer opens: the previous one may already be
+    // used or expired, and showing a dead code is worse than showing none.
+    setCode(null);
+    setPairing(true);
+  }
+
+  async function copyCode() {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code.code);
+      notify("Pairing code copied.", "success");
+    } catch {
+      notify("Clipboard is not available.", "error");
+    }
+  }
+
+  async function confirmRevoke() {
+    if (!revoking) return;
+    setActionBusy(true);
+    try {
+      await consoleApi.revokeAgent(revoking.id);
+      notify(`${revoking.name} can no longer connect.`, "success");
+      setRevoking(null);
+      onChanged();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Could not revoke this machine.", "error");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function confirmRemove() {
+    if (!removing) return;
+    setActionBusy(true);
+    try {
+      await consoleApi.deleteAgent(removing.id);
+      notify(`${removing.name} was removed.`, "success");
+      setRemoving(null);
+      onChanged();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Could not remove this machine.", "error");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  const columns: DataColumn<AgentDevice>[] = [
+    {
+      key: "name",
+      header: "Machine",
+      width: "minmax(180px, 1.4fr)",
+      sortValue: (device) => device.name.toLowerCase(),
+      render: (device) => (
+        <div className="data-identity">
+          <span className="data-icon">
+            <Laptop size={15} />
+          </span>
+          <div>
+            <strong>{device.name}</strong>
+            {device.hostname && device.hostname !== device.name && (
+              <span className="data-muted"> {device.hostname}</span>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "130px",
+      sortValue: (device) => (device.revokedAt ? 2 : device.online ? 0 : 1),
+      render: (device) =>
+        device.revokedAt ? (
+          <span className="health-badge offline">Revoked</span>
+        ) : device.online ? (
+          <span className="health-badge online">Connected</span>
+        ) : (
+          <span className="health-badge degraded">Offline</span>
+        ),
+    },
+    {
+      key: "platform",
+      header: "System",
+      width: "minmax(130px, 0.9fr)",
+      sortValue: (device) => device.platform,
+      render: (device) => (
+        <span className="data-muted">
+          {PLATFORM_LABELS[device.platform] ?? device.platform} · {device.arch}
+        </span>
+      ),
+    },
+    {
+      key: "agentVersion",
+      header: "Agent",
+      width: "100px",
+      render: (device) => <span className="data-mono">{device.agentVersion ?? "—"}</span>,
+    },
+    {
+      key: "lastSeen",
+      header: "Last seen",
+      width: "minmax(120px, 0.8fr)",
+      sortValue: (device) => (device.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0),
+      render: (device) => (
+        <span className="data-muted">{device.online ? "Now" : relativeTime(device.lastSeenAt)}</span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      width: "104px",
+      align: "end",
+      render: (device) => (
+        <div className="row-actions">
+          {manage && !device.revokedAt && (
+            <button
+              aria-label={`Revoke ${device.name}`}
+              className="icon-button compact danger"
+              onClick={() => setRevoking(device)}
+              title="Revoke access"
+              type="button"
+            >
+              <ShieldCheck size={14} />
+            </button>
+          )}
+          {manage && (
+            <button
+              aria-label={`Remove ${device.name}`}
+              className="icon-button compact danger"
+              onClick={() => setRemoving(device)}
+              title="Remove this machine"
+              type="button"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>My computers</h2>
+          <p>
+            Machines running the Onshell Agent. Once a computer is paired and the
+            agent is running, it appears in Hosts and you can open its terminal
+            from any browser.
+          </p>
+        </div>
+      </div>
+
+      <DataTable
+        columns={columns}
+        defaultSort={{ key: "status", dir: "asc" }}
+        empty={{
+          icon: <Laptop size={22} />,
+          title: "No computers paired yet",
+          hint: manage
+            ? "Pair a computer to open its terminal from anywhere."
+            : "Ask an admin to pair a computer with this workspace.",
+        }}
+        loading={loading}
+        rightTools={
+          manage ? (
+            <button className="primary-button" onClick={openPairing} type="button">
+              <Plus size={15} />
+              Connect a computer
+            </button>
+          ) : undefined
+        }
+        rowKey={(device) => device.id}
+        rows={devices}
+        searchPlaceholder="Search computers…"
+        searchText={(device) => `${device.name} ${device.hostname ?? ""} ${device.platform}`}
+      />
+
+      <ConfirmModal
+        busy={actionBusy}
+        confirmLabel="Revoke access"
+        message={
+          <>
+            Revoke <strong>{revoking?.name}</strong>? The agent on that machine
+            will be disconnected and cannot reconnect until it is paired again.
+            The machine stays in this list so its history is kept.
+          </>
+        }
+        onClose={() => setRevoking(null)}
+        onConfirm={confirmRevoke}
+        open={revoking !== null}
+        title="Revoke machine"
+      />
+
+      <ConfirmModal
+        busy={actionBusy}
+        confirmLabel="Remove"
+        message={
+          <>
+            Remove <strong>{removing?.name}</strong> and its host entry? Anyone
+            with a terminal open on it will be disconnected. This cannot be
+            undone.
+          </>
+        }
+        onClose={() => setRemoving(null)}
+        onConfirm={confirmRemove}
+        open={removing !== null}
+        title="Remove machine"
+      />
+
+      <Drawer onClose={() => setPairing(false)} open={pairing} title="Connect a computer">
+        <div className="form-grid">
+          <div className="span-two">
+            <p className="data-muted">
+              A browser cannot open a terminal on your computer by itself. Install
+              the Onshell Agent on the machine you want to reach, then pair it with
+              the code below.
+            </p>
+          </div>
+
+          {code ? (
+            <div className="span-two">
+              <p>
+                <strong>1.</strong> On that computer, run:
+              </p>
+              <p className="data-mono">onshell-agent pair {code.code}</p>
+              <p className="data-muted">
+                This code works once and expires in {minutesUntil(code.expiresAt)}{" "}
+                minute{minutesUntil(code.expiresAt) === 1 ? "" : "s"}.
+              </p>
+              <p>
+                <strong>2.</strong> Then start it with <span className="data-mono">onshell-agent run</span>.
+                The machine appears here as Connected.
+              </p>
+              <div className="form-actions">
+                <button className="secondary-button" onClick={copyCode} type="button">
+                  <Copy size={15} />
+                  Copy code
+                </button>
+                <button className="secondary-button" disabled={busy} onClick={generateCode} type="button">
+                  {busy ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
+                  New code
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="span-two">
+              <p className="data-muted">
+                The code is shown once and is valid for ten minutes.
+              </p>
+              <div className="form-actions">
+                <button className="primary-button" disabled={busy} onClick={generateCode} type="button">
+                  {busy ? <Loader2 className="spin" size={15} /> : <Plus size={15} />}
+                  Generate pairing code
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="span-two">
+            <p className="data-muted">
+              While the agent runs, people in this workspace with access to that
+              host can open a terminal on it with your account&apos;s privileges.
+              Stop the agent to end that at any time.
+            </p>
+          </div>
+        </div>
       </Drawer>
     </section>
   );

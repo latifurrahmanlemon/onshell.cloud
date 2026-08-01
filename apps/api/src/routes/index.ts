@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { registerAdminRoutes } from "./modules/admin.js";
+import { registerAgentRoutes } from "./modules/agents.js";
 import { registerAiRoutes } from "./modules/ai.js";
 import { registerAuditRoutes } from "./modules/audit.js";
 import { registerAuthRoutes } from "./modules/auth.js";
@@ -29,6 +30,7 @@ export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig
   await registerHostTransferRoutes(app);
   await registerHostWorkspaceRoutes(app);
   await registerCredentialRoutes(app);
+  await registerAgentRoutes(app, config);
   await registerSessionRoutes(app, config);
   await registerSnippetRoutes(app);
   await registerAiRoutes(app, config);

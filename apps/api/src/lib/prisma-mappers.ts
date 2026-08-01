@@ -47,13 +47,15 @@ const roleMap: Record<OrganizationMember["role"], Role> = {
 export const hostTypeToPrisma: Record<HostType, PrismaHost["type"]> = {
   ssh: "SSH",
   rdp: "RDP",
-  vnc: "VNC"
+  vnc: "VNC",
+  agent: "AGENT"
 };
 
 const hostTypeFromPrisma: Record<PrismaHost["type"], HostType> = {
   SSH: "ssh",
   RDP: "rdp",
-  VNC: "vnc"
+  VNC: "vnc",
+  AGENT: "agent"
 };
 
 export const environmentToPrisma: Record<Environment, PrismaHost["environment"]> = {
@@ -146,6 +148,7 @@ export function toHost(host: HostWithRelations, lastSessionAt?: Date | null): Ho
     notes: host.notes ?? undefined,
     health: host.health as Host["health"],
     isLocal: host.isLocal,
+    isAgent: host.isAgent,
     lastSessionAt: lastSessionAt?.toISOString(),
     createdAt: host.createdAt.toISOString(),
     updatedAt: host.updatedAt.toISOString()

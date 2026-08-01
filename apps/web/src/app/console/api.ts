@@ -1,4 +1,5 @@
 import type {
+  AgentDevice,
   AuditLog,
   CredentialSummary,
   Host,
@@ -125,9 +126,58 @@ export interface InviteResult extends PendingInvitation {
   acceptUrl: string;
 }
 
+/**
+ * A direct route to an agent running on the same machine as this browser.
+ *
+ * Offered by the API; whether it can actually be used is decided in the
+ * browser, because only the browser knows if it is on that machine.
+ */
+export interface LocalRoute {
+  port: number;
+  ticket: string;
+  deviceId?: string;
+}
+
+/**
+ * Tries the loopback route, falling back to the tunnel.
+ *
+ * Three ways this legitimately fails, none of them worth showing the user:
+ * the browser is on a different machine entirely (the common case), Safari
+ * refuses `ws://127.0.0.1` from an https page, or endpoint software blocks
+ * loopback listeners. The probe is given a short deadline for exactly that
+ * reason — a session must not hang waiting to discover it is remote.
+ *
+ * The device id is checked because *something* answering on port 7681 is not
+ * evidence it is the machine we were told to expect.
+ */
+async function resolveTerminalUrl(tunnelUrl: string | undefined, local?: LocalRoute) {
+  if (!local || !tunnelUrl) return tunnelUrl;
+
+  try {
+    const controller = new AbortController();
+    const deadline = window.setTimeout(() => controller.abort(), 700);
+    const response = await fetch(`http://127.0.0.1:${local.port}/onshell/hello`, {
+      signal: controller.signal,
+      // Not `include`: this endpoint authenticates on the ticket alone, and
+      // sending cookies to a loopback port would be a way to leak them.
+      credentials: "omit"
+    });
+    window.clearTimeout(deadline);
+    if (!response.ok) return tunnelUrl;
+
+    const hello = (await response.json()) as { deviceId?: string };
+    if (local.deviceId && hello.deviceId !== local.deviceId) return tunnelUrl;
+
+    return `ws://127.0.0.1:${local.port}/onshell/session?ticket=${encodeURIComponent(local.ticket)}`;
+  } catch {
+    return tunnelUrl;
+  }
+}
+
 export interface LaunchedSession {
   session: RemoteSession;
   websocketUrl?: string;
+  localRoute?: LocalRoute;
   connectUrl?: string;
 }
 
@@ -372,6 +422,16 @@ export const consoleApi = {
     return `${apiBaseUrl}/hosts/export?${params.toString()}`;
   },
 
+  agents: async () => unwrapList<AgentDevice>(await request("/agents"), "agents"),
+  /**
+   * Issues a pairing code. Returned once and never retrievable — only its hash
+   * is stored — so the caller has to show it before navigating away.
+   */
+  createAgentPairingCode: () =>
+    request<{ code: string; expiresAt: string }>("/agents/pairing-codes", { method: "POST" }),
+  revokeAgent: (deviceId: string) => request<AgentDevice>(`/agents/${deviceId}/revoke`, { method: "POST" }),
+  deleteAgent: (deviceId: string) => request<{ ok?: boolean }>(`/agents/${deviceId}`, { method: "DELETE" }),
+
   credentials: async () => unwrapList<CredentialSummary>(await request("/credentials"), "credentials"),
   createCredential: (body: Record<string, unknown>) =>
     request<unknown>("/credentials", { method: "POST", body: JSON.stringify(body) }),
@@ -382,11 +442,15 @@ export const consoleApi = {
   deleteCredential: (id: string) => request<unknown>(`/credentials/${id}`, { method: "DELETE" }),
 
   sessions: async () => unwrapList<RemoteSession>(await request("/sessions"), "sessions"),
-  openSession: async (body: { hostId: string; protocol: string; credentialId?: string }) => {
+  openSession: async (body: { hostId: string; protocol: string; credentialId?: string; shell?: string }) => {
     const payload = await request<LaunchedSession>("/sessions", { method: "POST", body: JSON.stringify(body) });
+    const websocketUrl = payload.websocketUrl ?? payload.connectUrl;
     return {
       session: unwrapItem<RemoteSession>(payload, "session"),
-      websocketUrl: payload.websocketUrl ?? payload.connectUrl
+      // Prefers a direct connection when the agent turns out to be running on
+      // this very machine; `resolveTerminalUrl` falls back to the tunnel for
+      // every case where it does not.
+      websocketUrl: await resolveTerminalUrl(websocketUrl, payload.localRoute)
     };
   },
   closeSession: (id: string) => request<unknown>(`/sessions/${id}/close`, { method: "POST" }),

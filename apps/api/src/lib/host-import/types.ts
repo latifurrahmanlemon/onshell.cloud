@@ -1,4 +1,4 @@
-import type { Environment, HostType } from "@onshell/shared";
+import type { DialableHostType, Environment } from "@onshell/shared";
 
 /** Source formats the importer can read. */
 export const importFormats = [
@@ -29,7 +29,7 @@ export const importFormatLabels: Record<ImportFormat, string> = {
  */
 export interface ParsedHost {
   name: string;
-  type: HostType;
+  type: DialableHostType;
   address: string;
   port: number;
   username?: string;

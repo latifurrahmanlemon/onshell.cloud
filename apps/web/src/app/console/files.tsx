@@ -22,6 +22,7 @@ import {
   X
 } from "lucide-react";
 import type { Host } from "@onshell/shared";
+import { isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, MAX_EDITABLE_FILE_BYTES } from "./api";
 import type { RemoteDirectory, RemoteFileContent, RemoteFileEntry } from "./api";
@@ -714,7 +715,7 @@ export function FilesView({
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const [paste, setPaste] = useState<{ done: number; side: PaneSide; total: number } | null>(null);
 
-  const sshHosts = useMemo(() => hosts.filter((host) => host.type === "ssh"), [hosts]);
+  const shellHosts = useMemo(() => hosts.filter(isShellHost), [hosts]);
   const paneFor = useCallback((side: PaneSide) => (side === "left" ? left : right), [left, right]);
 
   const selectionOf = useCallback(
@@ -857,7 +858,7 @@ export function FilesView({
       <div className="fm-panes">
         <FilePane
           clipboard={clipboard}
-          hosts={sshHosts}
+          hosts={shellHosts}
           label="Left pane"
           onCopy={() => copyFrom("left")}
           onDelete={() => setDialog({ kind: "delete", side: "left" })}
@@ -870,7 +871,7 @@ export function FilesView({
         />
         <FilePane
           clipboard={clipboard}
-          hosts={sshHosts}
+          hosts={shellHosts}
           label="Right pane"
           onCopy={() => copyFrom("right")}
           onDelete={() => setDialog({ kind: "delete", side: "right" })}
