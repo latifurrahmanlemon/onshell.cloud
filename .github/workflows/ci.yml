@@ -1,10 +1,13 @@
 name: CI
 
+# The default branch is `master`. While this said `main` the workflow matched
+# nothing and CI never ran once — which is how a migration that only works on a
+# case-insensitive MySQL reached production.
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   validate:
@@ -35,8 +38,11 @@ jobs:
       API_BASE_URL: http://localhost:4000
       GATEWAY_BASE_URL: http://localhost:4100
       CORS_ORIGINS: http://localhost:3000
-      ADMIN_EMAIL: latifur.tech@gmial.com
-      ADMIN_PASSWORD: "Lemon553&"
+      # ADMIN_EMAIL / ADMIN_PASSWORD are deliberately unset. NODE_ENV is not
+      # production here, so the seed mints a random admin password and prints
+      # it. A real password committed to a public workflow is a credential in
+      # every clone and every fork, and deleting it from HEAD does not remove
+      # it from history.
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +52,10 @@ jobs:
           cache: yarn
       - run: corepack enable
       - run: yarn install --immutable
+      - run: yarn check:migrations
       - run: yarn db:generate
+      # MySQL on Linux is case-sensitive about table names, so this step is what
+      # actually proves a migration will apply on the server.
       - run: yarn db:deploy
       - run: yarn db:seed
       - run: yarn typecheck

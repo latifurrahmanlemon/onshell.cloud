@@ -8,3 +8,12 @@ coverage/
 !.env.example
 *.log
 backups/
+
+# Build artefacts and OS cruft that were tracked by accident. Both dirty the
+# working tree on every type check / Finder visit and belong to nobody's diff.
+*.tsbuildinfo
+.DS_Store
+
+# Yarn's local resolution cache. Machine-specific, rebuilt by `yarn install`,
+# and Yarn's own docs say not to commit it.
+.yarn/install-state.gz

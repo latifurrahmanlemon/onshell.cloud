@@ -15,6 +15,7 @@
     "lint": "yarn turbo lint",
     "typecheck": "yarn turbo typecheck",
     "test": "vitest run",
+    "check:migrations": "node scripts/check-migration-case.mjs",
     "format": "prettier --write .",
     "db:generate": "yarn workspace @onshell/api prisma generate",
     "db:migrate": "yarn workspace @onshell/api prisma migrate dev",

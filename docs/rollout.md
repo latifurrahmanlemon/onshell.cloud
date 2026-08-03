@@ -138,14 +138,16 @@ Ordered by what actually blocks a release.
 
 ## 5. Loose ends worth closing
 
-- **A password is committed in `.github/workflows/ci.yml`** (`ADMIN_PASSWORD`). It is in
-  every clone and every fork, and removing it from `HEAD` does not remove it from
-  history. If that password is used anywhere real, rotate it now.
+- **~~A password is committed in `.github/workflows/ci.yml`~~** — removed. `ADMIN_EMAIL`
+  and `ADMIN_PASSWORD` are now simply unset there; `NODE_ENV` is not production in CI, so
+  the seed mints a random admin password and prints it. **Still on you: rotate it.**
+  Deleting it from `HEAD` does not delete it from history, and it is in every clone and
+  every fork already made.
 - **`AgentDevice.requireApproval` is unused.** Consent lives in the agent's own config on
   purpose — a setting an admin could flip is not consent. The column should either be
   dropped or given a clear meaning as an organisation-level floor.
-- **`apps/web/tsconfig.tsbuildinfo` is tracked in git.** A build artifact that dirties
-  the working tree on every type check; belongs in `.gitignore`.
+- **~~`apps/web/tsconfig.tsbuildinfo` is tracked in git~~** — untracked, and `*.tsbuildinfo`
+  plus `.DS_Store` (also tracked, also noise) are now in `.gitignore`.
 - **Files do not use the loopback fast path**, only terminals. Transfers already stream
   with backpressure over the tunnel, so the latency win that justifies it for keystrokes
   is not the same win there.

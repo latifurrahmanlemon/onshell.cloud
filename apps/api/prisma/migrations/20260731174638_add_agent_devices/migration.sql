@@ -1,5 +1,5 @@
 -- AlterTable
-ALTER TABLE `host` ADD COLUMN `isAgent` BOOLEAN NOT NULL DEFAULT false,
+ALTER TABLE `Host` ADD COLUMN `isAgent` BOOLEAN NOT NULL DEFAULT false,
     MODIFY `type` ENUM('SSH', 'RDP', 'VNC', 'AGENT') NOT NULL;
 
 -- CreateTable

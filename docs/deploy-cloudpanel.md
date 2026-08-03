@@ -175,6 +175,20 @@ JWT_SECRET=<long-random-string>
 MASTER_ENCRYPTION_KEY=<32-byte-base64-key>
 CORS_ORIGINS=https://onshell.cloud
 
+# API ↔ gateway shared secret। দুই process-এ **একই** value বসাতে হবে।
+# খালি রাখলে gateway-র REST route গুলো unauthenticated থাকে — অর্থাৎ session id
+# জানা যে কেউ ওই session-এর ফাইল list করতে পারবে। Browser আর সরাসরি gateway-র
+# REST-এ call করে না, তাই এটা set করলে কিছু ভাঙবে না।
+GATEWAY_SHARED_SECRET=<32-byte-hex>
+
+# Gateway যে মেশিনে চলছে (অর্থাৎ **এই server**) তার উপর credential ছাড়া shell।
+# Shared/multi-tenant deploy-এ `false` রাখো — নাহলে signup করা প্রতিটা account
+# এই VPS-এ gateway process-এর privilege নিয়ে shell পেয়ে যায়।
+LOCAL_SHELL_ENABLED=false
+
+# Turnstile ভুল configure হয়ে সবাই লক-আউট হলে জরুরি দরজা। স্বাভাবিক সময়ে false।
+TURNSTILE_DISABLED=false
+
 # Admin seed account
 ADMIN_EMAIL=you@example.com
 ADMIN_PASSWORD=<strong-admin-password>
@@ -203,6 +217,7 @@ Random secret বানানোর সহজ উপায়:
 ```bash
 openssl rand -base64 48   # JWT_SECRET
 openssl rand -base64 32   # MASTER_ENCRYPTION_KEY
+openssl rand -hex 32      # GATEWAY_SHARED_SECRET
 ```
 
 > **কেন `set -a && source .env` করে build/start করতে হবে:** `NEXT_PUBLIC_*` variable গুলো `yarn build` এর সময় web bundle-এ **bake** হয়ে যায়, আর PM2 ও start-এর সময় shell env থেকে secret নেয়। তাই প্রতিবার build/start করার আগে `.env` কে shell-এ load করবো।
@@ -414,9 +429,85 @@ sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 
 | Web খোলে, কিন্তু login/API fail | `NEXT_PUBLIC_API_BASE_URL` ভুল বা build-এ bake হয়নি → `.env` ঠিক করে `yarn build` আবার চালাও। DevTools-এ actual call URL দেখো। |
 | `P1001: can't reach database` | `DATABASE_URL` ভুল, MySQL down, বা password-এ special char URL-encode হয়নি। `mysql -u onshell -p onshell_cloud` দিয়ে test করো। |
 | Migration fail / access denied | CloudPanel-এ DB user-এর privilege, host `127.0.0.1` ঠিক আছে কিনা দেখো। |
+| `P3009: migrate found failed migrations` | একটা migration আগে fail করেছে, তাই Prisma নতুন কোনোটাই চালাবে না। নিচের **১৬.১** দেখো। |
 | Redis error | `redis-cli ping` → `PONG` আসছে কিনা; `REDIS_URL` ঠিক আছে কিনা। |
 | WebSocket (gateway) connect হয় না | `/gateway/` location-এ `Upgrade`/`Connection "upgrade"` header আছে কিনা; Cloudflare proxy-তে WebSocket allow আছে কিনা। |
 | Reboot-এর পর সব বন্ধ | `pm2 startup` (root) + `pm2 save` করা হয়নি — ধাপ ৮ আবার দেখো। |
+
+---
+
+## 16.1 `P3009` — fail করা migration থেকে recover
+
+```text
+Error: P3009
+migrate found failed migrations in the target database
+The `2026...._xxx` migration started at ... failed
+```
+
+Prisma fail হওয়া migration-টা `_prisma_migrations`-এ `finished_at = NULL` রেখে দেয় এবং
+তারপরের কোনো migration আর চালায় না। **ঠিক কী কারণে fail করেছে সেটা আগে দেখতে হবে** —
+কারণ না জেনে `resolve` করলে schema আর migration history আলাদা হয়ে যাবে।
+
+**ধাপ ১ — আসল error আর DB-র বর্তমান অবস্থা দেখো**
+
+```bash
+cd /home/onshell/htdocs/onshell.cloud
+
+# আসল error message (Prisma এটা DB-তেই লিখে রাখে)
+mysql -u onshell -p onshell -e "
+  SELECT migration_name, started_at, finished_at, rolled_back_at, logs
+  FROM _prisma_migrations ORDER BY started_at DESC LIMIT 3\G"
+```
+
+**ধাপ ২ — migration-টা আদৌ কতটুকু apply হয়েছে যাচাই করো**
+
+MySQL-এ DDL transactional **নয়**, তাই একটা migration মাঝপথে থেমে যেতে পারে। ফাইলটা খুলে
+উপর থেকে নিচে প্রতিটা statement-এর ফল DB-তে আছে কিনা মিলিয়ে দেখো, যেমন:
+
+```bash
+mysql -u onshell -p onshell -e "SHOW TABLES LIKE 'Agent%'; SHOW COLUMNS FROM \`Host\` LIKE 'isAgent';"
+```
+
+* **কিছুই apply হয়নি** (খালি ফল) → ধাপ ৩-এ যাও।
+* **আংশিক apply হয়েছে** → যতটুকু হয়েছে হাতে undo করো (`DROP TABLE` / `ALTER TABLE … DROP
+  COLUMN`), যাতে migration-টা আবার শুরু থেকে চলতে পারে। এটা না করলে দ্বিতীয়বার
+  `Duplicate column name` বা `Table already exists` দিয়ে আবার fail করবে।
+
+**ধাপ ৩ — কারণটা ঠিক করো, তারপর rolled-back mark করে আবার চালাও**
+
+```bash
+git pull                       # fix সহ নতুন কোড
+
+yarn workspace @onshell/api prisma migrate resolve \
+  --rolled-back 20260731174638_add_agent_devices
+
+yarn db:deploy
+yarn db:status                 # "Database schema is up to date!" আসতে হবে
+```
+
+`--rolled-back` শুধু বলে "এই চেষ্টাটা হয়নি" — এটা নিজে থেকে DB-তে কিছু undo করে না।
+সেজন্যই ধাপ ২ আগে করতে হয়। `--applied` ব্যবহার **করবে না** যদি না তুমি নিজে হাতে
+পুরো SQL চালিয়ে থাকো; নাহলে Prisma ভাববে কাজ হয়ে গেছে আর column গুলো কোনোদিন তৈরি হবে না।
+
+**ধাপ ৪ — service restart**
+
+```bash
+yarn install                   # node-pty-র postinstall chmod সহ
+yarn build
+pm2 restart ecosystem.config.cjs --update-env
+```
+
+### কেন এটা হয়েছিল (২ অগাস্ট ২০২৬)
+
+`20260731174638_add_agent_devices`-এ Prisma লিখেছিল ``ALTER TABLE `host` `` — ছোট হাতের
+অক্ষরে — অথচ table-টার আসল নাম `Host`। macOS/Windows-এর MySQL-এ
+`lower_case_table_names` 1 বা 2 থাকে, তাই ওখানে case মিলুক না মিলুক চলে যায়। Linux-এ
+default **0**, অর্থাৎ case-sensitive — সেখানে এটা `Table 'onshell.host' doesn't exist`
+দিয়ে fail করে।
+
+এই ধরনের ভুল আর যাতে server পর্যন্ত না পৌঁছায়, সেজন্য `yarn check:migrations`
+(`scripts/check-migration-case.mjs`) প্রতিটা migration-এর table নামের case যাচাই করে, আর
+CI Linux MySQL-এর উপর `yarn db:deploy` চালায়।
 
 ---
 
