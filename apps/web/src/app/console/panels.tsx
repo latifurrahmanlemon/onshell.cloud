@@ -2314,6 +2314,14 @@ export function AgentsView({
               the Onshell Agent on the machine you want to reach, then pair it with
               the code below.
             </p>
+            {/* The step that used to be missing: this drawer named a command
+                without ever saying where the program comes from. */}
+            <div className="form-actions">
+              <a className="secondary-button" href="/download" rel="noreferrer" target="_blank">
+                <Download size={15} />
+                Get the agent for Windows, macOS, or Linux
+              </a>
+            </div>
           </div>
 
           {code ? (
@@ -2321,14 +2329,17 @@ export function AgentsView({
               <p>
                 <strong>1.</strong> On that computer, run:
               </p>
-              <p className="data-mono">onshell-agent pair {code.code}</p>
+              {/* The exact command the downloaded build answers to. There is no
+                  installer yet, so `onshell-agent` is not on anyone's PATH. */}
+              <p className="data-mono">node onshell-agent.cjs pair {code.code}</p>
               <p className="data-muted">
                 This code works once and expires in {minutesUntil(code.expiresAt)}{" "}
                 minute{minutesUntil(code.expiresAt) === 1 ? "" : "s"}.
               </p>
               <p>
-                <strong>2.</strong> Then start it with <span className="data-mono">onshell-agent run</span>.
-                The machine appears here as Connected.
+                <strong>2.</strong> Then start it with{" "}
+                <span className="data-mono">node onshell-agent.cjs run</span>. The machine appears here as
+                Connected.
               </p>
               <div className="form-actions">
                 <button className="secondary-button" onClick={copyCode} type="button">

@@ -1,0 +1,337 @@
+/* /download — the agent download page. Reuses the landing shell (lp-*) and adds
+   only what a download surface needs that a marketing page does not. */
+
+.dl-picker-section {
+  padding-block: 0 clamp(40px, 5vw, 64px);
+}
+
+.dl-hero-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: clamp(26px, 4vw, 40px);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+/* Reserves the height the resolved card will take, so detection finishing does
+   not shove the rest of the page downward. */
+.dl-hero-card-idle {
+  min-height: 132px;
+  justify-content: center;
+  box-shadow: none;
+  background: var(--surface-2);
+}
+
+.dl-hero-idle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+.dl-hero-idle a {
+  color: var(--accent-text);
+}
+
+.dl-primary {
+  height: 48px;
+  padding-inline: 26px;
+  font-size: 1rem;
+}
+
+.dl-hero-meta {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.dl-hero-alt {
+  margin: 0;
+  color: var(--soft);
+  font-size: 0.88rem;
+}
+
+.dl-hero-alt a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dl-released {
+  margin: 14px 0 0;
+  color: var(--soft);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Steps
+   ========================================================================== */
+
+.dl-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dl-step {
+  display: flex;
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.dl-step-num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.dl-step-body {
+  min-width: 0;
+}
+
+.dl-step-body h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.dl-step-body h3 svg {
+  color: var(--accent-text);
+}
+
+.dl-step-body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.65;
+}
+
+.dl-commands {
+  margin-top: 22px;
+}
+
+.dl-commands-label {
+  margin: 0 0 8px;
+  color: var(--soft);
+  font-size: 0.86rem;
+}
+
+.dl-commands pre,
+.dl-verify pre {
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--field);
+  /* Long command lines scroll inside the block rather than widening the page. */
+  overflow-x: auto;
+}
+
+.dl-commands code,
+.dl-verify code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  line-height: 1.9;
+  white-space: pre;
+}
+
+.dl-requirements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dl-requirements li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.dl-requirements svg {
+  flex: none;
+  color: var(--accent-text);
+}
+
+/* ==========================================================================
+   The unsigned-binary notice
+   ========================================================================== */
+
+.dl-warning-section {
+  padding-block: 0 clamp(56px, 7vw, 96px);
+}
+
+.dl-warning {
+  padding: clamp(22px, 3vw, 32px);
+  border: 1px solid var(--amber);
+  border-radius: 16px;
+  /* Amber at low alpha reads as caution in both themes without either one
+     needing its own colour. */
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+
+.dl-warning h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.dl-warning h2 svg {
+  color: var(--amber);
+}
+
+.dl-warning p {
+  margin: 0 0 12px;
+  max-width: 74ch;
+  color: var(--muted);
+  font-size: 0.97rem;
+  line-height: 1.7;
+}
+
+.dl-verify {
+  margin-top: 16px;
+}
+
+/* ==========================================================================
+   All builds
+   ========================================================================== */
+
+.dl-all-section {
+  padding-block: 0 clamp(64px, 8vw, 110px);
+}
+
+.dl-all-section .lp-heading a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dl-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.dl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.dl-table th {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--soft);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dl-table td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.dl-table tr:last-child td {
+  border-bottom: none;
+}
+
+.dl-table-os {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.dl-table-arch {
+  display: block;
+  color: var(--soft);
+  font-size: 0.84rem;
+}
+
+.dl-table-mono {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.dl-table-sha code {
+  color: var(--soft);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.dl-table-action {
+  text-align: right;
+}
+
+.dl-older {
+  margin: 16px 0 0;
+  color: var(--soft);
+  font-size: 0.88rem;
+}
+
+.dl-older a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  .dl-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  /* The SHA column is the first thing to go: it is verification detail, and
+     SHA256SUMS.txt carries the same information a tap away. */
+  .dl-table-sha,
+  .dl-table thead th:nth-child(4) {
+    display: none;
+  }
+
+  .dl-primary {
+    width: 100%;
+  }
+}

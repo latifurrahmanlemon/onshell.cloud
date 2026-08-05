@@ -1,6 +1,8 @@
 name: Agent build
 
-# Builds the customer-installed agent for every platform it supports.
+# Builds the customer-installed agent for every platform it supports, then
+# commits the packaged downloads into the web app's public folder so the server
+# serves them directly from the repository.
 #
 # The matrix is not a convenience: node-pty is a native module, so each
 # platform's `.node` binary has to be produced on that platform. Cross-compiling
@@ -15,21 +17,40 @@ on:
   push:
     tags: ["agent-v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Commit the built agents into apps/web/public/downloads"
+        type: boolean
+        default: true
+      keep:
+        description: "How many published versions to keep in the repository"
+        type: string
+        default: "3"
+
+# The publish job pushes a commit back to master.
+permissions:
+  contents: write
 
 jobs:
   build:
     strategy:
+      # One platform failing must not cost the other five their downloads. The
+      # publish job packages whatever arrived and names what did not.
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target: win32-x64
+          - os: windows-11-arm
+            target: win32-arm64
           - os: macos-13
             target: darwin-x64
           - os: macos-14
             target: darwin-arm64
           - os: ubuntu-latest
             target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -64,3 +85,67 @@ jobs:
           name: onshell-agent-${{ matrix.target }}
           path: dist/agent/${{ matrix.target }}
           if-no-files-found: error
+
+  publish:
+    needs: build
+    # `always()` because a single unavailable runner (the ARM legs are not on
+    # every plan) should still let the platforms that did build reach users.
+    if: always() && (github.event_name == 'push' || inputs.publish)
+    runs-on: ubuntu-latest
+
+    steps:
+      # master, not the tag: a tag checkout is a detached HEAD and there would
+      # be no branch to commit the downloads onto.
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          # Full history: the commit step rebases before pushing, and a rebase
+          # on a depth-1 clone has nothing to rebase onto.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+          pattern: onshell-agent-*
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#agent-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(node -p "require('./apps/agent/package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: >-
+          node scripts/publish-agent-downloads.mjs
+          --from staging
+          --version ${{ steps.version.outputs.value }}
+          --keep ${{ inputs.keep || '3' }}
+          --commit ${{ github.sha }}
+
+      - name: Commit downloads
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/public/downloads/agent
+
+          # Nothing to do when a re-run produces byte-identical archives.
+          if git diff --cached --quiet; then
+            echo "No download changes to commit."
+            exit 0
+          fi
+
+          # [skip ci] because this commit contains binaries and no source: the
+          # full CI run it would otherwise trigger has nothing to tell us.
+          git commit -m "chore(agent): publish ${{ steps.version.outputs.value }} downloads [skip ci]"
+
+          # Rebase before pushing: this job can finish while somebody else is
+          # pushing to master, and losing the race should cost a retry, not the
+          # release.
+          git pull --rebase origin master
+          git push origin HEAD:master

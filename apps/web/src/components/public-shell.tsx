@@ -12,6 +12,7 @@ import { VisitTracker } from "./visit-tracker";
 const navLinks = [
   { href: "/#features", label: "Features" },
   { href: "/browser-ssh-client", label: "Browser SSH" },
+  { href: "/download", label: "Download" },
   { href: "/#pricing", label: "Pricing" },
   { href: "/security", label: "Security" },
   { href: "/contact", label: "Contact" }
@@ -146,6 +147,7 @@ export function PublicFooter() {
           <strong>Product</strong>
           <a href="/#features">Features</a>
           <a href="/browser-ssh-client">Browser SSH client</a>
+          <a href="/download">Download the agent</a>
           <a href="/#how-it-works">How it works</a>
           <a href="/#pricing">Pricing</a>
           <a href="/#faq">FAQ</a>
