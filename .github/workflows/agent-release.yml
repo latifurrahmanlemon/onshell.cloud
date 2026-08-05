@@ -35,11 +35,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Two setup-node calls: see the same note in ci.yml. `cache: yarn` runs
+      # `yarn cache dir` during the action itself, so Corepack must be enabled
+      # before it, or the runner's Yarn 1.22 answers and refuses the repo's
+      # pinned yarn@4.6.0.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
-      - run: corepack enable
+
       - run: yarn install --immutable
       - run: yarn turbo build --filter='./packages/*'
       - run: yarn workspace @onshell/agent typecheck

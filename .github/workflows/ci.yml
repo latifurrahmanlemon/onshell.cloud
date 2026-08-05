@@ -46,11 +46,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # setup-node runs twice on purpose. `cache: yarn` makes the action shell
+      # out to `yarn cache dir` inside its own step, so Corepack has to already
+      # be active by then — otherwise that call hits the runner's preinstalled
+      # Yarn 1.22, which refuses to run against a repo pinned to yarn@4.6.0 and
+      # fails the job before a single step of ours executes. The first call only
+      # puts Node 22 on PATH so `corepack enable` writes its shim into that
+      # Node's bin dir; the second call resolves `yarn` to 4.6.0 and caches.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
-      - run: corepack enable
+
       - run: yarn install --immutable
       - run: yarn check:migrations
       - run: yarn db:generate
