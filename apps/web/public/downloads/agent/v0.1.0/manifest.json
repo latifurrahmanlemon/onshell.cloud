@@ -1,0 +1,62 @@
+{
+  "version": "0.1.0",
+  "releasedAt": "2026-08-06T12:35:52.905Z",
+  "commit": "b1807bd509dab9c07c166f19bf29281409454049",
+  "builds": [
+    {
+      "target": "win32-x64",
+      "os": "windows",
+      "osLabel": "Windows",
+      "archLabel": "Intel / AMD (64-bit)",
+      "format": "zip",
+      "file": "onshell-agent-0.1.0-win32-x64.zip",
+      "path": "/downloads/agent/v0.1.0/onshell-agent-0.1.0-win32-x64.zip",
+      "bytes": 1388228,
+      "sha256": "fb5dbebdccf8b5de7461ce69feb3a5023fbb7deab687ba4f5c0775d60aa0f36b"
+    },
+    {
+      "target": "win32-arm64",
+      "os": "windows",
+      "osLabel": "Windows",
+      "archLabel": "ARM64",
+      "format": "zip",
+      "file": "onshell-agent-0.1.0-win32-arm64.zip",
+      "path": "/downloads/agent/v0.1.0/onshell-agent-0.1.0-win32-arm64.zip",
+      "bytes": 1255089,
+      "sha256": "65e4696182a84cb7228ad3a4eb769148e00265da1aa1bef356fff485c44533c8"
+    },
+    {
+      "target": "darwin-arm64",
+      "os": "macos",
+      "osLabel": "macOS",
+      "archLabel": "Apple silicon (M1–M4)",
+      "format": "tar.gz",
+      "file": "onshell-agent-0.1.0-darwin-arm64.tar.gz",
+      "path": "/downloads/agent/v0.1.0/onshell-agent-0.1.0-darwin-arm64.tar.gz",
+      "bytes": 120906,
+      "sha256": "1cf0f585a2db6e0b86273eca41a8bd54b7a522eb0a24020b0ff0fbc58b09c83e"
+    },
+    {
+      "target": "linux-x64",
+      "os": "linux",
+      "osLabel": "Linux",
+      "archLabel": "x86_64",
+      "format": "tar.gz",
+      "file": "onshell-agent-0.1.0-linux-x64.tar.gz",
+      "path": "/downloads/agent/v0.1.0/onshell-agent-0.1.0-linux-x64.tar.gz",
+      "bytes": 100969,
+      "sha256": "4f3fa0103aba148b21b66279a1686f725cc9ee933af8763b2db6783826335cc5"
+    },
+    {
+      "target": "linux-arm64",
+      "os": "linux",
+      "osLabel": "Linux",
+      "archLabel": "ARM64",
+      "format": "tar.gz",
+      "file": "onshell-agent-0.1.0-linux-arm64.tar.gz",
+      "path": "/downloads/agent/v0.1.0/onshell-agent-0.1.0-linux-arm64.tar.gz",
+      "bytes": 100963,
+      "sha256": "7429f3f29dad6d4023eeee4b138b7c042ecc14a86039a5ec7ebbc5ddfb95ef70"
+    }
+  ]
+}
