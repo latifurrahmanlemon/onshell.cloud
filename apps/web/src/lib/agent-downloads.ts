@@ -9,32 +9,14 @@
  *
  * Missing is a normal state, not an error. A checkout that has never run the
  * release workflow has no downloads, and the page says so rather than throwing.
+ *
+ * Server-only: this imports `node:fs`. Types and the `formatBytes` helper live
+ * in `agent-manifest.ts` so a Client Component can use them without dragging
+ * Node built-ins into the browser bundle.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-
-export type AgentBuild = {
-  target: string;
-  /** Coarse platform used for grouping and auto-detection. */
-  os: "windows" | "macos" | "linux";
-  osLabel: string;
-  archLabel: string;
-  format: "zip" | "tar.gz";
-  file: string;
-  /** Site-absolute URL, served straight from public/. */
-  path: string;
-  bytes: number;
-  sha256: string;
-};
-
-export type AgentManifest = {
-  version: string;
-  releasedAt: string;
-  commit?: string;
-  builds: AgentBuild[];
-  /** Every version still kept in the repository, newest first. */
-  versions?: string[];
-};
+import type { AgentManifest } from "./agent-manifest";
 
 const MANIFEST = "downloads/agent/latest.json";
 
@@ -60,9 +42,4 @@ export async function readAgentManifest(): Promise<AgentManifest | null> {
     }
   }
   return null;
-}
-
-export function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
-import { type AgentBuild, formatBytes } from "../../lib/agent-downloads";
+import { type AgentBuild, formatBytes } from "../../lib/agent-manifest";
 
 type Detected = { os: AgentBuild["os"] | null; arch: "x64" | "arm64" | null };
 

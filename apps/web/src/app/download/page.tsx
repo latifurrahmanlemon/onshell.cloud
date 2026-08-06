@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { AlertTriangle, Cpu, KeyRound, MonitorSmartphone, Play, ShieldCheck, Terminal } from "lucide-react";
 import { PageHero, PublicShell } from "../../components/public-shell";
-import { type AgentBuild, formatBytes, readAgentManifest } from "../../lib/agent-downloads";
+import { type AgentBuild, formatBytes } from "../../lib/agent-manifest";
+import { readAgentManifest } from "../../lib/agent-downloads";
 import { absoluteUrl, site } from "../../lib/site";
 import { DownloadPicker } from "./download-picker";
 import "../home.css";
