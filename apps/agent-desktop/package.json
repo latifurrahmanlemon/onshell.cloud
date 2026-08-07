@@ -20,6 +20,7 @@
     "node-pty": "^1.0.0"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@onshell/agent": "workspace:*",
     "@types/node": "^22.10.2",
     "electron": "31.7.7",

@@ -53,6 +53,18 @@ jobs:
           node-version: 22
           cache: yarn
 
+      # node-pty is a native module, so electron-builder rebuilds it against
+      # Electron's ABI through node-gyp — and the gyp bundled with
+      # @electron/rebuild still does `from distutils.version import StrictVersion`.
+      # distutils was removed from the standard library in Python 3.12, which is
+      # what the runners now default to, so the rebuild dies with
+      # "ModuleNotFoundError: No module named 'distutils'". 3.11 is the newest
+      # version that still ships it. (setuptools also provides a shim, which is
+      # why this passes on developer machines that happen to have it installed.)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - run: yarn install --immutable
 
       # Through turbo, not `yarn workspace … build`: the agent core imports
@@ -104,21 +116,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           cd apps/agent-desktop/release
           version="${GITHUB_REF_NAME#desktop-v}"
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" \
-            --title "Onshell Agent Desktop $version" \
-            --notes "Desktop installers for the Onshell Agent.
 
-          These builds are **unsigned** while code-signing certificates are being set up, so your OS will warn about an unidentified developer:
-          - **macOS:** right-click the app → Open, or run \`xattr -dr com.apple.quarantine '/Applications/Onshell Agent.app'\`
-          - **Windows:** More info → Run anyway
+          # Written line by line rather than as one indented multi-line string:
+          # this block is indented inside the YAML, and four leading spaces turn a
+          # Markdown line into a code block, which would render the whole release
+          # note as grey monospace.
+          printf '%s\n' \
+            'Desktop installers for the Onshell Agent — no Node, no terminal, nothing to pre-install.' \
+            '' \
+            'These builds are **unsigned** while code-signing certificates are being set up, so your computer will warn about an unidentified developer:' \
+            '' \
+            '- **macOS:** right-click the app and choose Open. Or run `xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"`' \
+            '- **Windows:** click More info, then Run anyway' \
+            '' \
+            'Install it, then paste the pairing code from **My computers → Connect a computer**.' \
+            > release-notes.md
 
-          Requires nothing pre-installed — the runtime is bundled." || true
+          # Three legs race to create the release; the two that lose fall through
+          # to upload against the one the winner made.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" \
+                 --title "Onshell Agent Desktop $version" \
+                 --notes-file release-notes.md \
+            || true
+
           shopt -s nullglob
           files=(*.dmg *.zip *.exe *.AppImage *.deb)
-          if [ ${#files[@]} -gt 0 ]; then
-            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
-          else
+          if [ ${#files[@]} -eq 0 ]; then
             echo "No installers produced on this leg."
+            exit 0
           fi
+          printf 'Uploading %s\n' "${files[@]}"
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber

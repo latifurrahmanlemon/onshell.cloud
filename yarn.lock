@@ -61,7 +61,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@electron/notarize@npm:2.5.0":
+"@electron/notarize@npm:2.5.0, @electron/notarize@npm:^2.5.0":
   version: 2.5.0
   resolution: "@electron/notarize@npm:2.5.0"
   dependencies:
@@ -1274,6 +1274,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@onshell/agent-desktop@workspace:apps/agent-desktop"
   dependencies:
+    "@electron/notarize": "npm:^2.5.0"
     "@onshell/agent": "workspace:*"
     "@types/node": "npm:^22.10.2"
     electron: "npm:31.7.7"
