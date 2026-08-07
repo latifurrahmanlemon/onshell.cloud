@@ -92,8 +92,15 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Onshell"
   },
+  // Declared here rather than through the app/icon.* file convention, so every
+  // icon in the product comes from one place. The 32px entry is the browser-tab
+  // favicon: pointing a tab at the 192px file makes the browser downscale it on
+  // every paint, and thin artwork like the shield's outline blurs when it does.
   icons: {
-    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    icon: [
+      { url: "/icons/icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }
+    ],
     apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]
   },
   other: {

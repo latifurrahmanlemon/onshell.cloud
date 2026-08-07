@@ -1,8 +1,18 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
 export const alt = "Onshell.cloud — the best browser-based SSH client for teams";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+
+// Inlined as a data URI, not fetched over HTTP: this renders during `next build`
+// as well as at request time, and at build time there is no server running to
+// serve /brand/onshell-logo.png to itself. Read once at module scope so a burst
+// of crawler requests does not re-read the file per response.
+const logoDataUri = `data:image/png;base64,${readFileSync(
+  join(process.cwd(), "public", "brand", "onshell-logo.png")
+).toString("base64")}`;
 
 // Branded social-share card, generated at build/request time. Kept font-free so
 // it renders with the built-in default font and needs no external assets.
@@ -24,22 +34,8 @@ export default function OpengraphImage() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 64,
-              height: 64,
-              borderRadius: 16,
-              fontSize: 34,
-              fontWeight: 700,
-              color: "#ffffff",
-              backgroundImage: "linear-gradient(120deg, #6366f1, #a855f7 52%, #ec4899)"
-            }}
-          >
-            {"›_"}
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt="" height={64} src={logoDataUri} width={64} />
           <div style={{ display: "flex", fontSize: 32, fontWeight: 700, letterSpacing: -0.5 }}>
             Onshell.cloud
           </div>
