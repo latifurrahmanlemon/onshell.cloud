@@ -54,6 +54,13 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # A hung leg must not sit on a runner for hours before someone cancels it by
+    # hand. A native build that has not finished in 25 minutes is stuck, not
+    # slow; fail it and let the other platforms publish (fail-fast is off and the
+    # publish job runs on always()). The macos-13 Intel leg is the one that has
+    # done this in practice.
+    timeout-minutes: 25
+
     steps:
       - uses: actions/checkout@v4
 
@@ -92,6 +99,7 @@ jobs:
     # every plan) should still let the platforms that did build reach users.
     if: always() && (github.event_name == 'push' || inputs.publish)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       # master, not the tag: a tag checkout is a detached HEAD and there would
