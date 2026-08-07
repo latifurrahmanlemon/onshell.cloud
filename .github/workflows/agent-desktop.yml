@@ -28,7 +28,11 @@ jobs:
         include:
           - os: macos-14
             platform: mac
-          - os: windows-latest
+          # windows-2022, not windows-latest: latest is now Server 2025, whose
+          # Visual Studio the node-gyp bundled with @electron/rebuild cannot
+          # detect ("Could not find any Visual Studio installation to use"), so
+          # the node-pty rebuild dies before packaging starts.
+          - os: windows-2022
             platform: win
           - os: ubuntu-latest
             platform: linux
