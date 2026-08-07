@@ -82,9 +82,17 @@ async function reloadConfig() {
 }
 
 function trayIcon() {
-  const image = nativeImage.createFromPath(path.join(dir, "..", "build", "trayTemplate.png"));
-  // macOS renders a template image in the correct menu-bar colour for light/dark.
-  image.setTemplateImage(true);
+  // From dist, not build/: electron-builder packs only dist, so the old
+  // build/ path resolved to nothing inside the asar and the packaged app ran
+  // with an empty tray icon. copy-renderer.mjs puts these here at build time.
+  const image = nativeImage.createFromPath(path.join(dir, "tray.png"));
+  image.addRepresentation({
+    scaleFactor: 2,
+    buffer: nativeImage.createFromPath(path.join(dir, "tray@2x.png")).toPNG()
+  });
+  // Not a template image: this is the real logo, and macOS renders a template
+  // as a flat silhouette — which of a shield on a tile is just a rounded square.
+  image.setTemplateImage(false);
   return image;
 }
 

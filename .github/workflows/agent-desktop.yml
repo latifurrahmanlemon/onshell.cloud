@@ -169,9 +169,10 @@ jobs:
           printf '%s\n' \
             'Desktop installers for the Onshell Agent — no Node, no terminal, nothing to pre-install.' \
             '' \
-            'These builds are **unsigned** while code-signing certificates are being set up, so your computer will warn about an unidentified developer:' \
+            'These builds are **unsigned** while code-signing certificates are being set up, so your computer will refuse to open them at first:' \
             '' \
-            '- **macOS:** right-click the app and choose Open. Or run `xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"`' \
+            '- **macOS 15 (Sequoia):** the dialog only offers *Move to Trash*, and right-click → Open no longer works. Put the app back if it was trashed, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run `xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"` and open it normally.' \
+            '- **macOS 14 and earlier:** right-click the app and choose Open.' \
             '- **Windows:** click More info, then Run anyway' \
             '' \
             'Install it, then paste the pairing code from **My computers → Connect a computer**.' \

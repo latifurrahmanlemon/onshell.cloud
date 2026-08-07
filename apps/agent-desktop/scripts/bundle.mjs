@@ -25,11 +25,33 @@ const app = join(here, "..");
 const external = ["electron", "node-pty"];
 const shared = { bundle: true, platform: "node", target: "node20", external, logLevel: "info" };
 
+/**
+ * Gives the ESM bundle a working `require`.
+ *
+ * With `platform: "node"` the builtins stay external, so a CommonJS dependency
+ * folded into an ESM bundle — `ws`, reached through the agent core — keeps its
+ * `require("events")`. esbuild cannot rewrite that into an import, so it emits a
+ * `__require` shim whose only behaviour is to throw:
+ *
+ *     Error: Dynamic require of "events" is not supported
+ *
+ * which killed the packaged app on its first launch, before any window opened.
+ * The shim checks for a global `require` and defers to it when one exists, so
+ * defining a real one here is all it takes. This must be a banner rather than an
+ * import in main.ts: it has to be evaluated before the shim, which esbuild emits
+ * above every module in the bundle.
+ */
+const esmRequireShim = [
+  "import { createRequire as __createRequire } from 'node:module';",
+  "const require = __createRequire(import.meta.url);"
+].join("\n");
+
 await build({
   ...shared,
   entryPoints: [join(app, "src", "main.ts")],
   outfile: join(app, "dist", "main.js"),
-  format: "esm"
+  format: "esm",
+  banner: { js: esmRequireShim }
 });
 
 await build({
