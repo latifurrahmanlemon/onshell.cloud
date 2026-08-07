@@ -14,8 +14,11 @@ on:
     tags: ["desktop-v*"]
   workflow_dispatch:
 
+# A tag push attaches the built installers to a GitHub Release, so the job needs
+# write access to repository contents. Manual runs only upload artifacts and use
+# no more than the default read.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -80,3 +83,37 @@ jobs:
             apps/agent-desktop/release/*.AppImage
             apps/agent-desktop/release/*.deb
           if-no-files-found: warn
+
+      # On a tag, attach this leg's installers to the matching GitHub Release.
+      # A release is used rather than a repo commit on purpose: each installer is
+      # ~90-100 MB and there are six, so committing them would bloat the git
+      # history permanently. The release is public, so downloading needs no login
+      # — the reason the old Actions-artifact approach was abandoned.
+      #
+      # `gh release create` races across the three legs; `|| true` makes the
+      # loser of that race fall straight through to upload against the release the
+      # winner made. shell: bash normalises globbing on the Windows runner too.
+      - name: Attach installers to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd apps/agent-desktop/release
+          version="${GITHUB_REF_NAME#desktop-v}"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" \
+            --title "Onshell Agent Desktop $version" \
+            --notes "Desktop installers for the Onshell Agent.
+
+          These builds are **unsigned** while code-signing certificates are being set up, so your OS will warn about an unidentified developer:
+          - **macOS:** right-click the app → Open, or run \`xattr -dr com.apple.quarantine '/Applications/Onshell Agent.app'\`
+          - **Windows:** More info → Run anyway
+
+          Requires nothing pre-installed — the runtime is bundled." || true
+          shopt -s nullglob
+          files=(*.dmg *.zip *.exe *.AppImage *.deb)
+          if [ ${#files[@]} -gt 0 ]; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          else
+            echo "No installers produced on this leg."
+          fi
