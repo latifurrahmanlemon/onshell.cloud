@@ -1,0 +1,74 @@
+# electron-builder configuration for the Onshell Agent desktop app.
+#
+# Signing is intentionally driven entirely by environment variables, so this
+# file is committed unsigned-by-default and needs no edit when the certificates
+# arrive. Set the variables in CI secrets and the same build turns out signed:
+#
+#   macOS       CSC_LINK, CSC_KEY_PASSWORD           (Developer ID .p12, base64 or path)
+#               APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   (notarization)
+#   Windows     CSC_LINK, CSC_KEY_PASSWORD           (Authenticode .pfx)
+#
+# With none of them set, electron-builder produces working *unsigned* installers
+# — fine for internal testing, and the interim `xattr -dr com.apple.quarantine`
+# / right-click-Open path documented in docs/agent.md still applies until the
+# certificates land.
+
+appId: cloud.onshell.agent
+productName: Onshell Agent
+copyright: Copyright © Onshell
+
+directories:
+  output: release
+  buildResources: build
+
+# The compiled main/preload/renderer plus the reusable agent core and its native
+# module. electron-builder rebuilds node-pty against Electron's ABI on install.
+files:
+  - dist/**/*
+  - "!**/*.map"
+
+# node-pty ships a native .node; asar must not swallow it or dlopen fails.
+asar: true
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+
+npmRebuild: true
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarization runs from scripts/notarize.cjs (afterSign) only when the Apple
+  # credentials are present, so an unsigned local build does not try to notarize.
+
+dmg:
+  writeUpdateInfo: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Per-user install and startup keep the app off the machine-wide, admin-only
+  # path — the same "runs as you, never as SYSTEM" property the CLI has.
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+  category: Utility
+
+afterSign: scripts/notarize.cjs

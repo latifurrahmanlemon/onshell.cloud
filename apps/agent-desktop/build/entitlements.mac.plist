@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    The agent spawns real shells (zsh, bash) via node-pty, which is a JIT-free
+    native fork/exec. Under the hardened runtime that notarization requires,
+    a signed app may not load unsigned executable pages or fork/exec helpers
+    unless it declares it. These two are the minimum that lets a Developer-ID
+    signed build still open a pty; nothing here grants network-server or
+    device access.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>

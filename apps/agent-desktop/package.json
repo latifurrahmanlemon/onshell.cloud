@@ -1,0 +1,30 @@
+{
+  "name": "@onshell/agent-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Onshell Agent, packaged as a signed desktop app with a tray UI and per-OS installers.",
+  "author": "Onshell <support@onshell.cloud>",
+  "main": "dist/main.js",
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs && node scripts/copy-renderer.mjs",
+    "build": "yarn bundle",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "yarn build && electron .",
+    "dist": "yarn build && electron-builder",
+    "dist:mac": "yarn build && electron-builder --mac",
+    "dist:win": "yarn build && electron-builder --win",
+    "dist:linux": "yarn build && electron-builder --linux"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@onshell/agent": "workspace:*",
+    "@types/node": "^22.10.2",
+    "electron": "31.7.7",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.2"
+  }
+}

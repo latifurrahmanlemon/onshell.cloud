@@ -1,0 +1,82 @@
+name: Agent desktop
+
+# Builds the desktop-app packaging of the agent — the .dmg / .exe / AppImage a
+# non-technical user double-clicks — as opposed to agent-release.yml, which
+# builds the headless CLI tarball. electron-builder produces the installer for
+# each OS on that OS.
+#
+# Signing is driven by secrets, never by a file edit. Set them and the same run
+# turns out signed and (on macOS) notarized; leave them unset and it produces
+# working unsigned installers for internal testing. See electron-builder.yml.
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+    # electron-builder downloads platform toolchains and rebuilds node-pty; a
+    # leg that has not finished in 40 minutes is stuck, not slow.
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Two setup-node calls: Corepack must be active before `cache: yarn` shells
+      # out to `yarn cache dir`, or the runner's Yarn 1.22 answers and refuses a
+      # repo pinned to yarn@4.6.0. Same note as ci.yml.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - run: yarn install --immutable
+
+      # The desktop app imports the compiled agent core, so build it first.
+      - run: yarn workspace @onshell/agent build
+      - run: yarn workspace @onshell/agent-desktop build
+
+      - name: Package installers
+        working-directory: apps/agent-desktop
+        run: yarn electron-builder --${{ matrix.platform }} --publish never
+        env:
+          # macOS signing + notarization. All no-ops when the secrets are absent.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # GitHub token so electron-builder never tries to auth for publish.
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onshell-agent-desktop-${{ matrix.platform }}
+          # The installers, not the unpacked app dirs or blockmaps.
+          path: |
+            apps/agent-desktop/release/*.dmg
+            apps/agent-desktop/release/*.zip
+            apps/agent-desktop/release/*.exe
+            apps/agent-desktop/release/*.AppImage
+            apps/agent-desktop/release/*.deb
+          if-no-files-found: warn
