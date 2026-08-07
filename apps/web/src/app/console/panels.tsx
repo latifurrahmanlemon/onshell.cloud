@@ -2312,7 +2312,8 @@ export function AgentsView({
             <p className="data-muted">
               A browser cannot open a terminal on your computer by itself. Install
               the Onshell Agent on the machine you want to reach, then pair it with
-              the code below.
+              the code below. The desktop app is the one-click option; the
+              command-line build is there for servers with no desktop.
             </p>
             {/* The step that used to be missing: this drawer named a command
                 without ever saying where the program comes from. */}
@@ -2326,21 +2327,23 @@ export function AgentsView({
 
           {code ? (
             <div className="span-two">
+              {/* Both installs, desktop first: the drawer used to name a command
+                  only, which left anyone who took the one-click installer
+                  looking for a terminal they were told they would not need. */}
               <p>
-                <strong>1.</strong> On that computer, run:
+                <strong>Desktop app:</strong> paste this code into its window.
               </p>
-              {/* The exact command the downloaded build answers to. There is no
-                  installer yet, so `onshell-agent` is not on anyone's PATH. */}
-              <p className="data-mono">node onshell-agent.cjs pair {code.code}</p>
+              <p className="data-mono">{code.code}</p>
               <p className="data-muted">
                 This code works once and expires in {minutesUntil(code.expiresAt)}{" "}
                 minute{minutesUntil(code.expiresAt) === 1 ? "" : "s"}.
               </p>
               <p>
-                <strong>2.</strong> Then start it with{" "}
-                <span className="data-mono">node onshell-agent.cjs run</span>. The machine appears here as
-                Connected.
+                <strong>Command-line build:</strong> run{" "}
+                <span className="data-mono">node onshell-agent.cjs pair {code.code}</span>, then{" "}
+                <span className="data-mono">node onshell-agent.cjs run</span>.
               </p>
+              <p className="data-muted">Either way, the machine appears here as Connected.</p>
               <div className="form-actions">
                 <button className="secondary-button" onClick={copyCode} type="button">
                   <Copy size={15} />

@@ -1,5 +1,16 @@
 import type { Metadata } from "next";
-import { AlertTriangle, Cpu, KeyRound, MonitorSmartphone, Play, ShieldCheck, Terminal } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Check,
+  Cpu,
+  Download,
+  KeyRound,
+  MonitorSmartphone,
+  Play,
+  ShieldCheck,
+  Terminal
+} from "lucide-react";
 import { PageHero, PublicShell } from "../../components/public-shell";
 import { type AgentBuild, formatBytes } from "../../lib/agent-manifest";
 import { readAgentManifest } from "../../lib/agent-downloads";
@@ -115,11 +126,108 @@ export default async function DownloadPage() {
             Reach <span className="lp-grad-text">your own computer</span> from any browser
           </>
         }
-        lead="A browser cannot open a terminal on your machine by itself — that is the sandbox the whole web rests on. The agent is the small program that can. Install it once, pair it with your account, and your desktop is one tab away from your phone."
+        lead="A browser cannot open a terminal on your machine by itself — that is the sandbox the whole web rests on. The agent is the small program that can. Install it once, pair it with your account, and your desktop is one tab away from your phone. It comes two ways: a desktop app you double-click, or a command-line build for machines with no desktop at all."
       />
 
-      <section className="lp-section dl-picker-section">
+      {/* The two ways, stated before either download. The desktop app leads
+          because it is the right answer for almost everyone asking — it needs
+          no Node, no terminal and no unpacking — while the CLI build is the
+          only answer for a headless server, which is not a minority case in
+          this product. Naming both up front stops the reader from taking the
+          first download they see and finding out afterwards that the other one
+          was meant for them. */}
+      <section className="lp-section dl-ways-section" id="ways">
         <div className="lp-container">
+          <div className="lp-heading">
+            <span className="lp-section-eyebrow">Two ways to install</span>
+            <h2>Pick the one that fits the machine</h2>
+            <p>Both pair the same way and give you the same terminal. They differ only in what the machine has to have already.</p>
+          </div>
+
+          <div className="dl-ways">
+            <article className="dl-way dl-way-lead">
+              <span className="dl-way-badge">
+                <Check aria-hidden="true" size={13} />
+                Recommended
+              </span>
+              <h3>
+                <MonitorSmartphone aria-hidden="true" size={19} />
+                Desktop app
+              </h3>
+              <p className="dl-way-lead-text">
+                A normal installer. It brings its own runtime, so there is nothing to install first and nothing to
+                type — it sits in your menu bar or system tray and you paste the pairing code into it.
+              </p>
+              <ul className="dl-way-points">
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  No Node, no terminal, no unpacking
+                </li>
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  Starts with your computer, quits from the tray
+                </li>
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  Windows, macOS and Linux — Intel and ARM
+                </li>
+              </ul>
+              <a className="primary-button large dl-way-btn" href={desktopReleaseUrl} rel="noreferrer" target="_blank">
+                <Download aria-hidden="true" size={18} />
+                Get the desktop app
+                <ArrowUpRight aria-hidden="true" size={16} />
+              </a>
+              <p className="dl-way-note">
+                <span className="dl-way-beta">Beta</span> Unsigned for now, so your OS will ask you to confirm.
+              </p>
+            </article>
+
+            <article className="dl-way">
+              <h3>
+                <Terminal aria-hidden="true" size={19} />
+                Command-line agent
+              </h3>
+              <p className="dl-way-lead-text">
+                One file you run from a shell. This is the build for a machine with no desktop — a VPS, a headless
+                box, anything you reach over SSH — and the one to script into a provisioning step.
+              </p>
+              <ul className="dl-way-points">
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  Runs where there is no desktop to install into
+                </li>
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  Needs Node.js 22 already on the machine
+                </li>
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  Published with a SHA-256 for every build
+                </li>
+              </ul>
+              <a className="secondary-button large dl-way-btn" href="#cli">
+                Get the command-line build
+              </a>
+              <p className="dl-way-note">Six platform builds, listed further down with checksums.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-section dl-picker-section" id="cli">
+        <div className="lp-container">
+          <div className="lp-heading dl-cli-heading">
+            <span className="lp-section-eyebrow">Command-line agent</span>
+            <h2>The build you run from a shell</h2>
+            <p>
+              If you came here for the double-click installer, it is{" "}
+              <a className="dl-cli-back" href="#ways">
+                the other option above
+              </a>
+              . This one needs Node.js 22 on the machine already.
+            </p>
+          </div>
+
           {manifest ? (
             <>
               <DownloadPicker builds={manifest.builds} version={manifest.version} />
@@ -141,20 +249,6 @@ export default async function DownloadPage() {
             </div>
           )}
 
-          <div className="dl-desktop-cta">
-            <div className="dl-desktop-cta-text">
-              <p className="dl-desktop-cta-lead">
-                Prefer a one-click installer? <span className="dl-desktop-cta-beta">Beta</span>
-              </p>
-              <p className="dl-desktop-cta-body">
-                The desktop app bundles its own runtime — no Node, no terminal. Install it, paste your pairing
-                code, and it lives in your menu bar. Unsigned for now, so your OS will ask you to confirm.
-              </p>
-            </div>
-            <a className="secondary-button dl-desktop-cta-btn" href={desktopReleaseUrl} target="_blank" rel="noreferrer">
-              Get the desktop app
-            </a>
-          </div>
         </div>
       </section>
 
@@ -163,7 +257,10 @@ export default async function DownloadPage() {
           <div className="lp-heading">
             <span className="lp-section-eyebrow">Getting started</span>
             <h2>Three steps, about two minutes</h2>
-            <p>The agent has no installer yet, so these are the real commands — not a simplified version of them.</p>
+            <p>
+              These are the real commands for the command-line build, not a simplified version of them. The desktop
+              app needs none of this: install it and paste the code into the window.
+            </p>
           </div>
 
           <ol className="dl-steps">
@@ -217,13 +314,29 @@ export default async function DownloadPage() {
             </h2>
             <p>
               These builds are not code-signed yet. Windows SmartScreen will show{" "}
-              <em>&ldquo;Windows protected your PC&rdquo;</em>, and macOS Gatekeeper will refuse to open an unidentified
-              developer&rsquo;s program. Both warnings are correct to show: an unsigned program that opens a shell on
-              your machine is, to a scanner, indistinguishable from malware.
+              <em>&ldquo;Windows protected your PC&rdquo;</em>, and macOS will say it{" "}
+              <em>&ldquo;could not verify this app is free of malware&rdquo;</em>. Both warnings are correct to show: an
+              unsigned program that opens a shell on your machine is, to a scanner, indistinguishable from malware.
             </p>
             <p>
-              We would rather say that here than have you discover it mid-install. Certificates are being sorted out. In
-              the meantime, verify what you downloaded — that is what the checksum below is for.
+              On macOS 15 Sequoia the only button that dialog offers is <strong>Move to Trash</strong>, and there is no
+              longer a right-click&nbsp;→&nbsp;Open shortcut around it. If it has already gone to the Trash, put it back
+              first — then use either of these:
+            </p>
+            <div className="dl-verify">
+              <pre>
+                <code>
+                  {"# 1. Settings route: open the app once, dismiss the dialog, then go to\n"}
+                  {"#    System Settings → Privacy & Security → scroll down → Open Anyway\n\n"}
+                  {"# 2. Or strip the download flag yourself, then open it normally:\n"}
+                  {'xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"\n'}
+                </code>
+              </pre>
+            </div>
+            <p>
+              This stops the day a Developer ID certificate is in place: the build pipeline already signs and notarizes
+              when one is supplied, so the same release turns out clean without a code change. Until then, verify what
+              you downloaded — that is what the checksum below is for.
             </p>
             <div className="dl-verify">
               <pre>
