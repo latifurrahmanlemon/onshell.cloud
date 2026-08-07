@@ -55,8 +55,13 @@ jobs:
 
       - run: yarn install --immutable
 
-      # The desktop app imports the compiled agent core, so build it first.
-      - run: yarn workspace @onshell/agent build
+      # Through turbo, not `yarn workspace … build`: the agent core imports
+      # @onshell/agent-protocol, and only turbo honours the `dependsOn: ["^build"]`
+      # in turbo.json that builds that package first. Calling the workspace script
+      # directly runs tsc against a package whose dist does not exist yet on a
+      # clean checkout, which fails with "Cannot find module
+      # '@onshell/agent-protocol'" and a cascade of ResolvedShell errors behind it.
+      - run: yarn turbo build --filter=@onshell/agent
       - run: yarn workspace @onshell/agent-desktop build
 
       - name: Package installers
