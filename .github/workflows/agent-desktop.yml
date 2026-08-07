@@ -80,6 +80,13 @@ jobs:
         working-directory: apps/agent-desktop
         run: yarn electron-builder --${{ matrix.platform }} --publish never
         env:
+          # Sign only when a certificate was actually supplied. Without this,
+          # electron-builder hunts the machine's keychain for any Developer ID it
+          # can find and signs with that — so the build's outcome depends on what
+          # happens to be installed, and a failed timestamp call takes the whole
+          # leg down. Explicitly false = a deterministic unsigned build; the
+          # moment CSC_LINK is set as a secret this flips to true on its own.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
           # macOS signing + notarization. All no-ops when the secrets are absent.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
