@@ -7,9 +7,21 @@ import { useId } from "react";
  * The gradient reads the live accent tokens (--grad-*), so the logo recolors
  * with the user's chosen theme everywhere it appears. Falls back to the default
  * indigo→violet→fuchsia when those vars are absent.
+ *
+ * Three details do the work of making it read as a crafted mark rather than a
+ * clip-art tile, and all three are why the geometry below looks fussy:
+ *
+ * - The glyph is optically centred, not mathematically centred. `>` and `_`
+ *   together span x 10.4–22, whose midpoint sits right of the tile's own centre;
+ *   a prompt with its weight low-left needs that nudge to look centred at 20px.
+ * - A hairline inset stroke keeps the tile's edge defined against both a white
+ *   header and a near-black one, where a flat gradient rectangle dissolves.
+ * - A top-down white wash (12% → 0) gives the tile a light source. Without it
+ *   the gradient reads as a flat swatch at small sizes.
  */
 export function OnshellMark({ size = 32, className }: { size?: number; className?: string }) {
   const gradientId = useId();
+  const sheenId = useId();
   return (
     <svg
       aria-hidden="true"
@@ -26,16 +38,28 @@ export function OnshellMark({ size = 32, className }: { size?: number; className
           <stop offset="0.52" stopColor="var(--grad-via, #a855f7)" />
           <stop offset="1" stopColor="var(--grad-to, #ec4899)" />
         </linearGradient>
+        <linearGradient id={sheenId} x1="16" y1="0" x2="16" y2="19" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#fff" stopOpacity="0.12" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
       </defs>
-      <rect width="32" height="32" rx="8" fill={`url(#${gradientId})`} />
+
+      {/* rx 9, not 8: a slightly softer corner reads as deliberate at 36px and
+          keeps the tile from looking like a default rounded-rect. */}
+      <rect width="32" height="32" rx="9" fill={`url(#${gradientId})`} />
+      <rect width="32" height="32" rx="9" fill={`url(#${sheenId})`} />
+      <rect x="0.5" y="0.5" width="31" height="31" rx="8.5" stroke="#fff" strokeOpacity="0.18" />
+
+      {/* Lighter stroke than before (2.3 vs 2.6): at 36px the old weight closed
+          up the chevron's inner angle into a blob. */}
       <path
-        d="M9.5 11 14.5 16 9.5 21"
+        d="M10.4 11.6 14.9 16 10.4 20.4"
         stroke="#fff"
-        strokeWidth="2.6"
+        strokeWidth="2.3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path d="M16.5 21h6.5" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M17.6 20.4H22" stroke="#fff" strokeWidth="2.3" strokeLinecap="round" />
     </svg>
   );
 }

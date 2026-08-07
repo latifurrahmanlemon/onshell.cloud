@@ -1189,17 +1189,20 @@ html {
   gap: 10px;
 }
 
+/* Avatar-only: a 38px circle, no name and no chevron. The 2px inset makes the
+   button read as a ring around the photo rather than a border touching it. */
 .ps-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 5px 10px 5px 5px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 2px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .ps-trigger:hover {
@@ -1212,17 +1215,24 @@ html {
   outline-offset: 2px;
 }
 
+/* Without a chevron the button needs some other signal that the menu is open,
+   or the panel appears to belong to nothing. */
+.ps-trigger[aria-expanded="true"] {
+  border-color: var(--accent-weak-border);
+  box-shadow: 0 0 0 3px var(--accent-weak);
+}
+
 .ps-avatar {
   display: grid;
   place-items: center;
   overflow: hidden;
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--brand-gradient);
   color: var(--on-accent);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -1237,33 +1247,6 @@ html {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.ps-trigger-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  text-align: left;
-  line-height: 1.15;
-}
-
-.ps-name {
-  font-size: 0.86rem;
-  font-weight: 600;
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ps-org {
-  color: var(--soft);
-  font-size: 0.72rem;
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .ps-menu {
@@ -1310,6 +1293,15 @@ html {
   max-width: 190px;
 }
 
+/* The organisation, which used to sit under the name in the nav trigger.
+   Scoped under .ps-menu-head to outspecify the `.ps-menu-head span` rule above,
+   which would otherwise keep its muted colour. */
+.ps-menu-head .ps-menu-org {
+  font-weight: 500;
+  color: var(--text);
+  opacity: 0.75;
+}
+
 .ps-menu-item {
   display: flex;
   align-items: center;
@@ -1342,13 +1334,24 @@ html {
 }
 
 @media (max-width: 900px) {
-  .ps-console-link,
-  .ps-trigger-text {
+  .ps-console-link {
     display: none;
   }
 
+  /* 44px: with the console link gone this is the only account control left, and
+     it is the one target on the row that has to survive a thumb. */
+  .ps-trigger {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ps-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
   .ps-placeholder {
-    width: 40px;
+    width: 44px;
   }
 }
 

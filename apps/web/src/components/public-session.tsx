@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LayoutDashboard, LogOut, Shield, UserRound } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, UserRound } from "lucide-react";
 import type { User } from "@onshell/shared";
 import { apiBaseUrl } from "../lib/site";
 
@@ -61,10 +61,16 @@ export function usePublicSession() {
   return session;
 }
 
+/**
+ * First name + last name initials — first and *last* word, not the first two,
+ * so "Md Latifur Rahman" gives MR rather than ML. Falls back to a single letter
+ * for a one-word name, and to "?" for a name that is empty or punctuation only.
+ */
 function initials(name: string) {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  const letters = parts.map((part) => part[0] ?? "").join("");
-  return (letters || name[0] || "?").toUpperCase();
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters =
+    parts.length > 1 ? `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}` : (parts[0]?.[0] ?? "");
+  return (letters || "?").toUpperCase();
 }
 
 /**
@@ -138,11 +144,21 @@ export function PublicSessionBadge() {
       <a className="secondary-button ps-console-link" href="/console">
         Open console
       </a>
+      {/* The avatar alone, with no name, org or chevron beside it: the nav has
+          six links and two actions already, and a full identity block there
+          pushed the whole row wide enough to wrap early on laptops. The name,
+          email and organisation still appear — one click away, in the menu head
+          below, which is where a visitor looks for them anyway.
+
+          `alt=""` on the photo is deliberate: the button carries the accessible
+          name, so a described image would make a screen reader say it twice. */}
       <button
         className="ps-trigger"
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={`Account menu for ${user.name}`}
+        title={user.name}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="ps-avatar">
@@ -153,11 +169,6 @@ export function PublicSessionBadge() {
             <span>{initials(user.name)}</span>
           )}
         </span>
-        <span className="ps-trigger-text">
-          <span className="ps-name">{user.name}</span>
-          {session.organizationName && <span className="ps-org">{session.organizationName}</span>}
-        </span>
-        <ChevronDown aria-hidden="true" size={15} />
       </button>
 
       {open && (
@@ -171,9 +182,12 @@ export function PublicSessionBadge() {
                 <span>{initials(user.name)}</span>
               )}
             </span>
+            {/* The organisation moved here from the trigger, so dropping the
+                name block from the nav costs no information. */}
             <div>
               <strong>{user.name}</strong>
               <span>{user.email}</span>
+              {session.organizationName && <span className="ps-menu-org">{session.organizationName}</span>}
             </div>
           </div>
 
