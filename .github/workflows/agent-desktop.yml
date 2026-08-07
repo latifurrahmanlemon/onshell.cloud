@@ -78,22 +78,38 @@ jobs:
 
       - name: Package installers
         working-directory: apps/agent-desktop
-        run: yarn electron-builder --${{ matrix.platform }} --publish never
+        shell: bash
+        # An unset secret still arrives as a *defined but empty* environment
+        # variable, and electron-builder treats an empty CSC_LINK as a path to a
+        # certificate: it resolves "" against the cwd and dies with
+        # "<appDir> not a file". So the empty ones are removed here rather than
+        # merely set to false — declaring them below is what makes them present.
+        # When the certificates arrive, the same block leaves them alone and the
+        # build signs.
+        run: |
+          set -euo pipefail
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then unset "$name"; fi
+          done
+
+          if [ -z "${CSC_LINK:-}" ]; then
+            # No certificate: keep electron-builder from signing with whatever
+            # Developer ID happens to sit in the runner's keychain, so an
+            # unsigned build is a deliberate, reproducible outcome.
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "No signing certificate supplied — building unsigned."
+          else
+            echo "Signing certificate present — building signed."
+          fi
+
+          yarn electron-builder --${{ matrix.platform }} --publish never
         env:
-          # Sign only when a certificate was actually supplied. Without this,
-          # electron-builder hunts the machine's keychain for any Developer ID it
-          # can find and signs with that — so the build's outcome depends on what
-          # happens to be installed, and a failed timestamp call takes the whole
-          # leg down. Explicitly false = a deterministic unsigned build; the
-          # moment CSC_LINK is set as a secret this flips to true on its own.
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
-          # macOS signing + notarization. All no-ops when the secrets are absent.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # GitHub token so electron-builder never tries to auth for publish.
+          # So electron-builder never tries to authenticate for a publish.
           GH_TOKEN: ${{ github.token }}
 
       - uses: actions/upload-artifact@v4

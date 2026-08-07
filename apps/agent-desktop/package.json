@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Onshell Agent, packaged as a signed desktop app with a tray UI and per-OS installers.",
   "author": "Onshell <support@onshell.cloud>",
+  "repository": "https://github.com/latifurrahmanlemon/onshell.cloud",
   "main": "dist/main.js",
   "scripts": {
     "bundle": "node scripts/bundle.mjs && node scripts/copy-renderer.mjs",
