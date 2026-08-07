@@ -69,6 +69,55 @@
   text-align: center;
 }
 
+/* One-click desktop installer, offered alongside the CLI tarball above. */
+.dl-desktop-cta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 22px auto 0;
+  max-width: 640px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.dl-desktop-cta-text {
+  flex: 1 1 260px;
+}
+
+.dl-desktop-cta-lead {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dl-desktop-cta-beta {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.dl-desktop-cta-body {
+  margin: 0;
+  color: var(--soft);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.dl-desktop-cta-btn {
+  flex: 0 0 auto;
+}
+
 /* ==========================================================================
    Steps
    ========================================================================== */

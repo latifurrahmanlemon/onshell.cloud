@@ -29,6 +29,12 @@ export const metadata: Metadata = {
 // so the page is rendered per request rather than frozen at build time.
 export const dynamic = "force-dynamic";
 
+// The desktop app (a double-click installer that bundles its own runtime) ships
+// as GitHub Release assets rather than files in this repo: six ~100 MB installers
+// per version would bloat git permanently. `/releases/latest` always resolves to
+// the newest one, so the link never needs updating per release.
+const desktopReleaseUrl = "https://github.com/latifurrahmanlemon/onshell.cloud/releases/latest";
+
 const steps = [
   {
     icon: MonitorSmartphone,
@@ -129,6 +135,21 @@ export default async function DownloadPage() {
               </p>
             </div>
           )}
+
+          <div className="dl-desktop-cta">
+            <div className="dl-desktop-cta-text">
+              <p className="dl-desktop-cta-lead">
+                Prefer a one-click installer? <span className="dl-desktop-cta-beta">Beta</span>
+              </p>
+              <p className="dl-desktop-cta-body">
+                The desktop app bundles its own runtime — no Node, no terminal. Install it, paste your pairing
+                code, and it lives in your menu bar. Unsigned for now, so your OS will ask you to confirm.
+              </p>
+            </div>
+            <a className="secondary-button dl-desktop-cta-btn" href={desktopReleaseUrl} target="_blank" rel="noreferrer">
+              Get the desktop app
+            </a>
+          </div>
         </div>
       </section>
 
