@@ -60,6 +60,7 @@
 }
 
 .aiw-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(380px, calc(100vw - 36px));
@@ -70,6 +71,111 @@
   background: var(--surface);
   box-shadow: var(--shadow-lg);
   animation: aiw-rise 0.18s var(--ease-out);
+}
+
+/* Signed-in history: a full-panel drawer over the transcript, with its own head. */
+.aiw-history {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  animation: aiw-rise 0.16s var(--ease-out);
+}
+
+.aiw-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.aiw-history-head strong {
+  font-size: 0.9rem;
+}
+
+.aiw-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aiw-history-empty {
+  margin: auto;
+  padding: 24px 16px;
+  color: var(--soft);
+  font-size: 0.83rem;
+  text-align: center;
+}
+
+.aiw-history-item {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.aiw-history-item.is-active {
+  background: var(--brand-tint);
+}
+
+.aiw-history-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.aiw-history-open:hover {
+  background: var(--surface-2);
+}
+
+.aiw-history-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiw-history-meta {
+  color: var(--soft);
+  font-size: 0.72rem;
+}
+
+.aiw-history-del {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--soft);
+  cursor: pointer;
+}
+
+.aiw-history-del:hover {
+  background: var(--surface-2);
+  color: var(--rose);
+}
+
+.aiw-icon-btn.is-active {
+  color: var(--accent-text);
 }
 
 @keyframes aiw-rise {

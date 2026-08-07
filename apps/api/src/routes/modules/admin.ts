@@ -1262,6 +1262,40 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     }
   });
 
+  app.delete("/admin/ai/threads/:threadId", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const { threadId } = z.object({ threadId: z.string() }).parse(request.params);
+
+      // Read a little context before deleting so the audit entry is meaningful
+      // once the row (and its messages, via cascade) is gone.
+      const thread = await prisma.aiThread.findUnique({
+        where: { id: threadId },
+        select: { id: true, userId: true, title: true, messageCount: true }
+      });
+      if (!thread) return reply.code(404).send({ error: "thread_not_found" });
+
+      await prisma.aiThread.delete({ where: { id: threadId } });
+
+      // Deleting a user's conversation is a privileged, irreversible action.
+      await createAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "admin.ai.thread.delete",
+        targetType: "ai_thread",
+        targetId: thread.id,
+        ipAddress: request.ip,
+        metadata: { threadOwnerId: thread.userId, title: thread.title, messageCount: thread.messageCount }
+      });
+
+      return { ok: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
   // ---------------------------------------------------------------------------
   // Contact inbox
   // ---------------------------------------------------------------------------

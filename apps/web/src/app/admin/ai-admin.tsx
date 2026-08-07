@@ -1,7 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Bot, CheckCircle2, KeyRound, RefreshCw, Save, Search, Sparkles, User as UserIcon } from "lucide-react";
+import {
+  AlertCircle,
+  Bot,
+  CheckCircle2,
+  Eye,
+  KeyRound,
+  MessagesSquare,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
+  User as UserIcon,
+  X
+} from "lucide-react";
 import { cx } from "@onshell/ui";
 import { apiGet, apiSend, errorText, formatDateTime, useAdminResource } from "./lib";
 
@@ -24,8 +39,10 @@ interface AiThreadRow {
   messageCount: number;
   lastMessageAt: string;
   createdAt: string;
-  user: { id: string; name: string; email: string; avatarUrl: string | null };
-  organization: { id: string; name: string };
+  // Threads cascade-delete with their user, so this is normally present — but the
+  // UI stays defensive and shows a fallback identity if a row ever lacks one.
+  user: { id: string; name: string; email: string; avatarUrl: string | null } | null;
+  organization: { id: string; name: string } | null;
 }
 
 interface AiThreadListResponse {
@@ -277,19 +294,172 @@ export function AiSettingsPanel() {
   );
 }
 
+/** Two initials for the avatar fallback, e.g. "Ada Lovelace" → "AL". */
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts[0]![0]! + (parts.length > 1 ? parts[parts.length - 1]![0]! : "")).toUpperCase();
+}
+
+/** The person a thread belongs to, or a clear "gone" state when the row has none. */
+function ThreadOwner({ user }: { user: AiThreadRow["user"] }) {
+  if (!user) {
+    return (
+      <span className="ai-owner is-orphan">
+        <span className="ai-owner-avatar is-orphan" aria-hidden="true">
+          <UserIcon size={13} />
+        </span>
+        <span className="ai-owner-text">
+          <strong>Deleted user</strong>
+          <small>No account on file</small>
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="ai-owner">
+      {user.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="ai-owner-avatar" src={user.avatarUrl} alt="" width={26} height={26} />
+      ) : (
+        <span className="ai-owner-avatar" aria-hidden="true">
+          {initials(user.name)}
+        </span>
+      )}
+      <span className="ai-owner-text">
+        <strong>{user.name}</strong>
+        <small>{user.email}</small>
+      </span>
+    </span>
+  );
+}
+
 /**
- * Every AI conversation on the platform, for support and abuse review.
+ * A full conversation, shown as a chat room inside a modal.
  *
- * Opening a thread is itself written to the audit log — reading a user's
- * conversation is a privileged action and should leave a trace.
+ * Opening it (the detail fetch) is written to the audit log server-side, so the
+ * note in the header is a statement of fact, not a warning.
+ */
+function ThreadModal({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+  const [detail, setDetail] = useState<AiThreadDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void apiGet<AiThreadDetail>(`/admin/ai/threads/${threadId}`)
+      .then((thread) => {
+        if (active) setDetail(thread);
+      })
+      .catch((caught) => {
+        if (active) setError(errorText(caught));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [threadId]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const owner = detail?.user;
+
+  return (
+    <div className="adm-modal-backdrop" onClick={onClose}>
+      <div
+        className="adm-modal panel adm-modal-chat"
+        role="dialog"
+        aria-modal="true"
+        aria-label={detail?.title ?? "Conversation"}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="adm-modal-head">
+          <div className="adm-modal-title">
+            <MessagesSquare size={18} />
+            <div>
+              <h2>{detail?.title ?? "Conversation"}</h2>
+              {detail && (
+                <p>
+                  {owner ? `${owner.name} · ${owner.email}` : "Deleted user"}
+                  {detail.organization ? ` · ${detail.organization.name}` : ""} · {detail.messageCount} messages ·
+                  started {formatDateTime(detail.createdAt)}
+                </p>
+              )}
+            </div>
+          </div>
+          <button aria-label="Close" className="admin-icon-button" onClick={onClose} type="button">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="adm-modal-body ai-chatroom-body">
+          {loading ? (
+            <p className="admin-empty">Loading conversation…</p>
+          ) : error ? (
+            <p className="admin-inline-error">
+              <AlertCircle aria-hidden="true" size={15} />
+              {error}
+            </p>
+          ) : detail ? (
+            <>
+              <p className="ai-audit-note">
+                <ShieldAlert aria-hidden="true" size={13} />
+                Opening this conversation was recorded in the audit log.
+              </p>
+              <div className="ai-chatroom">
+                {detail.messages
+                  .filter((message) => message.role !== "SYSTEM")
+                  .map((message) => (
+                    <article
+                      className={cx("ai-bubble-row", `is-${message.role.toLowerCase()}`)}
+                      key={message.id}
+                    >
+                      <div className="ai-bubble">
+                        <header>
+                          <strong>{message.role === "USER" ? owner?.name ?? "User" : "Assistant"}</strong>
+                          <span>
+                            {formatDateTime(message.createdAt)}
+                            {message.model ? ` · ${message.model}` : ""}
+                            {message.outputTokens ? ` · ${message.outputTokens} tok` : ""}
+                          </span>
+                        </header>
+                        <pre>{message.content}</pre>
+                      </div>
+                    </article>
+                  ))}
+                {detail.messages.filter((message) => message.role !== "SYSTEM").length === 0 && (
+                  <p className="admin-empty">This conversation has no messages.</p>
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Every AI conversation on the platform, in a table for support and abuse
+ * review. Each row can be opened (a chat-room modal, logged) or deleted (logged
+ * and irreversible).
  */
 export function AiThreadsSection() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<AiThreadDetail | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [viewId, setViewId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -305,127 +475,133 @@ export function AiThreadsSection() {
   const { data, loading, error, reload } = useAdminResource<AiThreadListResponse>(`/admin/ai/threads?${query}`);
   const threads = data?.threads ?? [];
 
-  useEffect(() => {
-    if (!selectedId) {
-      setDetail(null);
+  async function remove(thread: AiThreadRow) {
+    const owner = thread.user ? thread.user.name : "a deleted user";
+    if (
+      !window.confirm(
+        `Delete "${thread.title}" (${owner})? This permanently removes the conversation and all ${thread.messageCount} messages. This cannot be undone.`
+      )
+    ) {
       return;
     }
 
-    let active = true;
-    setLoadingDetail(true);
-    setDetailError(null);
-
-    void apiGet<AiThreadDetail>(`/admin/ai/threads/${selectedId}`)
-      .then((thread) => {
-        if (active) setDetail(thread);
-      })
-      .catch((caught) => {
-        if (active) setDetailError(errorText(caught));
-      })
-      .finally(() => {
-        if (active) setLoadingDetail(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedId]);
+    setDeletingId(thread.id);
+    setFeedback(null);
+    try {
+      await apiSend(`/admin/ai/threads/${thread.id}`, "DELETE");
+      if (viewId === thread.id) setViewId(null);
+      setFeedback({ kind: "success", text: `Deleted "${thread.title}".` });
+      await reload();
+    } catch (caught) {
+      setFeedback({ kind: "error", text: errorText(caught) });
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
-    <div className="inbox-layout">
-      <div className="admin-card inbox-list-card">
-        <div className="admin-card-head">
-          <div>
-            <h2>
-              <Bot aria-hidden="true" size={17} />
-              AI conversations
-            </h2>
-            <p>{data ? `${data.total} threads across all workspaces` : "Loading…"}</p>
-          </div>
-          <button className="admin-icon-button" type="button" aria-label="Reload" onClick={() => void reload()}>
-            <RefreshCw aria-hidden="true" size={15} className={loading ? "is-spinning" : undefined} />
-          </button>
+    <div className="admin-card">
+      <div className="admin-card-head">
+        <div>
+          <h2>
+            <Bot aria-hidden="true" size={17} />
+            AI conversations
+          </h2>
+          <p>{data ? `${data.total} conversations across all workspaces` : "Loading…"}</p>
         </div>
+        <button className="admin-icon-button" type="button" aria-label="Reload" onClick={() => void reload()}>
+          <RefreshCw aria-hidden="true" size={15} className={loading ? "is-spinning" : undefined} />
+        </button>
+      </div>
 
-        <label className="inbox-search">
-          <Search aria-hidden="true" size={15} />
-          <input
-            placeholder="Search by title, user name, or email"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            aria-label="Search conversations"
-          />
-        </label>
+      <label className="inbox-search">
+        <Search aria-hidden="true" size={15} />
+        <input
+          placeholder="Search by title, user name, or email"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          aria-label="Search conversations"
+        />
+      </label>
 
-        {error && (
-          <p className="admin-inline-error" role="alert">
+      {error && (
+        <p className="admin-inline-error" role="alert">
+          <AlertCircle aria-hidden="true" size={15} />
+          {error}
+        </p>
+      )}
+
+      {feedback && (
+        <p className={cx("admin-inline-feedback", feedback.kind === "error" && "is-error")} role="status">
+          {feedback.kind === "error" ? (
             <AlertCircle aria-hidden="true" size={15} />
-            {error}
-          </p>
-        )}
+          ) : (
+            <CheckCircle2 aria-hidden="true" size={15} />
+          )}
+          {feedback.text}
+        </p>
+      )}
 
-        <div className="inbox-list" role="list">
-          {!loading && threads.length === 0 && <p className="admin-empty">No AI conversations yet.</p>}
-          {threads.map((thread) => (
-            <button
-              className={cx("inbox-item", thread.id === selectedId && "is-active")}
-              key={thread.id}
-              type="button"
-              role="listitem"
-              onClick={() => setSelectedId(thread.id)}
-            >
-              <span className="inbox-item-top">
-                <span className="inbox-item-name">{thread.title}</span>
-              </span>
-              <span className="inbox-item-subject">
-                <UserIcon aria-hidden="true" size={12} /> {thread.user.name} · {thread.organization.name}
-              </span>
-              <span className="inbox-item-date">
-                {thread.messageCount} messages · {formatDateTime(thread.lastMessageAt)}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="admin-card inbox-detail-card">
-        {!selectedId ? (
-          <p className="admin-empty">Select a conversation to review it.</p>
-        ) : loadingDetail ? (
-          <p className="admin-empty">Loading conversation…</p>
-        ) : detailError ? (
-          <p className="admin-inline-error">{detailError}</p>
-        ) : detail ? (
-          <>
-            <div className="admin-card-head">
-              <div>
-                <h2>{detail.title}</h2>
-                <p>
-                  {detail.user.name} ({detail.user.email}) · {detail.organization.name}
-                </p>
-              </div>
-            </div>
-            <p className="admin-meta">
-              Opening this conversation has been recorded in the audit log.
-            </p>
-            <div className="ai-review">
-              {detail.messages.map((message) => (
-                <article className={cx("ai-review-message", `is-${message.role.toLowerCase()}`)} key={message.id}>
-                  <header>
-                    <strong>{message.role === "USER" ? detail.user.name : "Assistant"}</strong>
-                    <span>
-                      {formatDateTime(message.createdAt)}
-                      {message.model ? ` · ${message.model}` : ""}
-                      {message.outputTokens ? ` · ${message.outputTokens} out` : ""}
-                    </span>
-                  </header>
-                  <pre>{message.content}</pre>
-                </article>
+      {!loading && threads.length === 0 ? (
+        <p className="admin-empty">{debouncedSearch ? "No conversations match your search." : "No AI conversations yet."}</p>
+      ) : (
+        <div className="admin-table-wrap">
+          <table className="admin-table ai-threads-table">
+            <caption className="sr-only">AI conversations across all workspaces</caption>
+            <thead>
+              <tr>
+                <th scope="col">User</th>
+                <th scope="col">Workspace</th>
+                <th scope="col">Conversation</th>
+                <th scope="col">Messages</th>
+                <th scope="col">Last activity</th>
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {threads.map((thread) => (
+                <tr key={thread.id}>
+                  <th scope="row">
+                    <ThreadOwner user={thread.user} />
+                  </th>
+                  <td>{thread.organization?.name ?? "—"}</td>
+                  <td>
+                    <span className="ai-thread-title">{thread.title}</span>
+                  </td>
+                  <td className="ai-threads-num">{thread.messageCount}</td>
+                  <td className="ai-threads-date">{formatDateTime(thread.lastMessageAt)}</td>
+                  <td>
+                    <div className="ai-threads-actions">
+                      <button
+                        className="admin-button subtle compact"
+                        type="button"
+                        onClick={() => setViewId(thread.id)}
+                      >
+                        <Eye aria-hidden="true" size={14} />
+                        View
+                      </button>
+                      <button
+                        className="admin-button subtle compact is-danger"
+                        type="button"
+                        disabled={deletingId === thread.id}
+                        onClick={() => void remove(thread)}
+                        aria-label={`Delete conversation "${thread.title}"`}
+                      >
+                        <Trash2 aria-hidden="true" size={14} />
+                        {deletingId === thread.id ? "Deleting…" : "Delete"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ))}
-            </div>
-          </>
-        ) : null}
-      </div>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {viewId && <ThreadModal threadId={viewId} onClose={() => setViewId(null)} />}
     </div>
   );
 }

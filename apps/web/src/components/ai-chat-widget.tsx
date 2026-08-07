@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Bot, MessageCircle, RotateCcw, Send, TriangleAlert, X } from "lucide-react";
+import { FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Bot, History, MessageCircle, RotateCcw, Send, Trash2, TriangleAlert, X } from "lucide-react";
 import { cx } from "@onshell/ui";
-import { ApiError, consoleApi } from "../app/console/api";
+import { ApiError, consoleApi, type AiThreadSummary } from "../app/console/api";
 import { apiBaseUrl } from "../lib/site";
 import { useSiteConfig } from "../lib/site-config";
 import { usePublicSession } from "./public-session";
@@ -123,6 +123,10 @@ export function AiChatWidget() {
   const [threadId, setThreadId] = useState<string | null>(null);
   /** Guards the one-time history load per mode, so reopening does not refetch. */
   const [restored, setRestored] = useState(false);
+  /** Signed-in only: the "your past conversations" drawer over the transcript. */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [threads, setThreads] = useState<AiThreadSummary[] | null>(null);
+  const [threadsLoading, setThreadsLoading] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -133,7 +137,42 @@ export function AiChatWidget() {
     setRestored(false);
     setTurns([]);
     setThreadId(null);
+    setHistoryOpen(false);
+    setThreads(null);
   }, [signedIn]);
+
+  /** Load a saved conversation into the panel, replacing what is shown. */
+  const openThread = useCallback(async (id: string) => {
+    try {
+      const thread = await consoleApi.aiThread(id);
+      setThreadId(thread.id);
+      setTurns(
+        thread.messages
+          .filter((entry) => entry.role !== "SYSTEM")
+          .map((entry) => ({
+            id: entry.id,
+            role: entry.role === "USER" ? ("user" as const) : ("assistant" as const),
+            content: entry.content
+          }))
+      );
+      setHistoryOpen(false);
+      setError(null);
+      setQuotaHit(false);
+    } catch {
+      setError("Couldn't open that conversation.");
+    }
+  }, []);
+
+  const loadThreads = useCallback(async () => {
+    setThreadsLoading(true);
+    try {
+      setThreads(await consoleApi.aiThreads());
+    } catch {
+      setThreads([]);
+    } finally {
+      setThreadsLoading(false);
+    }
+  }, []);
 
   // Restore the previous conversation the first time the panel is opened.
   useEffect(() => {
@@ -147,25 +186,15 @@ export function AiChatWidget() {
 
     void consoleApi
       .aiThreads()
-      .then(async (threads) => {
-        const latest = threads[0];
-        if (!latest) return;
-        const thread = await consoleApi.aiThread(latest.id);
-        setThreadId(thread.id);
-        setTurns(
-          thread.messages
-            .filter((entry) => entry.role !== "SYSTEM")
-            .map((entry) => ({
-              id: entry.id,
-              role: entry.role === "USER" ? ("user" as const) : ("assistant" as const),
-              content: entry.content
-            }))
-        );
+      .then((list) => {
+        setThreads(list);
+        const latest = list[0];
+        if (latest) void openThread(latest.id);
       })
       .catch(() => {
         // An empty panel is a fine outcome; the composer still works.
       });
-  }, [open, restored, session.status, signedIn]);
+  }, [open, restored, session.status, signedIn, openThread]);
 
   // Persist guest turns so navigation does not lose the conversation.
   useEffect(() => {
@@ -286,6 +315,27 @@ export function AiChatWidget() {
     void send(draft);
   }
 
+  function toggleHistory() {
+    setHistoryOpen((prev) => {
+      const next = !prev;
+      if (next) void loadThreads();
+      return next;
+    });
+  }
+
+  async function deleteThread(id: string, event: ReactMouseEvent) {
+    event.stopPropagation();
+    if (!window.confirm("Delete this conversation? This permanently removes it and cannot be undone.")) return;
+    try {
+      await consoleApi.aiDeleteThread(id);
+      setThreads((current) => (current ? current.filter((thread) => thread.id !== id) : current));
+      // If the open conversation was the one deleted, clear the transcript too.
+      if (threadId === id) reset();
+    } catch {
+      setError("Couldn't delete that conversation.");
+    }
+  }
+
   // No bubble at all until an admin has switched the assistant on — an inert
   // chat button is worse than no chat button.
   if (!config?.ai.enabled) return null;
@@ -304,6 +354,17 @@ export function AiChatWidget() {
               <strong>Onshell Assistant</strong>
               <span>{signedIn ? "Saved to your workspace" : "Ask anything about Onshell"}</span>
             </span>
+            {signedIn && (
+              <button
+                aria-label="Your conversations"
+                aria-pressed={historyOpen}
+                className={cx("aiw-icon-btn", historyOpen && "is-active")}
+                onClick={toggleHistory}
+                type="button"
+              >
+                <History aria-hidden="true" size={15} />
+              </button>
+            )}
             {turns.length > 0 && (
               <button aria-label="Start a new chat" className="aiw-icon-btn" onClick={reset} type="button">
                 <RotateCcw aria-hidden="true" size={15} />
@@ -348,6 +409,47 @@ export function AiChatWidget() {
               </div>
             )}
           </div>
+
+          {historyOpen && (
+            <div className="aiw-history" aria-label="Your saved conversations">
+              <div className="aiw-history-head">
+                <strong>Your conversations</strong>
+                <button aria-label="Back to chat" className="aiw-icon-btn" onClick={() => setHistoryOpen(false)} type="button">
+                  <X aria-hidden="true" size={15} />
+                </button>
+              </div>
+              <div className="aiw-history-list">
+                {threadsLoading && <p className="aiw-history-empty">Loading…</p>}
+                {!threadsLoading && threads && threads.length === 0 && (
+                  <p className="aiw-history-empty">No saved conversations yet. Ask something to start one.</p>
+                )}
+                {!threadsLoading &&
+                  threads?.map((thread) => (
+                    <div className={cx("aiw-history-item", thread.id === threadId && "is-active")} key={thread.id}>
+                      <button className="aiw-history-open" onClick={() => void openThread(thread.id)} type="button">
+                        <span className="aiw-history-title">{thread.title}</span>
+                        <span className="aiw-history-meta">
+                          {thread.messageCount} messages ·{" "}
+                          {new Date(thread.lastMessageAt).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric"
+                          })}
+                        </span>
+                      </button>
+                      <button
+                        aria-label={`Delete conversation "${thread.title}"`}
+                        className="aiw-history-del"
+                        onClick={(event) => void deleteThread(thread.id, event)}
+                        type="button"
+                      >
+                        <Trash2 aria-hidden="true" size={14} />
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
 
           {error && (
             <p className="aiw-error" role="alert">

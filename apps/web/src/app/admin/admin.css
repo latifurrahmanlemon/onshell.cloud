@@ -2254,6 +2254,202 @@
   overflow-wrap: anywhere;
 }
 
+/* Compact / subtle button variants + danger, used by the AI conversations table
+   and, in future, any dense row of row-level actions. */
+.admin-button.compact {
+  padding: 6px 11px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+}
+
+.admin-button.subtle {
+  background: transparent;
+}
+
+.admin-button.is-danger {
+  color: var(--rose);
+}
+
+.admin-button.is-danger:hover:not(:disabled) {
+  border-color: var(--rose);
+}
+
+/* --- AI conversations table ------------------------------------------------ */
+
+.ai-threads-table .ai-thread-title {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-threads-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-threads-date {
+  white-space: nowrap;
+  color: var(--soft);
+}
+
+.ai-threads-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Owner cell: avatar + name/email, with a distinct "gone" state. */
+.ai-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ai-owner-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.ai-owner-avatar.is-orphan {
+  background: var(--surface-2);
+  color: var(--soft);
+}
+
+.ai-owner-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ai-owner-text strong {
+  font-size: 0.84rem;
+}
+
+.ai-owner-text small {
+  color: var(--soft);
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-owner.is-orphan .ai-owner-text strong {
+  color: var(--soft);
+}
+
+/* --- Chat-room modal ------------------------------------------------------- */
+
+.adm-modal-chat {
+  width: min(100%, 760px);
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-chatroom-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.ai-audit-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--soft);
+  font-size: 0.75rem;
+}
+
+.ai-audit-note > svg {
+  color: var(--amber);
+}
+
+.ai-chatroom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-bubble-row {
+  display: flex;
+}
+
+.ai-bubble-row.is-user {
+  justify-content: flex-end;
+}
+
+.ai-bubble-row.is-assistant {
+  justify-content: flex-start;
+}
+
+.ai-bubble {
+  max-width: 84%;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-2);
+}
+
+.ai-bubble-row.is-user .ai-bubble {
+  border-color: var(--accent-weak-border);
+  background: var(--brand-tint);
+  border-bottom-right-radius: 4px;
+}
+
+.ai-bubble-row.is-assistant .ai-bubble {
+  border-bottom-left-radius: 4px;
+}
+
+.ai-bubble header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-bubble header strong {
+  font-size: 0.8rem;
+}
+
+.ai-bubble header span {
+  color: var(--soft);
+  font-size: 0.7rem;
+}
+
+.ai-bubble pre {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .ai-threads-table .ai-thread-title {
+    max-width: 160px;
+  }
+
+  .ai-bubble {
+    max-width: 92%;
+  }
+}
+
 /* ------------------------------------------------------------------- growth */
 
 .growth-admin {
