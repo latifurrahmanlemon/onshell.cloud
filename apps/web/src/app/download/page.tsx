@@ -33,7 +33,12 @@ export const dynamic = "force-dynamic";
 // as GitHub Release assets rather than files in this repo: six ~100 MB installers
 // per version would bloat git permanently. `/releases/latest` always resolves to
 // the newest one, so the link never needs updating per release.
-const desktopReleaseUrl = "https://github.com/latifurrahmanlemon/onshell.cloud/releases/latest";
+//
+// It points at the separate onshell-downloads repository because that one is
+// public. Release assets inherit their repository's visibility, so while the
+// source repo is private its release links answer 404 to everyone who is not a
+// collaborator — visitors would land on a "page not found", not a download.
+const desktopReleaseUrl = "https://github.com/latifurrahmanlemon/onshell-downloads/releases/latest";
 
 const steps = [
   {
