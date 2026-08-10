@@ -181,11 +181,6 @@ CORS_ORIGINS=https://onshell.cloud
 # REST-এ call করে না, তাই এটা set করলে কিছু ভাঙবে না।
 GATEWAY_SHARED_SECRET=<32-byte-hex>
 
-# Gateway যে মেশিনে চলছে (অর্থাৎ **এই server**) তার উপর credential ছাড়া shell।
-# Shared/multi-tenant deploy-এ `false` রাখো — নাহলে signup করা প্রতিটা account
-# এই VPS-এ gateway process-এর privilege নিয়ে shell পেয়ে যায়।
-LOCAL_SHELL_ENABLED=false
-
 # Turnstile ভুল configure হয়ে সবাই লক-আউট হলে জরুরি দরজা। স্বাভাবিক সময়ে false।
 TURNSTILE_DISABLED=false
 

@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { loadConfig } from "@onshell/config";
 import { canManageHosts } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
@@ -11,7 +10,7 @@ import {
   recordAudit,
   toHost
 } from "../../lib/prisma-mappers.js";
-import { ensureLocalHost } from "../../lib/provisioning.js";
+import { canUseLocalShell, ensureLocalHost } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 
 const hostSchema = z.object({
@@ -40,8 +39,6 @@ const hostQuerySchema = z.object({
 
 const hostInclude = { tags: true, group: true } as const;
 
-const config = loadConfig("api");
-
 async function resolveGroupId(organizationId: string, name: string) {
   const existing = await prisma.hostGroup.findFirst({ where: { organizationId, name } });
   if (existing) return existing.id;
@@ -57,17 +54,17 @@ export async function registerHostRoutes(app: FastifyInstance) {
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const query = hostQuerySchema.parse(request.query);
-      // Creates the gateway-local host on a single-tenant install, and is a no-op
-      // when LOCAL_SHELL_ENABLED is off (the default).
-      await ensureLocalHost(user.organizationId);
+      // Creates the gateway-local host for the one account allowed to have one,
+      // and is a no-op for everybody else.
+      await ensureLocalHost(user);
       const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const hosts = await prisma.host.findMany({
         where: {
           ...accessFilter,
-          // Rows created while the flag was on stay in the database but drop out
-          // of the console once it is off, so turning the feature off actually
-          // removes it from view instead of leaving a host that only errors.
-          ...(config.localShellEnabled ? {} : { isLocal: false }),
+          // Rows created while this was an env flag stay in the database but
+          // drop out of every other account's console, so no cleanup migration
+          // is needed for the workspaces that were handed one by mistake.
+          ...(canUseLocalShell(user) ? {} : { isLocal: false }),
           ...(query.type && { type: hostTypeToPrisma[query.type] }),
           ...(query.environment && { environment: environmentToPrisma[query.environment] }),
           ...(query.group && { group: { name: query.group } }),

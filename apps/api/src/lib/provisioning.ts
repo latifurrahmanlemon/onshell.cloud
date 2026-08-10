@@ -1,8 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { loadConfig } from "@onshell/config";
+import type { User } from "@onshell/shared";
 import { prisma } from "./prisma.js";
-
-const config = loadConfig("api");
 
 /**
  * Referral codes are shown in URLs, so they avoid look-alike characters and are
@@ -94,22 +92,43 @@ export async function ensureFreeSubscription(organizationId: string) {
 export const LOCAL_HOST_NAME = "Onshell server (local shell)";
 
 /**
- * Gives an organization a shell on the machine the gateway runs on.
+ * The one account that may open a shell on the Onshell server itself.
  *
- * NOT the visitor's computer — the gateway's own host. On a shared deployment
- * that is a shell on your server for every account that signs up, so this is
- * gated behind LOCAL_SHELL_ENABLED, which defaults to off and is only sensible
- * for a single-tenant or self-hosted install.
+ * Hardcoded on purpose. This was an env flag, and an env flag is a thing
+ * somebody can flip — it was flipped on in production, and every account that
+ * signed up got a credential-free root-capable shell on the server running the
+ * platform. There is no configuration for it now, dynamic or otherwise: to
+ * grant it to anyone else, someone has to edit this line, review it and deploy
+ * it, which is the amount of friction this deserves.
  *
- * The address is recorded as 127.0.0.1 for display only; a local session never
- * opens a socket, it spawns a shell in the gateway process (see the gateway's
- * local transport).
+ * This is not the visitor's own computer. A user reaching their own machine
+ * pairs the Onshell Agent instead, which is a different mechanism entirely
+ * (`isAgent` hosts) and is unaffected by anything here.
+ */
+export const LOCAL_SHELL_OWNER_EMAIL = "latifur.tech@gmail.com";
+
+/**
+ * Both conditions are required, not one: the address identifies the person, and
+ * the platform-admin flag means that if the account is ever demoted the shell
+ * goes with it rather than lingering on a name.
+ */
+export function canUseLocalShell(user: Pick<User, "email" | "isPlatformAdmin">) {
+  return user.isPlatformAdmin && user.email.trim().toLowerCase() === LOCAL_SHELL_OWNER_EMAIL;
+}
+
+/**
+ * Gives the owner's organization a shell on the machine the gateway runs on.
+ *
+ * NOT the visitor's computer — the gateway's own host. The address is recorded
+ * as 127.0.0.1 for display only; a local session never opens a socket, it
+ * spawns a shell in the gateway process (see the gateway's local transport).
  *
  * Idempotent, so it is safe to call on every signup and as a lazy backfill.
  */
-export async function ensureLocalHost(organizationId: string) {
-  if (!config.localShellEnabled) return undefined;
+export async function ensureLocalHost(user: Pick<User, "email" | "isPlatformAdmin" | "organizationId">) {
+  if (!canUseLocalShell(user)) return undefined;
 
+  const organizationId = user.organizationId;
   const existing = await prisma.host.findFirst({
     where: { organizationId, isLocal: true },
     select: { id: true }

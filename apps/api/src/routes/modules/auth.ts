@@ -564,7 +564,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       // the console's usage/upgrade surfaces have a plan to read from, and give
       // it the built-in local host so there is something to open a terminal on
       // before any server has been registered.
-      await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user.organizationId)]);
+      await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user)]);
       await createAudit({
         organizationId: user.organizationId,
         actorId: user.id,
@@ -1040,7 +1040,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       const googleProfile = await getGoogleProfile(config, query.code);
       const prismaUser = await upsertGoogleUser(googleProfile);
       const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
-      await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user.organizationId)]);
+      await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user)]);
 
       await createAudit({
         organizationId: user.organizationId,

@@ -7,6 +7,7 @@ import { decryptSecret } from "../../lib/encryption.js";
 import { gatewayHeaders } from "../../lib/gateway.js";
 import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
+import { canUseLocalShell } from "../../lib/provisioning.js";
 import {
   recordAudit,
   sessionProtocolFromPrisma,
@@ -274,9 +275,11 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
             message: "The built-in local host serves a terminal and files, not a remote desktop."
           });
         }
-        // Re-checked here, not just at provisioning: turning the flag off has to
-        // disable rows that already exist.
-        if (!config.localShellEnabled) {
+        // Re-checked here, not just at provisioning and listing: a host id is
+        // guessable enough that hiding the row is not the same as refusing it,
+        // and rows created while this was an env flag still exist in other
+        // people's workspaces.
+        if (!canUseLocalShell(actor)) {
           return reply.code(403).send({
             error: "local_shell_disabled",
             message: "Local shell access is disabled on this deployment."
