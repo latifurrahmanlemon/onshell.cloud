@@ -38,12 +38,13 @@ import {
   Server,
   Settings,
   SquareTerminal,
+  Star,
   Sun,
   Users,
   X
 } from "lucide-react";
 import type { AgentDevice, AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
-import { isShellHost } from "@onshell/shared";
+import { canOpenSession, isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
@@ -54,6 +55,7 @@ import {
   AuditView,
   EmptyState,
   HostsView,
+  QuickLaunch,
   SettingsView,
   SnippetsView,
   TeamView,
@@ -571,6 +573,31 @@ export default function ConsolePage() {
     }
   }, [hosts, launchSession, notify]);
 
+  /**
+   * Pins or unpins a host. Flipped locally first so the star responds at once,
+   * then re-fetched: the list order is the API's business (favourites, then how
+   * busy the machine has been), and guessing it here would make the row jump
+   * twice.
+   */
+  const toggleFavorite = useCallback(
+    async (host: Host) => {
+      const next = !host.isFavorite;
+      setHosts((current) =>
+        current.map((item) => (item.id === host.id ? { ...item, isFavorite: next } : item)),
+      );
+      try {
+        await consoleApi.setHostFavorite(host.id, next);
+        setHosts(await consoleApi.hosts());
+      } catch (error) {
+        setHosts((current) =>
+          current.map((item) => (item.id === host.id ? { ...item, isFavorite: !next } : item)),
+        );
+        notify(error instanceof Error ? error.message : "Could not update favourites.", "error");
+      }
+    },
+    [notify]
+  );
+
   async function deleteHost(host: Host) {
     if (!window.confirm(`Delete host "${host.name}"?`)) return;
     try {
@@ -817,6 +844,14 @@ export default function ConsolePage() {
                   <Metric color="amber" hint="encrypted" icon={KeyRound} label="Vault Items" value={credentials.length} />
                   <Metric color="rose" hint="recent" icon={ScrollText} label="Audit Events" value={audit.length} />
                 </div>
+                <QuickLaunch
+                  canOpen={canOpenSession(role)}
+                  hosts={hosts}
+                  onBrowse={() => setView("hosts")}
+                  onLaunch={(host) => void launchSession(host, "ssh")}
+                  onToggleFavorite={(host) => void toggleFavorite(host)}
+                />
+
                 <div className="content-grid">
                   <div className="main-column">
                     <section className="panel">
@@ -890,6 +925,7 @@ export default function ConsolePage() {
                 onDelete={deleteHost}
                 onLaunch={launchSession}
                 onRefresh={() => void consoleApi.hosts().then(setHosts).catch(() => notify("Refresh failed.", "error"))}
+                onToggleFavorite={(host) => void toggleFavorite(host)}
                 role={role}
               />
             )}

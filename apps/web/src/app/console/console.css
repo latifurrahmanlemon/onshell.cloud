@@ -2682,6 +2682,144 @@
 }
 
 /* --------------------------------------------------------------------------
+   Quick launch — the dashboard's shortcut row: pinned hosts, then busy ones.
+   -------------------------------------------------------------------------- */
+
+.quick-launch {
+  margin-bottom: 12px;
+}
+
+.ql-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.ql-card {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.ql-card:hover {
+  border-color: var(--border-strong);
+}
+
+/* A pinned card carries a warm edge, the same colour as the star that pinned it. */
+.ql-card.is-favorite {
+  border-color: color-mix(in srgb, var(--amber) 38%, transparent);
+}
+
+.ql-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ql-card-head strong {
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--text);
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ql-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--soft);
+}
+
+.ql-dot.online {
+  background: var(--green, #34d399);
+}
+
+.ql-dot.degraded {
+  background: var(--amber);
+}
+
+.ql-dot.offline {
+  background: var(--rose, #fb7185);
+}
+
+.ql-star {
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--soft);
+  cursor: pointer;
+}
+
+.ql-star:hover {
+  color: var(--text);
+}
+
+.ql-star.is-on {
+  color: var(--amber);
+}
+
+.ql-address {
+  overflow: hidden;
+  color: var(--soft);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ql-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.ql-usage {
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ql-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.ql-open:hover:not(:disabled) {
+  background: var(--elevated);
+}
+
+.ql-open:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* --------------------------------------------------------------------------
    Filter bar — search leads, filters follow, the count closes the row.
    -------------------------------------------------------------------------- */
 
@@ -2766,6 +2904,55 @@
 .host-filter select:focus-visible {
   outline: 2px solid var(--accent-line);
   outline-offset: 2px;
+}
+
+/* Favourites toggle — same height and shell as the selects beside it. */
+.host-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.host-filter-toggle:hover {
+  color: var(--text);
+}
+
+.host-filter-toggle.is-active {
+  border-color: var(--accent-line);
+  background: var(--accent-weak);
+  color: var(--accent-text);
+}
+
+/* Pinned rows keep the star lit even when the row is not hovered — it is what
+   explains why they sort where they do. */
+.icon-button.host-star.is-on {
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  color: var(--amber);
+}
+
+.host-usage {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--soft);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .host-filter-meta {

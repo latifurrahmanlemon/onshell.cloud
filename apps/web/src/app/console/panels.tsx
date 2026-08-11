@@ -52,6 +52,7 @@ import {
   Search,
   ShieldCheck,
   SquareTerminal,
+  Star,
   Trash2,
   UserPlus,
   UserRound,
@@ -71,6 +72,7 @@ import {
   canManageHosts,
   canManageUsers,
   canOpenSession,
+  isShellHost,
   passwordPolicy,
   roles,
   validatePassword,
@@ -638,6 +640,7 @@ export function HostsView({
   onRefresh,
   onCreated,
   onCredentialsChanged,
+  onToggleFavorite,
   notify,
 }: {
   hosts: Host[];
@@ -657,6 +660,8 @@ export function HostsView({
   onRefresh: () => void;
   onCreated: () => void;
   onCredentialsChanged: () => void;
+  /** Pins or unpins a host for this account; the list re-orders around it. */
+  onToggleFavorite: (host: Host) => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const [query, setQuery] = useState("");
@@ -667,6 +672,7 @@ export function HostsView({
   const [healthFilter, setHealthFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
   const [tagFilter, setTagFilter] = useState("all");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [busy, setBusy] = useState(false);
@@ -728,6 +734,7 @@ export function HostsView({
   const filtered = useMemo(
     () =>
       hosts.filter((host) => {
+        if (favoritesOnly && !host.isFavorite) return false;
         if (typeFilter !== "all" && host.type !== typeFilter) return false;
         if (envFilter !== "all" && host.environment !== envFilter) return false;
         if (healthFilter !== "all" && host.health !== healthFilter) return false;
@@ -737,10 +744,11 @@ export function HostsView({
           `${host.name} ${host.address} ${host.username ?? ""} ${host.tags.join(" ")} ${host.group ?? ""} ${host.environment}`.toLowerCase();
         return haystack.includes(query.trim().toLowerCase());
       }),
-    [hosts, query, typeFilter, envFilter, healthFilter, groupFilter, tagFilter],
+    [hosts, query, typeFilter, envFilter, healthFilter, groupFilter, tagFilter, favoritesOnly],
   );
 
   const activeFilters =
+    (favoritesOnly ? 1 : 0) +
     (typeFilter !== "all" ? 1 : 0) +
     (envFilter !== "all" ? 1 : 0) +
     (healthFilter !== "all" ? 1 : 0) +
@@ -750,6 +758,7 @@ export function HostsView({
 
   function resetFilters() {
     setQuery("");
+    setFavoritesOnly(false);
     setTypeFilter("all");
     setEnvFilter("all");
     setHealthFilter("all");
@@ -1033,6 +1042,17 @@ export function HostsView({
         </div>
 
         <div className="host-filter-set">
+          {/* A toggle rather than a select: "starred or not" has one useful
+              state, and it is the one people reach for on a long list. */}
+          <button
+            aria-pressed={favoritesOnly}
+            className={cx("host-filter-toggle", favoritesOnly && "is-active")}
+            onClick={() => setFavoritesOnly((only) => !only)}
+            type="button"
+          >
+            <Star fill={favoritesOnly ? "currentColor" : "none"} size={14} />
+            Favourites
+          </button>
           <label className="host-filter">
             <span>Type</span>
             <select onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)} value={typeFilter}>
@@ -1201,8 +1221,25 @@ export function HostsView({
                 </span>
                 <span className="data-muted">
                   {host.lastSessionAt ? relativeTime(host.lastSessionAt) : "Never"}
+                  {/* The number behind the ordering, shown so "why is this one
+                      at the top" never needs asking. */}
+                  {(host.sessionCount ?? 0) > 0 && (
+                    <span className="host-usage" title="Sessions opened by the team in the last 30 days">
+                      {host.sessionCount}× / 30d
+                    </span>
+                  )}
                 </span>
                 <div className="row-actions">
+                  <button
+                    aria-label={host.isFavorite ? `Unpin ${host.name}` : `Pin ${host.name}`}
+                    aria-pressed={host.isFavorite ?? false}
+                    className={cx("icon-button compact host-star", host.isFavorite && "is-on")}
+                    onClick={() => onToggleFavorite(host)}
+                    title={host.isFavorite ? "Remove from favourites" : "Add to favourites"}
+                    type="button"
+                  >
+                    <Star fill={host.isFavorite ? "currentColor" : "none"} size={14} />
+                  </button>
                   {canOpenSession(role) && (
                     <button
                       aria-label={`Connect to ${host.name}`}
@@ -1397,6 +1434,110 @@ export function HostsView({
           </form>
         )}
       </Drawer>
+    </section>
+  );
+}
+
+/* ---------- Dashboard quick launch ---------- */
+
+/**
+ * The hosts worth one click from the dashboard: what this account pinned, then
+ * what the team actually opens.
+ *
+ * The order is the API's — favourites first, then sessions in the last 30 days —
+ * so this only takes the head of the list. Hosts nobody has used and nobody has
+ * pinned are left out: an unranked grid of every server is the hosts table, and
+ * there is already one of those.
+ */
+export function QuickLaunch({
+  hosts,
+  canOpen,
+  onLaunch,
+  onToggleFavorite,
+  onBrowse
+}: {
+  hosts: Host[];
+  canOpen: boolean;
+  onLaunch: (host: Host) => void;
+  onToggleFavorite: (host: Host) => void;
+  onBrowse: () => void;
+}) {
+  const picks = hosts
+    .filter((host) => isShellHost(host) && (host.isFavorite || (host.sessionCount ?? 0) > 0))
+    .slice(0, 6);
+
+  if (picks.length === 0) {
+    // Nothing pinned and nothing used yet — say how the section fills up rather
+    // than rendering an empty card that looks broken.
+    if (hosts.length === 0) return null;
+    return (
+      <section className="panel quick-launch">
+        <div className="panel-header tight">
+          <div>
+            <h2>Quick launch</h2>
+            <p>Star a host, or open a few sessions — your most-used machines land here.</p>
+          </div>
+          <button className="secondary-button" onClick={onBrowse} type="button">
+            Browse hosts
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel quick-launch">
+      <div className="panel-header tight">
+        <div>
+          <h2>Quick launch</h2>
+          <p>Your favourites first, then whatever the team opens most.</p>
+        </div>
+        <button className="secondary-button" onClick={onBrowse} type="button">
+          All hosts
+          <ChevronRight size={15} />
+        </button>
+      </div>
+      <div className="ql-grid">
+        {picks.map((host) => (
+          <div className={cx("ql-card", host.isFavorite && "is-favorite")} key={host.id}>
+            <div className="ql-card-head">
+              <span className={cx("ql-dot", host.health)} />
+              <strong>{host.name}</strong>
+              <button
+                aria-label={host.isFavorite ? `Unpin ${host.name}` : `Pin ${host.name}`}
+                aria-pressed={host.isFavorite ?? false}
+                className={cx("ql-star", host.isFavorite && "is-on")}
+                onClick={() => onToggleFavorite(host)}
+                title={host.isFavorite ? "Remove from favourites" : "Add to favourites"}
+                type="button"
+              >
+                <Star fill={host.isFavorite ? "currentColor" : "none"} size={14} />
+              </button>
+            </div>
+            <span className="ql-address">
+              {host.isLocal ? "This machine" : `${host.username ? `${host.username}@` : ""}${host.address}`}
+            </span>
+            <div className="ql-foot">
+              <span className="ql-usage">
+                {(host.sessionCount ?? 0) > 0
+                  ? `${host.sessionCount} session${host.sessionCount === 1 ? "" : "s"} · 30d`
+                  : "Not used yet"}
+              </span>
+              <button
+                className="ql-open"
+                disabled={!canOpen}
+                onClick={() => onLaunch(host)}
+                title={canOpen ? `Open a terminal on ${host.name}` : "Your role cannot open sessions."}
+                type="button"
+              >
+                <SquareTerminal size={13} />
+                Connect
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

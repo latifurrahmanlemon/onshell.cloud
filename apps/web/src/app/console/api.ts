@@ -402,6 +402,11 @@ export const consoleApi = {
   updateHost: (id: string, body: Record<string, unknown>) =>
     request<unknown>(`/hosts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteHost: (id: string) => request<unknown>(`/hosts/${id}`, { method: "DELETE" }),
+  /** Pin or unpin a host for the signed-in account. Both calls are idempotent. */
+  setHostFavorite: (id: string, favorite: boolean) =>
+    request<{ ok: boolean; isFavorite: boolean }>(`/hosts/${id}/favorite`, {
+      method: favorite ? "PUT" : "DELETE"
+    }),
 
   previewHostImport: (body: { content: string; filename?: string; format?: HostImportFormat }) =>
     request<HostImportPreview>("/hosts/import/preview", { method: "POST", body: JSON.stringify(body) }),

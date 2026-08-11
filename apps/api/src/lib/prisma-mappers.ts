@@ -133,7 +133,12 @@ export type HostWithRelations = PrismaHost & {
   group: PrismaHostGroup | null;
 };
 
-export function toHost(host: HostWithRelations, lastSessionAt?: Date | null): Host {
+export function toHost(
+  host: HostWithRelations,
+  lastSessionAt?: Date | null,
+  /** Per-reader and per-estate extras the hosts list computes in one pass. */
+  usage?: { isFavorite?: boolean; sessionCount?: number }
+): Host {
   return {
     id: host.id,
     organizationId: host.organizationId,
@@ -150,6 +155,8 @@ export function toHost(host: HostWithRelations, lastSessionAt?: Date | null): Ho
     isLocal: host.isLocal,
     isAgent: host.isAgent,
     lastSessionAt: lastSessionAt?.toISOString(),
+    isFavorite: usage?.isFavorite ?? false,
+    sessionCount: usage?.sessionCount ?? 0,
     createdAt: host.createdAt.toISOString(),
     updatedAt: host.updatedAt.toISOString()
   };

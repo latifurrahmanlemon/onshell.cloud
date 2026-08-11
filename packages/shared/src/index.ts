@@ -97,6 +97,17 @@ export interface Host {
    */
   isAgent?: boolean;
   lastSessionAt?: string;
+  /**
+   * Pinned by the account reading the list. Personal, not shared — the same host
+   * comes back favourited for one member and not for another.
+   */
+  isFavorite?: boolean;
+  /**
+   * Sessions opened against this host by the whole organization over the last
+   * 30 days: how busy the machine is, not how busy the reader has been. Drives
+   * the "most used" ordering and the dashboard's quick-launch list.
+   */
+  sessionCount?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -145,6 +145,7 @@ model User {
   hostAccessGrants    HostAccessGrant[]    @relation("HostAccessSubject")
   grantedHostAccess   HostAccessGrant[]    @relation("HostAccessGrantedBy")
   hostWorkspaces      HostWorkspace[]      @relation("HostWorkspaceCreatedBy")
+  favoriteHosts       HostFavorite[]
   enrolledAgents      AgentDevice[]        @relation("AgentEnrolledBy")
   agentPairingCodes   AgentPairingCode[]   @relation("AgentPairingCreatedBy")
 
@@ -231,6 +232,28 @@ model Host {
   tunnelRules    TunnelRule[]
   accessGrants   HostAccessGrant[]
   workspaces     HostWorkspaceHost[]
+  favorites      HostFavorite[]
+}
+
+/// One operator's pinned host.
+///
+/// Personal rather than shared: a favourite says how one person works, not
+/// something about the estate, so two people can pin different halves of the
+/// same fleet without arguing. Never widens access — routes read it behind
+/// `accessibleHostFilter` like everything else, and a pin on a host whose grant
+/// is later revoked simply stops being returned.
+model HostFavorite {
+  id        String   @id @default(cuid())
+  userId    String
+  hostId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  /// Pinning twice is the same as pinning once.
+  @@unique([userId, hostId])
+  /// Deleting a host cascades through this index instead of scanning the table.
+  @@index([hostId])
 }
 
 model HostGroup {

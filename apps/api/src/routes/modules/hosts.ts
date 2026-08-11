@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { Host } from "@onshell/shared";
 import { canManageHosts } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
@@ -38,6 +39,28 @@ const hostQuerySchema = z.object({
 });
 
 const hostInclude = { tags: true, group: true } as const;
+
+/**
+ * How far back "most used" looks. Thirty days is long enough to survive a quiet
+ * fortnight and short enough that a machine nobody has touched since the last
+ * migration stops sitting at the top of the list.
+ */
+const USAGE_WINDOW_DAYS = 30;
+
+/**
+ * The order the console shows hosts in: what you pinned, then what the team
+ * actually uses, then alphabetically so equal rows never shuffle between loads.
+ *
+ * Sorted here rather than in the database because "favourite" is per reader and
+ * the usage count is an aggregate — expressing both in one `orderBy` would take
+ * a raw query for a list that is already in memory.
+ */
+function byFavoriteThenUsage(a: Host, b: Host) {
+  if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+  const usage = (b.sessionCount ?? 0) - (a.sessionCount ?? 0);
+  if (usage !== 0) return usage;
+  return a.name.localeCompare(b.name);
+}
 
 async function resolveGroupId(organizationId: string, name: string) {
   const existing = await prisma.hostGroup.findFirst({ where: { organizationId, name } });
@@ -81,17 +104,49 @@ export async function registerHostRoutes(app: FastifyInstance) {
         orderBy: { createdAt: "desc" }
       });
 
+      const hostIds = hosts.map((host) => host.id);
+
       // Most recent session per host — surfaced as "last session" in the hosts table.
       const lastSessions = hosts.length
         ? await prisma.session.groupBy({
             by: ["hostId"],
-            where: { organizationId: user.organizationId, hostId: { in: hosts.map((host) => host.id) } },
+            where: { organizationId: user.organizationId, hostId: { in: hostIds } },
             _max: { startedAt: true }
           })
         : [];
       const lastSessionByHost = new Map(lastSessions.map((row) => [row.hostId, row._max.startedAt]));
 
-      return hosts.map((host) => toHost(host, lastSessionByHost.get(host.id)));
+      // How busy each machine has been lately, and which ones this account has
+      // pinned. Counted over a rolling window rather than all time so a server
+      // that mattered a year ago stops crowding out the one being worked on now.
+      const [usageRows, favorites] = hosts.length
+        ? await Promise.all([
+            prisma.session.groupBy({
+              by: ["hostId"],
+              where: {
+                organizationId: user.organizationId,
+                hostId: { in: hostIds },
+                startedAt: { gte: new Date(Date.now() - USAGE_WINDOW_DAYS * 24 * 60 * 60 * 1000) }
+              },
+              _count: { _all: true }
+            }),
+            prisma.hostFavorite.findMany({
+              where: { userId: user.id, hostId: { in: hostIds } },
+              select: { hostId: true }
+            })
+          ])
+        : [[], []];
+      const sessionCountByHost = new Map(usageRows.map((row) => [row.hostId, row._count._all]));
+      const favoriteHostIds = new Set(favorites.map((row) => row.hostId));
+
+      return hosts
+        .map((host) =>
+          toHost(host, lastSessionByHost.get(host.id), {
+            isFavorite: favoriteHostIds.has(host.id),
+            sessionCount: sessionCountByHost.get(host.id) ?? 0
+          })
+        )
+        .sort(byFavoriteThenUsage);
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -261,6 +316,55 @@ export async function registerHostRoutes(app: FastifyInstance) {
       });
 
       return { ok: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Pin and unpin a host for the calling account.
+   *
+   * Open to every role that can see the host, `viewer` included: a favourite
+   * changes one person's ordering and nothing else, so gating it behind
+   * `canManageHosts` would only stop the people with the longest lists from
+   * organising them. Not audited for the same reason — it grants nothing.
+   */
+  app.put("/hosts/:hostId/favorite", async (request, reply) => {
+    try {
+      const user = await getAuthenticatedUser(request);
+      if (!user) return reply.code(401).send({ error: "unauthorized" });
+
+      const { hostId } = z.object({ hostId: z.string() }).parse(request.params);
+      const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
+      const host = await prisma.host.findFirst({ where: { ...accessFilter, id: hostId } });
+      if (!host) return reply.code(404).send({ error: "host_not_found" });
+
+      // Idempotent: pinning an already-pinned host is a no-op rather than a 409,
+      // because the button it backs is a toggle that can be double-clicked.
+      await prisma.hostFavorite.upsert({
+        where: { userId_hostId: { userId: user.id, hostId: host.id } },
+        create: { userId: user.id, hostId: host.id },
+        update: {}
+      });
+
+      return { ok: true, isFavorite: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.delete("/hosts/:hostId/favorite", async (request, reply) => {
+    try {
+      const user = await getAuthenticatedUser(request);
+      if (!user) return reply.code(401).send({ error: "unauthorized" });
+
+      const { hostId } = z.object({ hostId: z.string() }).parse(request.params);
+      // No access check on the way out: removing a pin the account already holds
+      // is always safe, and refusing it on a host whose grant was revoked would
+      // leave the row stuck forever.
+      await prisma.hostFavorite.deleteMany({ where: { userId: user.id, hostId } });
+
+      return { ok: true, isFavorite: false };
     } catch (error) {
       return handleRouteError(reply, error);
     }
