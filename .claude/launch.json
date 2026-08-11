@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["workspace", "@onshell/web", "start", "-p", "3111"],
+      "port": 3111
+    },
+    {
+      "name": "stack",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["dev"],
+      "port": 3000
+    }
+  ]
+}

@@ -9,7 +9,12 @@ export type TerminalStatus = "connecting" | "connected" | "closed" | "error";
 
 interface XtermTerminalProps {
   websocketUrl: string;
-  onStatusChange?: (status: TerminalStatus) => void;
+  /**
+   * `detail` is the gateway's own words for a failure ("edge-01:22 refused the
+   * connection…"), so the console can show why a host would not connect instead
+   * of only that it did not.
+   */
+  onStatusChange?: (status: TerminalStatus, detail?: string) => void;
   /**
    * Incremented counter + command; when it changes the command is written to
    * the terminal. `execute` defaults to true (append a newline so it runs);
@@ -58,16 +63,23 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
     fit.fit();
     terminalRef.current = terminal;
 
-    const update = (next: TerminalStatus) => {
+    const update = (next: TerminalStatus, detail?: string) => {
       setStatus(next);
-      statusRef.current?.(next);
+      statusRef.current?.(next, detail);
     };
+
+    // Held so the close that follows a failure frame reports the reason rather
+    // than the generic "session closed" — the gateway sends the frame first,
+    // then closes.
+    let failure: string | undefined;
+    let everConnected = false;
 
     const socket = new WebSocket(websocketUrl);
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
 
     socket.onopen = () => {
+      everConnected = true;
       update("connected");
       sendResize();
       terminal.focus();
@@ -80,6 +92,12 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
             const frame = JSON.parse(event.data) as { type?: string; data?: string };
             if (frame.type === "system") {
               terminal.write(`\x1b[90m${frame.data ?? ""}\x1b[0m\r\n`);
+              return;
+            }
+            if (frame.type === "error") {
+              failure = frame.data ?? undefined;
+              terminal.write(`\r\n\x1b[91m${frame.data ?? "The session could not be started."}\x1b[0m\r\n`);
+              update("error", failure);
               return;
             }
             if (frame.type === "data") {
@@ -95,10 +113,18 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
         terminal.write(new Uint8Array(event.data as ArrayBuffer));
       }
     };
-    socket.onerror = () => update("error");
-    socket.onclose = () => {
-      update("closed");
-      terminal.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n");
+    socket.onerror = () => {
+      // Fires without a reason of its own — a socket that never opened at all
+      // means the gateway itself is unreachable, which is worth saying.
+      update(
+        "error",
+        failure ?? (everConnected ? undefined : "Could not reach the Onshell gateway. Check that it is running.")
+      );
+    };
+    socket.onclose = (event) => {
+      const reason = failure ?? (event.reason && !everConnected ? event.reason : undefined);
+      update(reason ? "error" : "closed", reason);
+      terminal.write(`\r\n\x1b[90m[session closed]\x1b[0m\r\n`);
     };
 
     const dataDisposable = terminal.onData((data) => {
@@ -125,6 +151,11 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
       observer.disconnect();
       dataDisposable.dispose();
       resizeDisposable.dispose();
+      // Detached before closing: a retry swaps the URL, and the outgoing
+      // socket's close event would otherwise report the *new* tab as closed.
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.onmessage = null;
       socket.close();
       terminal.dispose();
       terminalRef.current = null;

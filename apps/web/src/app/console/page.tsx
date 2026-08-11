@@ -19,6 +19,7 @@ import {
   FolderLock,
   KeyRound,
   Laptop,
+  Layers,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -56,7 +57,8 @@ import {
   SettingsView,
   SnippetsView,
   TeamView,
-  VaultView
+  VaultView,
+  WorkspacesView
 } from "./panels";
 import type { TerminalStatus } from "./terminal";
 import { OnshellMark } from "../brand";
@@ -70,6 +72,7 @@ const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
 type ViewKey =
   | "overview"
   | "hosts"
+  | "workspaces"
   | "agents"
   | "terminal"
   | "sftp"
@@ -87,6 +90,8 @@ interface TerminalTab {
   hostName: string;
   websocketUrl: string;
   status: TerminalStatus;
+  /** Why the last attempt failed, in the gateway's words. Cleared on retry. */
+  error?: string;
 }
 
 interface Toast {
@@ -97,6 +102,8 @@ interface Toast {
 const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
   { key: "hosts", label: "Hosts", icon: Server },
+  // Directly under Hosts: a workspace is a saved set of them.
+  { key: "workspaces", label: "Workspaces", icon: Layers },
   { key: "agents", label: "My computers", icon: Laptop },
   { key: "terminal", label: "Terminal", icon: SquareTerminal },
   { key: "sftp", label: "Files", icon: FolderLock },
@@ -180,6 +187,11 @@ export default function ConsolePage() {
   const [snippetsPanelOpen, setSnippetsPanelOpen] = useState(false);
   const [tabPickerOpen, setTabPickerOpen] = useState(false);
   const tabPickerRef = useRef<HTMLDivElement>(null);
+  /**
+   * Host the Hosts view should open its edit drawer on when it next mounts —
+   * set by the terminal's failure panel, cleared once the drawer has it.
+   */
+  const [editHostId, setEditHostId] = useState<string | null>(null);
 
   const notify = useCallback((message: string, kind: "success" | "error" = "success") => {
     setToast({ message, kind });
@@ -379,7 +391,26 @@ export default function ConsolePage() {
         void consoleApi.sessions().then(setSessions).catch(() => undefined);
         return true;
       } catch (error) {
-        if (!options?.quiet) notify(sessionErrorMessage(error), "error");
+        const message = sessionErrorMessage(error);
+        if (protocol === "ssh" && !options?.quiet) {
+          // The failure opens a tab of its own rather than a toast that fades:
+          // the reason and the two things worth doing about it (retry, edit the
+          // host) belong where the terminal was going to be.
+          const tab: TerminalTab = {
+            key: `failed-${host.id}-${Date.now()}`,
+            sessionId: "",
+            hostId: host.id,
+            hostName: host.name,
+            websocketUrl: "",
+            status: "error",
+            error: message
+          };
+          setTabs((current) => [...current, tab]);
+          setActiveTab(tab.key);
+          setView("terminal");
+        } else if (!options?.quiet) {
+          notify(message, "error");
+        }
         return false;
       }
     },
@@ -442,7 +473,9 @@ export default function ConsolePage() {
       setActiveTab((active) => (active === tab.key ? (remaining.at(-1)?.key ?? null) : active));
       return remaining;
     });
-    void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
+    // A tab that never got a session (the open call itself failed) has nothing
+    // to close on the gateway.
+    if (tab.sessionId) void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
   }, []);
 
   // Reconnect a closed/failed tab by opening a fresh session for its host and
@@ -450,9 +483,9 @@ export default function ConsolePage() {
   const retryTab = useCallback(
     async (tab: TerminalTab) => {
       setTabs((current) =>
-        current.map((item) => (item.key === tab.key ? { ...item, status: "connecting" } : item))
+        current.map((item) => (item.key === tab.key ? { ...item, status: "connecting", error: undefined } : item))
       );
-      void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
+      if (tab.sessionId) void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
       try {
         const { session, websocketUrl } = await consoleApi.openSession({ hostId: tab.hostId, protocol: "ssh" });
         setTabs((current) =>
@@ -470,13 +503,13 @@ export default function ConsolePage() {
         setActiveTab(tab.key);
         void consoleApi.sessions().then(setSessions).catch(() => undefined);
       } catch (error) {
+        const message = sessionErrorMessage(error);
         setTabs((current) =>
-          current.map((item) => (item.key === tab.key ? { ...item, status: "error" } : item))
+          current.map((item) => (item.key === tab.key ? { ...item, status: "error", error: message } : item))
         );
-        notify(sessionErrorMessage(error), "error");
       }
     },
-    [notify]
+    []
   );
 
   // Send a snippet to the active terminal. execute=true appends a newline (runs
@@ -846,16 +879,26 @@ export default function ConsolePage() {
             {view === "hosts" && (
               <HostsView
                 credentials={credentials}
+                editHostId={editHostId}
                 error={loadError}
                 hosts={hosts}
                 loading={loading}
                 notify={notify}
+                onEditHostConsumed={() => setEditHostId(null)}
                 onCreated={() => void consoleApi.hosts().then(setHosts)}
                 onCredentialsChanged={() => void consoleApi.credentials().then(setCredentials)}
                 onDelete={deleteHost}
                 onLaunch={launchSession}
-                onOpenWorkspace={(hostIds) => void openWorkspaceTerminals(hostIds)}
                 onRefresh={() => void consoleApi.hosts().then(setHosts).catch(() => notify("Refresh failed.", "error"))}
+                role={role}
+              />
+            )}
+
+            {view === "workspaces" && (
+              <WorkspacesView
+                hosts={hosts}
+                notify={notify}
+                onOpenWorkspace={(hostIds) => void openWorkspaceTerminals(hostIds)}
                 role={role}
               />
             )}
@@ -1085,6 +1128,7 @@ export default function ConsolePage() {
                 >
                   {tabs.map((tab) => {
                     const visible = terminalLayout === "split" || activeTab === tab.key;
+                    const host = hosts.find((item) => item.id === tab.hostId);
                     return (
                       <div
                         className={cx("terminal-pane", terminalLayout === "split" && activeTab === tab.key && "is-focused")}
@@ -1092,26 +1136,59 @@ export default function ConsolePage() {
                         onMouseDown={() => setActiveTab(tab.key)}
                         style={{ display: visible ? "block" : "none" }}
                       >
-                        <XtermTerminal
-                          injectedCommand={injected?.targetKey === tab.key ? injected : null}
-                          onStatusChange={(status) =>
-                            setTabs((current) =>
-                              current.map((item) => (item.key === tab.key ? { ...item, status } : item))
-                            )
-                          }
-                          websocketUrl={tab.websocketUrl}
-                        />
+                        {/* A tab whose session never opened has no socket to
+                            connect to — it exists only to carry the failure. */}
+                        {tab.websocketUrl && (
+                          <XtermTerminal
+                            injectedCommand={injected?.targetKey === tab.key ? injected : null}
+                            onStatusChange={(status, detail) =>
+                              setTabs((current) =>
+                                current.map((item) =>
+                                  item.key === tab.key
+                                    ? { ...item, status, error: detail ?? (status === "error" ? item.error : undefined) }
+                                    : item
+                                )
+                              )
+                            }
+                            websocketUrl={tab.websocketUrl}
+                          />
+                        )}
                         {(tab.status === "closed" || tab.status === "error") && (
                           <div className="terminal-retry">
-                            <span>
+                            <strong>
                               {tab.status === "error"
                                 ? `Couldn't connect to ${tab.hostName}.`
                                 : `Session to ${tab.hostName} closed.`}
-                            </span>
-                            <button className="primary-button" onClick={() => void retryTab(tab)} type="button">
-                              <RefreshCw size={15} />
-                              Retry
-                            </button>
+                            </strong>
+                            {tab.error && <p className="terminal-retry-detail">{tab.error}</p>}
+                            {host && (
+                              <p className="terminal-retry-target">
+                                {host.username ? `${host.username}@` : ""}
+                                {host.address}:{host.port} · {host.type.toUpperCase()}
+                              </p>
+                            )}
+                            <div className="terminal-retry-actions">
+                              <button className="primary-button" onClick={() => void retryTab(tab)} type="button">
+                                <RefreshCw size={15} />
+                                Retry
+                              </button>
+                              {/* The usual fix for a refused or rejected
+                                  connection is a wrong address, port, username
+                                  or credential — all of them one form away. */}
+                              {host && (
+                                <button
+                                  className="secondary-button"
+                                  onClick={() => {
+                                    setEditHostId(host.id);
+                                    setView("hosts");
+                                  }}
+                                  type="button"
+                                >
+                                  <Settings size={15} />
+                                  Edit host
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>

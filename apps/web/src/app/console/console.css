@@ -330,6 +330,30 @@
   font-size: 13px;
 }
 
+/* The gateway's reason for the failure. Capped so a long server message stays a
+   readable paragraph rather than one line across a wide terminal. */
+.terminal-retry-detail {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--muted, #9aa79a);
+  line-height: 1.5;
+}
+
+.terminal-retry-target {
+  margin: 0;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--muted, #9aa79a);
+  opacity: 0.85;
+}
+
+.terminal-retry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
 /* Split layout — every open tab is a pane in an auto-flow grid */
 .terminal-stage.is-split {
   display: grid;
@@ -2168,6 +2192,133 @@
 }
 
 /* ==========================================================================
+   Vault secret field, and the shared host picker (vault assignment, workspaces).
+   ========================================================================== */
+
+/* The reveal toggle sits inside the field rather than beside it, so the input
+   keeps the full width of every other field in the grid. */
+.vault-secret-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.form-grid .vault-secret-field input,
+.form-grid .vault-secret-field textarea {
+  width: 100%;
+}
+
+.form-grid .vault-secret-field input {
+  padding-right: 38px;
+}
+
+.vault-secret-field .icon-button {
+  position: absolute;
+  right: 4px;
+}
+
+.host-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.host-picker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.host-picker-bulk {
+  display: flex;
+  gap: 12px;
+}
+
+/* .search-field is sized for a toolbar; inside a drawer it should fill it. */
+.search-field.host-picker-search {
+  width: 100%;
+  height: 34px;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text, var(--accent));
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.link-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Scrolls at around six rows: long enough to browse, short enough that the
+   Save button stays on screen in the drawer. */
+.host-picker-list {
+  display: grid;
+  gap: 2px;
+  max-height: 268px;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  list-style: none;
+}
+
+.form-grid label.host-picker-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.form-grid label.host-picker-item:hover {
+  background: var(--surface-3, rgba(127, 127, 127, 0.08));
+}
+
+.form-grid .host-picker-item input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent-text);
+}
+
+.host-picker-item-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.host-picker-item-main strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.host-picker-item-main small {
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
    Host import / export workspace.
    ========================================================================== */
 
@@ -2175,10 +2326,6 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-
-.ht-back {
-  display: flex;
 }
 
 .ht-body {
@@ -2534,95 +2681,188 @@
   cursor: pointer;
 }
 
-.host-bulk {
+/* --------------------------------------------------------------------------
+   Filter bar — search leads, filters follow, the count closes the row.
+   -------------------------------------------------------------------------- */
+
+.host-filters {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   /* 14px matches .host-row's inline padding, so both edges line up. */
   margin: 12px 14px 10px;
-  padding: 7px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-2);
-  color: var(--muted);
-  font-size: 12.5px;
 }
 
-/* Tinted the moment anything is ticked — the count has to be unmissable, since
-   it silently changes what the export links below will download. */
-.host-bulk.has-selection {
-  border-color: var(--accent-line);
-  background: var(--accent-weak);
+/* The search is the control people reach for first, so it gets the room. */
+.search-field.is-wide {
+  flex: 1 1 320px;
+  min-width: 240px;
+  height: 38px;
 }
 
-.host-bulk-count {
+.search-field.is-wide input {
+  font-size: 13.5px;
+}
+
+.search-clear {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: var(--accent-text);
-}
-
-.host-bulk-count strong {
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 700;
-}
-
-.host-bulk-clear {
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
-  background: none;
-  color: var(--accent-text);
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  border-radius: 999px;
+  background: var(--elevated);
+  color: var(--soft);
   cursor: pointer;
 }
 
-.host-bulk-hint {
-  color: var(--soft);
+.search-clear:hover {
+  color: var(--text);
 }
 
-.host-bulk-spacer {
-  flex: 1 1 auto;
+.host-filter-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.host-bulk-label {
+.host-filter {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.host-filter select {
+  height: 24px;
+  max-width: 150px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
   color: var(--text);
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.host-filter select:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+
+.host-filter-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  color: var(--soft);
+  font-size: 12.5px;
+}
+
+.host-filter-count {
   white-space: nowrap;
 }
 
-.host-bulk-formats {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+/* --------------------------------------------------------------------------
+   Export menu — one button, the scope in its label and the format inside it.
+   -------------------------------------------------------------------------- */
+
+.export-menu {
+  position: relative;
 }
 
-.host-bulk-format {
-  display: inline-flex;
-  align-items: center;
-  height: 26px;
-  padding: 0 9px;
+.export-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  width: 268px;
+  padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: none;
-  transition:
-    border-color 0.2s var(--ease-out),
-    background-color 0.2s var(--ease-out);
+  border-radius: 12px;
+  background: var(--elevated);
+  box-shadow: var(--shadow-lg, 0 18px 40px rgba(0, 0, 0, 0.35));
 }
 
-.host-bulk-format:hover {
-  border-color: var(--accent-line);
-  background: var(--elevated);
+.export-menu-head {
+  margin: 0;
+  padding: 6px 8px 4px;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.export-menu-item {
+  display: grid;
+  gap: 1px;
+  padding: 8px;
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.export-menu-item:hover {
+  background: var(--surface-2);
+}
+
+.export-menu-item strong {
+  font-size: 13px;
+}
+
+.export-menu-item small {
+  color: var(--soft);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.export-menu-clear {
+  margin-top: 2px;
+  padding: 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.export-menu-clear:hover {
+  background: var(--surface-2);
+}
+
+/* The import/export panel, expanded in place under the header. */
+.host-transfer-drop {
+  overflow: hidden;
+}
+
+.host-transfer-inner {
+  padding: 4px 14px 6px;
 }
 
 @media (max-width: 860px) {
@@ -2653,13 +2893,13 @@
     grid-column: 3;
   }
 
-  .host-bulk {
+  .host-filters {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .host-bulk-spacer {
-    display: none;
+  .host-filter-meta {
+    margin-left: 0;
   }
 }
 
@@ -2777,137 +3017,9 @@
   font-size: 11px;
 }
 
-/* ---- Host workspaces -------------------------------------------------------
-   A saved set of hosts opened as several terminals at once. Rendered as a strip
-   above the hosts table, deliberately quieter than the table itself: it borrows
-   .host-bulk's card language (same inline margin, same surface) so the two read
-   as one toolbar area rather than two competing panels. */
-.hw-block {
-  display: grid;
-  gap: 8px;
-  /* 14px matches .host-row's inline padding, so every edge in the view lines up. */
-  margin: 0 14px 12px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-}
-
-.hw-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.hw-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 700;
-}
-
-.hw-title svg {
-  color: var(--accent-text);
-}
-
-/* The count rides beside the label as a pill rather than in the text, so the
-   heading stays the same width whether there are 2 workspaces or 12. */
-.hw-title em {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--accent-weak);
-  color: var(--accent-text);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.hw-hint {
-  flex: 1 1 auto;
-  color: var(--soft);
-  font-size: 12.5px;
-}
-
-.hw-save {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.hw-save:hover:not(:disabled) {
-  border-color: var(--accent-line);
-  background: var(--elevated);
-}
-
-.hw-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.hw-empty {
-  color: var(--muted);
-  font-size: 12.5px;
-}
-
-.hw-list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.hw-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
-}
-
-.hw-item:hover {
-  border-color: var(--border-strong);
-}
-
-/* min-width:0 lets the note below truncate instead of pushing the actions off
-   the right edge of the card. */
-.hw-item-main {
-  display: grid;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.hw-item-main strong {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.hw-item-main small {
-  overflow: hidden;
-  color: var(--soft);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* ---- Workspaces ------------------------------------------------------------
+   The saved-set table lives in its own view now; these two are what its rows
+   still use. */
 
 /* Hosts that have gone away since the workspace was saved. Warm rather than red:
    it is drift worth noticing, not a failure. */
@@ -2950,61 +3062,7 @@
   cursor: not-allowed;
 }
 
-/* Read-only echo of what is about to be saved, so the name field is not the only
-   thing standing between a stray tick and a twenty-tab workspace. */
-.hw-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-height: 132px;
-  overflow-y: auto;
-}
-
-.hw-chip {
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-
-.hw-replace {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 12.5px;
-}
-
-.hw-replace input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
 @media (max-width: 860px) {
-  /* The hint is the first thing to go: on a phone the button's own label already
-     says what the control does. */
-  .hw-hint {
-    display: none;
-  }
-
-  .hw-item {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .hw-item .row-actions {
-    align-self: stretch;
-  }
-
   .hw-open {
     flex: 1 1 auto;
     justify-content: center;

@@ -388,9 +388,10 @@ function Dialog({
   }, []);
 
   return (
+    // A click on the overlay is ignored: the dialog holds a name the user is
+    // half-way through typing, and only the Close/Cancel buttons dismiss it.
     <div
       className="fm-overlay"
-      onClick={onClose}
       onKeyDown={(event) => {
         if (event.key === "Escape") onClose();
       }}
@@ -400,7 +401,6 @@ function Dialog({
         aria-labelledby="fm-dialog-title"
         aria-modal="true"
         className="fm-dialog"
-        onClick={(event) => event.stopPropagation()}
         ref={card}
         role="dialog"
       >
@@ -617,12 +617,13 @@ function FileEditor({
   const blocked = file?.binary || file?.tooLarge;
 
   return (
-    <div className="fm-overlay" onClick={close} role="presentation">
+    // No close-on-overlay-click: the editor can hold unsaved edits, and a stray
+    // click outside it is not an instruction to throw them away.
+    <div className="fm-overlay" role="presentation">
       <div
         aria-labelledby="fm-editor-title"
         aria-modal="true"
         className="fm-editor"
-        onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="fm-editor-head">

@@ -375,13 +375,14 @@ function ThreadModal({ threadId, onClose }: { threadId: string; onClose: () => v
   const owner = detail?.user;
 
   return (
-    <div className="adm-modal-backdrop" onClick={onClose}>
+    // Backdrop clicks are ignored on purpose — the Close button (or Escape) is
+    // the way out, matching every other modal in the panel.
+    <div className="adm-modal-backdrop">
       <div
         className="adm-modal panel adm-modal-chat"
         role="dialog"
         aria-modal="true"
         aria-label={detail?.title ?? "Conversation"}
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="adm-modal-head">
           <div className="adm-modal-title">

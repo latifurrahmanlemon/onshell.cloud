@@ -850,12 +850,13 @@ function Modal({
   }, [onClose]);
 
   return (
+    // Clicking the backdrop does not close: these modals carry forms (packages,
+    // new user, password), and a click beside the card used to discard them.
     <motion.div
       animate={{ opacity: 1 }}
       className="adm-modal-backdrop"
       exit={reduceMotion ? undefined : { opacity: 0 }}
       initial={reduceMotion ? false : { opacity: 0 }}
-      onClick={onClose}
       transition={{ duration: 0.15 }}
     >
       <motion.div
@@ -865,7 +866,6 @@ function Modal({
         exit={reduceMotion ? undefined : { opacity: 0, y: 8, scale: 0.98 }}
         initial={reduceMotion ? false : { opacity: 0, y: 8, scale: 0.98 }}
         className={className ? `adm-modal panel ${className}` : "adm-modal panel"}
-        onClick={(event) => event.stopPropagation()}
         role="dialog"
         transition={{ duration: 0.16, ease: "easeOut" }}
       >

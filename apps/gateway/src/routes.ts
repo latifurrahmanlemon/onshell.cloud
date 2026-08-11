@@ -95,7 +95,7 @@ import {
   type FileTransport
 } from "./protocols/sftp.js";
 import { createGuacdTunnel } from "./protocols/rdp-connections.js";
-import { closeSshClient, openShell } from "./protocols/ssh-connections.js";
+import { closeSshClient, openShell, SshConnectionError } from "./protocols/ssh-connections.js";
 import { openSshSession } from "./protocols/ssh.js";
 import { getGatewaySession, listGatewaySessions, updateGatewaySession, type GatewaySession } from "./registry.js";
 
@@ -284,6 +284,23 @@ function toBuffer(data: RawData): Buffer {
 /** The `{"type":"system"}` control frame the browser terminal renders as a notice. */
 function systemMessage(socket: WebSocket, data: string) {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "system", data }));
+}
+
+/**
+ * Tells the browser why a session will not start, then closes.
+ *
+ * A close code alone left the console saying only "couldn't connect", which is
+ * true of a typo'd address, a wrong username and a machine that is switched
+ * off alike. The frame carries the reason the console shows next to its
+ * "Edit host" button, so the fix is one click from the failure.
+ */
+function failSession(socket: WebSocket, code: string, message: string) {
+  if (socket.readyState === socket.OPEN) {
+    socket.send(JSON.stringify({ type: "error", code, data: message }));
+    // Reason strings are capped at 123 bytes by the protocol; the frame above is
+    // the real payload, this is the fallback for a socket that never read it.
+    socket.close(1011, message.slice(0, 100));
+  }
 }
 
 /**
@@ -658,13 +675,12 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       } catch (error) {
         if (error instanceof AgentUnavailableError) {
           request.log.warn({ sessionId, reason: error.code }, "agent shell unavailable");
-          systemMessage(socket, `That machine is not reachable right now (${error.code}).`);
-          socket.close(1011, error.code);
+          failSession(socket, error.code, `That machine is not reachable right now (${error.code}).`);
           return;
         }
 
         request.log.error(error);
-        socket.close(1011, "Agent shell failed");
+        failSession(socket, "agent_shell_failed", "That machine accepted the connection but could not start a shell.");
       }
       return;
     }
@@ -688,7 +704,13 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
         });
       } catch (error) {
         request.log.error(error);
-        socket.close(1011, "Local shell failed");
+        failSession(
+          socket,
+          "local_shell_failed",
+          error instanceof Error && error.message
+            ? `The local shell could not start: ${error.message}`
+            : "The local shell could not start."
+        );
       }
       return;
     }
@@ -731,8 +753,18 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
         shell.end();
       });
     } catch (error) {
-      request.log.error(error);
-      socket.close(1011, "SSH shell failed");
+      request.log.error({ err: error, sessionId }, "ssh shell failed");
+      if (error instanceof SshConnectionError) {
+        failSession(socket, error.code, error.message);
+        return;
+      }
+      failSession(
+        socket,
+        "shell_failed",
+        error instanceof Error && error.message
+          ? `The server accepted the connection but refused a shell: ${error.message}`
+          : "The server accepted the connection but refused a shell."
+      );
     }
   });
 

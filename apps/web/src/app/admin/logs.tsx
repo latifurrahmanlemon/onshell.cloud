@@ -455,12 +455,11 @@ function LogTable<Row extends { id: string }, Detail extends { id: string }, Lis
       )}
 
       {detailId && (
-        <div className="logs-drawer-backdrop" onClick={() => setDetailId(null)} role="presentation">
+        <div className="logs-drawer-backdrop">
           <aside
             aria-label={detailTitle}
             aria-modal="true"
             className="logs-drawer"
-            onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
             <div className="logs-drawer-head">
