@@ -160,7 +160,17 @@ export function attachSshConnection(session: GatewaySession, input: SshConnectio
     password: input.password,
     privateKey: input.privateKey,
     passphrase: input.passphrase,
+    // Keepalives serve two ends. They stop the remote sshd from closing an idle
+    // session on its own `ClientAliveInterval`, and they are what lets a session
+    // stay open all day without anyone typing.
     keepaliveInterval: 15_000,
+    /**
+     * How many unanswered keepalives to tolerate — 12 × 15s, so three minutes of
+     * silence. ssh2 defaults to 3 (45s), which is short enough that a phone
+     * switching towers or a laptop waking up loses a shell that was otherwise
+     * perfectly healthy.
+     */
+    keepaliveCountMax: 12,
     readyTimeout: 20_000
   };
 

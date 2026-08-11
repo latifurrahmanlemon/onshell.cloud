@@ -281,6 +281,59 @@ function toBuffer(data: RawData): Buffer {
   return Buffer.from(new Uint8Array(data as ArrayBuffer));
 }
 
+/**
+ * How often the gateway pings a browser's terminal socket.
+ *
+ * A shell that is only being watched sends nothing for hours, and everything
+ * between here and the browser reaps a connection that quiet — nginx closes an
+ * idle proxied WebSocket after 60s by default, and managed load balancers are
+ * no more patient. A ping every 25s is what lets a terminal stay open all day.
+ */
+const WS_PING_INTERVAL_MS = 25_000;
+
+/**
+ * How long a socket may stay silent before it is treated as gone.
+ *
+ * Browsers answer a ping automatically, so silence this long means the tab, the
+ * machine or the network is no longer there. Generous on purpose: a laptop that
+ * suspends for a minute on a train should find its shell still running, and the
+ * cost of waiting is one idle SSH connection.
+ */
+const WS_SILENCE_LIMIT_MS = 5 * 60_000;
+
+/**
+ * Keeps a browser socket open for as long as the browser is really there.
+ *
+ * Only the agent tunnel had a heartbeat before this; the terminal sockets had
+ * none, so an idle session died at whatever timeout the nearest proxy happened
+ * to enforce.
+ */
+function keepSocketAlive(socket: WebSocket, log: (message: string) => void) {
+  let lastSeen = Date.now();
+  const seen = () => {
+    lastSeen = Date.now();
+  };
+
+  // Typing counts as being alive too, not just the pong we asked for.
+  socket.on("pong", seen);
+  socket.on("message", seen);
+
+  const timer = setInterval(() => {
+    if (socket.readyState !== socket.OPEN) return;
+    if (Date.now() - lastSeen > WS_SILENCE_LIMIT_MS) {
+      log("terminal socket stopped answering — closing it");
+      // terminate(), not close(): a peer that has not answered a ping in five
+      // minutes will not complete a closing handshake either.
+      socket.terminate();
+      return;
+    }
+    socket.ping();
+  }, WS_PING_INTERVAL_MS);
+  timer.unref?.();
+
+  socket.on("close", () => clearInterval(timer));
+}
+
 /** The `{"type":"system"}` control frame the browser terminal renders as a notice. */
 function systemMessage(socket: WebSocket, data: string) {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "system", data }));
@@ -654,6 +707,10 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       return;
     }
 
+    // Every transport below shares one browser socket, so the heartbeat is set
+    // up once here rather than three times.
+    keepSocketAlive(socket, (message) => request.log.info({ sessionId }, message));
+
     if (isAgentSession(session)) {
       try {
         const shell = await openAgentShell(session);
@@ -818,6 +875,8 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
       socket.close(1008, "RDP session not found");
       return;
     }
+
+    keepSocketAlive(socket, (message) => request.log.info({ sessionId }, message));
 
     const guacd = createGuacdTunnel(
       sessionId,
