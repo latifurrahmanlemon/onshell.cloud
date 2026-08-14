@@ -17,6 +17,7 @@ import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
 import { describeSmtpFailure, sendSmtpTestEmail } from "../../lib/email.js";
 import { prisma } from "../../lib/prisma.js";
+import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
 import { toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
 
@@ -481,10 +482,7 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const passwordHash = await bcrypt.hash(body.password, 12);
       await prisma.$transaction([
         prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
-        prisma.refreshToken.updateMany({
-          where: { userId, revokedAt: null },
-          data: { revokedAt: new Date() }
-        })
+        revokeRefreshTokens({ userId })
       ]);
 
       await createAudit({

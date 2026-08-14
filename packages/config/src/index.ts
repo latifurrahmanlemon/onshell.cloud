@@ -25,6 +25,12 @@ export interface RuntimeConfig {
    * plain HTTP, which is exactly what happens while TLS is still being set up.
    */
   cookieSecure?: boolean;
+  /**
+   * How long a signed-in session survives without re-entering a password, in
+   * days. It is a *sliding* window: every token refresh restarts it, so a user
+   * who opens the console at least once inside the window stays signed in.
+   */
+  sessionTtlDays: number;
   googleClientId: string;
   googleClientSecret: string;
   googleRedirectUri: string;
@@ -179,6 +185,9 @@ export function loadConfig(service: ServiceName): RuntimeConfig {
     ),
     cookieDomain: deriveCookieDomain(publicBaseUrl),
     cookieSecure: optionalBoolean("COOKIE_SECURE"),
+    // Clamped rather than trusted: a stray "0" would sign everyone out on the
+    // next request, and a huge value would keep revoked devices alive for years.
+    sessionTtlDays: Math.min(365, Math.max(1, envNumber("SESSION_TTL_DAYS", 30))),
     googleClientId: env("GOOGLE_CLIENT_ID"),
     googleClientSecret: env("GOOGLE_CLIENT_SECRET"),
     googleRedirectUri: env("GOOGLE_REDIRECT_URI", `${apiBaseUrl}/auth/google/callback`),

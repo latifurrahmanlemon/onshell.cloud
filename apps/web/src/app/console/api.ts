@@ -24,11 +24,23 @@ export class ApiError extends Error {
 }
 
 let refreshPromise: Promise<boolean> | null = null;
+let lastRefreshAt = 0;
+
+/**
+ * Endpoints where a 401 is the answer rather than a stale-token symptom:
+ * signing in, signing out, and the refresh call itself (retrying which would
+ * recurse). Everything else — `/auth/me` included — is worth one silent retry,
+ * because the access token expires long before the month-long session does.
+ */
+const NO_REFRESH_PATHS = ["/auth/login", "/auth/register", "/auth/logout", "/auth/refresh", "/auth/google"];
 
 /** Rotate the access token once; concurrent 401s share the same attempt. */
 function tryRefresh(): Promise<boolean> {
   refreshPromise ??= fetch(`${apiBaseUrl}/auth/refresh`, { method: "POST", credentials: "include" })
-    .then((response) => response.ok)
+    .then((response) => {
+      if (response.ok) lastRefreshAt = Date.now();
+      return response.ok;
+    })
     .catch(() => false)
     .finally(() => {
       window.setTimeout(() => {
@@ -38,6 +50,16 @@ function tryRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
+/**
+ * Renews the session ahead of time, for a console that has been left open.
+ * Called when the tab regains focus; `minAgeMs` keeps a user flicking between
+ * windows from refreshing on every switch.
+ */
+export function keepSessionAlive(minAgeMs = 6 * 60 * 60 * 1000): Promise<boolean> {
+  if (Date.now() - lastRefreshAt < minAgeMs) return Promise.resolve(true);
+  return tryRefresh();
+}
+
 async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     credentials: "include",
@@ -45,7 +67,7 @@ async function request<T>(path: string, init?: RequestInit, retried = false): Pr
     ...init
   });
 
-  if (response.status === 401 && !retried && !path.startsWith("/auth/")) {
+  if (response.status === 401 && !retried && !NO_REFRESH_PATHS.some((prefix) => path.startsWith(prefix))) {
     if (await tryRefresh()) return request<T>(path, init, true);
   }
 

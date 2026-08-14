@@ -19,18 +19,33 @@ interface SessionState {
 let cachedSession: SessionState | undefined;
 let sessionRequest: Promise<SessionState> | undefined;
 
+/** Reads /auth/me once; `null` means the API said not signed in. */
+async function fetchIdentity() {
+  const response = await fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" });
+  if (!response.ok) return null;
+  return (await response.json()) as { user: User; organization?: { name: string } };
+}
+
 async function loadSession(): Promise<SessionState> {
   if (cachedSession) return cachedSession;
   if (sessionRequest) return sessionRequest;
 
-  sessionRequest = fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" })
-    .then(async (response) => {
-      if (!response.ok) return { status: "anonymous" as const };
-      const payload = (await response.json()) as { user: User; organization?: { name: string } };
+  sessionRequest = fetchIdentity()
+    .then(async (first) => {
+      // The access token expires long before the session does. Without this
+      // retry a visitor with a perfectly good month-long session sees "Log in"
+      // on the public pages twelve hours after signing in.
+      if (first) return first;
+
+      const refreshed = await fetch(`${apiBaseUrl}/auth/refresh`, { method: "POST", credentials: "include" });
+      return refreshed.ok ? fetchIdentity() : null;
+    })
+    .then((identity) => {
+      if (!identity) return { status: "anonymous" as const };
       return {
         status: "signed-in" as const,
-        user: payload.user,
-        organizationName: payload.organization?.name
+        user: identity.user,
+        organizationName: identity.organization?.name
       };
     })
     .catch(() => ({ status: "anonymous" as const }))

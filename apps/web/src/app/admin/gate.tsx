@@ -34,7 +34,14 @@ export default function AdminGate({ children }: { children: ReactNode }) {
 
   const checkAccess = useCallback(async (): Promise<GateStatus> => {
     try {
-      const response = await fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" });
+      let response = await fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" });
+      // An expired access token is not a signed-out admin: the refresh cookie
+      // outlives it by weeks, so trade it in before showing the login form.
+      if (response.status === 401) {
+        const refreshed = await fetch(`${apiBaseUrl}/auth/refresh`, { method: "POST", credentials: "include" });
+        if (!refreshed.ok) return "login";
+        response = await fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" });
+      }
       if (!response.ok) return "login";
       const payload = (await response.json()) as MePayload;
       const user = payload.user;

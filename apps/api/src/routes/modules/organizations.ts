@@ -16,6 +16,7 @@ import {
   replaceHostAccess
 } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
+import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
 import { toPublicUser } from "../../lib/prisma-mappers.js";
 import { generateReferralCode } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
@@ -595,10 +596,7 @@ export async function registerOrganizationRoutes(
 
       await prisma.$transaction([
         prisma.organizationMember.delete({ where: { id: membership.id } }),
-        prisma.refreshToken.updateMany({
-          where: { userId: params.userId, revokedAt: null },
-          data: { revokedAt: new Date() }
-        })
+        revokeRefreshTokens({ userId: params.userId })
       ]);
       await createAudit({
         organizationId: actor.organizationId,

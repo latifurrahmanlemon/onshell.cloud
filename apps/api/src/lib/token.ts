@@ -17,7 +17,19 @@ export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export function signAccessToken(payload: Omit<AccessTokenPayload, "exp">, secret: string, ttlSeconds = 12 * 60 * 60) {
+/**
+ * Lifetime of the access JWT. Deliberately short next to the session itself:
+ * nothing can withdraw a signed token before it expires, so a revoked device
+ * keeps working for at most this long. The refresh cookie is what makes a
+ * session last a month.
+ */
+export const ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60;
+
+export function signAccessToken(
+  payload: Omit<AccessTokenPayload, "exp">,
+  secret: string,
+  ttlSeconds = ACCESS_TOKEN_TTL_SECONDS
+) {
   const header = { alg: "HS256", typ: "JWT" };
   const body: AccessTokenPayload = {
     ...payload,

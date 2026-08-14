@@ -26,6 +26,13 @@ The API currently exposes development route contracts backed by in-memory data. 
 
 Successful login returns tokens and also sets `access_token` and `refresh_token` HTTP-only cookies for browser clients.
 
+Session length: the access token lives 12 hours; the refresh cookie lives `SESSION_TTL_DAYS`
+(default 30) and slides — `POST /auth/refresh` rotates it and restarts the clock, so a browser
+that visits inside the window stays signed in without re-entering a password. A rotated token is
+still accepted for 60 seconds afterwards, so several console tabs refreshing at once do not sign
+each other out. Sign-out, a password change, and admin or owner revocation expire the token
+outright, which that grace window cannot revive.
+
 Production requirements:
 
 * Hash passwords with Argon2id or bcrypt.

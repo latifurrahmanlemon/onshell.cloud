@@ -14,6 +14,8 @@ import { sendTransactionalEmail, isSmtpEnabled } from "../../lib/email.js";
 import { encryptSecret, decryptSecret } from "../../lib/encryption.js";
 import { clearLoginFailures, getLoginLock, recordLoginFailure } from "../../lib/login-throttle.js";
 import { prisma } from "../../lib/prisma.js";
+import { isRefreshTokenUsable } from "../../lib/refresh-token-policy.js";
+import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
 import { toPublicUser, type UserWithMembership } from "../../lib/prisma-mappers.js";
 import {
   ensureFreeSubscription,
@@ -24,7 +26,7 @@ import {
 import { handleRouteError } from "../../lib/reply.js";
 import { store } from "../../lib/store.js";
 import { resolveSessionCookie } from "../../lib/session-cookie.js";
-import { createRefreshToken, hashToken, signAccessToken } from "../../lib/token.js";
+import { ACCESS_TOKEN_TTL_SECONDS, createRefreshToken, hashToken, signAccessToken } from "../../lib/token.js";
 import {
   readTurnstileToken,
   turnstileFailureResponse,
@@ -198,7 +200,8 @@ export async function issueTokens(
     config.jwtSecret
   );
   const refreshToken = createRefreshToken();
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const sessionTtlSeconds = config.sessionTtlDays * 24 * 60 * 60;
+  const expiresAt = new Date(Date.now() + sessionTtlSeconds * 1000);
 
   await prisma.refreshToken.create({
     data: {
@@ -217,8 +220,11 @@ export async function issueTokens(
     config
   );
 
-  reply.setCookie("access_token", accessToken, { ...cookieOptions, maxAge: 12 * 60 * 60 });
-  reply.setCookie("refresh_token", refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 });
+  // The access token stays short-lived — it is a bearer JWT that nothing can
+  // recall early — while the refresh cookie carries the month-long session and
+  // silently mints a new one whenever the console asks.
+  reply.setCookie("access_token", accessToken, { ...cookieOptions, maxAge: ACCESS_TOKEN_TTL_SECONDS });
+  reply.setCookie("refresh_token", refreshToken, { ...cookieOptions, maxAge: sessionTtlSeconds });
 
   return {
     user,
@@ -1099,15 +1105,20 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
           }
         }
       });
-      if (!tokenRow || tokenRow.revokedAt || tokenRow.expiresAt.getTime() <= Date.now()) {
+      // Accepts a token that was rotated a moment ago, so two console tabs
+      // refreshing at once do not sign each other out. A sign-out is expired,
+      // not merely revoked, and so is never forgiven here.
+      if (!isRefreshTokenUsable(tokenRow)) {
         clearAuthCookies(reply, config);
         return reply.code(401).send({ error: "invalid_refresh_token" });
       }
 
-      await prisma.refreshToken.update({
-        where: { id: tokenRow.id },
-        data: { revokedAt: new Date() }
-      });
+      if (!tokenRow.revokedAt) {
+        await prisma.refreshToken.update({
+          where: { id: tokenRow.id },
+          data: { revokedAt: new Date() }
+        });
+      }
 
       const user = await addAuthMethods(toPublicUser(tokenRow.user), tokenRow.user);
       return issueTokens(reply, config, user, request);
@@ -1196,10 +1207,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
           where: { id: prismaUser.id },
           data: { passwordHash }
         }),
-        prisma.refreshToken.updateMany({
-          where: { userId: prismaUser.id, revokedAt: null },
-          data: { revokedAt: new Date() }
-        })
+        revokeRefreshTokens({ userId: prismaUser.id })
       ]);
 
       const publicUser = toPublicUser(prismaUser);
@@ -1265,10 +1273,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         }),
         // Revoke every refresh token so other devices are signed out. A fresh
         // pair is issued below so the current session stays valid.
-        prisma.refreshToken.updateMany({
-          where: { userId: prismaUser.id, revokedAt: null },
-          data: { revokedAt: new Date() }
-        })
+        revokeRefreshTokens({ userId: prismaUser.id })
       ]);
 
       await createAudit({
@@ -1297,10 +1302,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         select: { user: { select: { id: true, email: true } } }
       });
 
-      await prisma.refreshToken.updateMany({
-        where: { tokenHash, revokedAt: null },
-        data: { revokedAt: new Date() }
-      });
+      await revokeRefreshTokens({ tokenHash });
 
       if (tokenRow) {
         await recordAuthEvent(request, {

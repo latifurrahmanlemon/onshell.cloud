@@ -37,6 +37,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  SlidersHorizontal,
   SquareTerminal,
   Star,
   Sun,
@@ -46,7 +47,7 @@ import {
 import type { AgentDevice, AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
 import { canOpenSession, isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
-import { ApiError, consoleApi, sessionWebsocketUrl } from "./api";
+import { ApiError, consoleApi, keepSessionAlive, sessionWebsocketUrl } from "./api";
 import type { PendingInvitation, TeamMember } from "./api";
 import { FilesView } from "./files";
 import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
@@ -63,6 +64,15 @@ import {
   WorkspacesView
 } from "./panels";
 import type { TerminalStatus } from "./terminal";
+import {
+  EMPTY_TERMINAL_SETTINGS_STORE,
+  TerminalSettingsPanel,
+  loadTerminalSettings,
+  saveTerminalSettings,
+  settingsForHost,
+  type TerminalSettings,
+  type TerminalSettingsStore
+} from "./terminal-settings";
 import { OnshellMark } from "../brand";
 import { useTheme } from "../theme";
 import "./console.css";
@@ -189,6 +199,17 @@ export default function ConsolePage() {
   const [snippetsPanelOpen, setSnippetsPanelOpen] = useState(false);
   const [tabPickerOpen, setTabPickerOpen] = useState(false);
   const tabPickerRef = useRef<HTMLDivElement>(null);
+  /** Saved terminal appearance, per host. Loaded from this device on mount. */
+  const [terminalSettings, setTerminalSettings] = useState<TerminalSettingsStore>(EMPTY_TERMINAL_SETTINGS_STORE);
+  /**
+   * Live overrides for the open tabs, keyed by tab. Two terminals on the *same*
+   * host are two independent windows onto it and can be styled apart; what gets
+   * written to storage is still per host, which is the identity that outlives
+   * a connection.
+   */
+  const [tabSettings, setTabSettings] = useState<Record<string, TerminalSettings>>({});
+  const [terminalSettingsOpen, setTerminalSettingsOpen] = useState(false);
+  const terminalSettingsRef = useRef<HTMLDivElement>(null);
   /**
    * Host the Hosts view should open its edit drawer on when it next mounts —
    * set by the terminal's failure panel, cleared once the drawer has it.
@@ -212,6 +233,32 @@ export default function ConsolePage() {
     } catch {
       /* storage unavailable */
     }
+  }, []);
+
+  // Restore saved terminal appearance after mount, so the server-rendered
+  // markup and the first client render still agree.
+  useEffect(() => {
+    setTerminalSettings(loadTerminalSettings());
+  }, []);
+
+  /**
+   * Renew the session whenever the console comes back into view.
+   *
+   * The access token is deliberately short-lived, and a console left open in a
+   * background tab may go a long time without an API call to rotate it on. This
+   * keeps the month-long refresh window sliding forward instead of expiring
+   * under an open terminal.
+   */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void keepSessionAlive();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, []);
 
   // Honour ?view= after mount rather than in the initial state, so the server
@@ -239,6 +286,80 @@ export default function ConsolePage() {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [tabPickerOpen]);
+
+  // Dismiss the appearance popover on an outside click or Escape.
+  useEffect(() => {
+    if (!terminalSettingsOpen) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (terminalSettingsRef.current && !terminalSettingsRef.current.contains(event.target as Node)) {
+        setTerminalSettingsOpen(false);
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setTerminalSettingsOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [terminalSettingsOpen]);
+
+  /** What a tab is currently drawn with: its own override, else its host's. */
+  const settingsForTab = useCallback(
+    (tab: { key: string; hostId: string }) => tabSettings[tab.key] ?? settingsForHost(terminalSettings, tab.hostId),
+    [tabSettings, terminalSettings]
+  );
+
+  /** Applies an edit to the focused tab and remembers it for the host. */
+  const updateTerminalSettings = useCallback(
+    (tab: { key: string; hostId: string }, patch: Partial<TerminalSettings>) => {
+      const next: TerminalSettings = { ...settingsForTab(tab), ...patch };
+      setTabSettings((current) => ({ ...current, [tab.key]: next }));
+      setTerminalSettings((current) => {
+        const store: TerminalSettingsStore = { ...current, byHost: { ...current.byHost, [tab.hostId]: next } };
+        saveTerminalSettings(store);
+        return store;
+      });
+    },
+    [settingsForTab]
+  );
+
+  /** Drops this tab's and its host's settings, so both follow the default. */
+  const resetTerminalSettings = useCallback((tab: { key: string; hostId: string }) => {
+    setTabSettings((current) => {
+      const next = { ...current };
+      delete next[tab.key];
+      return next;
+    });
+    setTerminalSettings((current) => {
+      const byHost = { ...current.byHost };
+      delete byHost[tab.hostId];
+      const store: TerminalSettingsStore = { ...current, byHost };
+      saveTerminalSettings(store);
+      return store;
+    });
+  }, []);
+
+  /**
+   * Makes one terminal's look the default everywhere: open tabs lose their own
+   * overrides, saved hosts lose theirs, and new terminals start from it.
+   */
+  const applyTerminalSettingsEverywhere = useCallback(
+    (tab: { key: string; hostId: string }) => {
+      const chosen = settingsForTab(tab);
+      setTabSettings({});
+      setTerminalSettings(() => {
+        const store: TerminalSettingsStore = { fallback: chosen, byHost: {} };
+        saveTerminalSettings(store);
+        return store;
+      });
+    },
+    [settingsForTab]
+  );
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((current) => {
@@ -475,6 +596,12 @@ export default function ConsolePage() {
       setActiveTab((active) => (active === tab.key ? (remaining.at(-1)?.key ?? null) : active));
       return remaining;
     });
+    setTabSettings((current) => {
+      if (!(tab.key in current)) return current;
+      const next = { ...current };
+      delete next[tab.key];
+      return next;
+    });
     // A tab that never got a session (the open call itself failed) has nothing
     // to close on the gateway.
     if (tab.sessionId) void consoleApi.closeSession(tab.sessionId).catch(() => undefined);
@@ -627,6 +754,11 @@ export default function ConsolePage() {
   const activeSessions = useMemo(() => sessions.filter((session) => session.status === "active"), [sessions]);
   /** Terminal-capable hosts, for the new-tab picker and the Files launcher. */
   const shellHosts = useMemo(() => hosts.filter(isShellHost), [hosts]);
+  /** The tab the appearance popover edits — the focused one, or the only one. */
+  const activeTabInfo = useMemo(
+    () => tabs.find((tab) => tab.key === activeTab) ?? tabs.at(-1) ?? null,
+    [tabs, activeTab]
+  );
 
   if (!identity) {
     return (
@@ -1057,6 +1189,36 @@ export default function ConsolePage() {
                 >
                   {snippetsPanelOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
                 </button>
+                {/* Appearance is per terminal, so the button lives with the
+                    other terminal controls and edits whichever tab is active. */}
+                <div className="terminal-settings-anchor" ref={terminalSettingsRef}>
+                  <button
+                    aria-expanded={terminalSettingsOpen}
+                    aria-haspopup="dialog"
+                    className={cx("icon-button", terminalSettingsOpen && "is-active")}
+                    disabled={!activeTabInfo}
+                    onClick={() => setTerminalSettingsOpen((open) => !open)}
+                    title="Terminal appearance (theme & font size)"
+                    type="button"
+                  >
+                    <SlidersHorizontal size={15} />
+                  </button>
+
+                  {terminalSettingsOpen && activeTabInfo && (
+                    <TerminalSettingsPanel
+                      hostName={activeTabInfo.hostName}
+                      onApplyToAll={() => applyTerminalSettingsEverywhere(activeTabInfo)}
+                      onChange={(patch) => updateTerminalSettings(activeTabInfo, patch)}
+                      onClose={() => setTerminalSettingsOpen(false)}
+                      onReset={() => resetTerminalSettings(activeTabInfo)}
+                      settings={settingsForTab(activeTabInfo)}
+                      usingFallback={
+                        tabSettings[activeTabInfo.key] === undefined &&
+                        terminalSettings.byHost[activeTabInfo.hostId] === undefined
+                      }
+                    />
+                  )}
+                </div>
                 <button
                   aria-pressed={terminalFullscreen}
                   className={cx("icon-button", terminalFullscreen && "is-active")}
@@ -1177,6 +1339,7 @@ export default function ConsolePage() {
                         {tab.websocketUrl && (
                           <XtermTerminal
                             injectedCommand={injected?.targetKey === tab.key ? injected : null}
+                            settings={settingsForTab(tab)}
                             onStatusChange={(status, detail) =>
                               setTabs((current) =>
                                 current.map((item) =>

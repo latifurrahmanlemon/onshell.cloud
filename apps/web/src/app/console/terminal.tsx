@@ -4,11 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { DEFAULT_TERMINAL_SETTINGS, themeById, type TerminalSettings } from "./terminal-settings";
 
 export type TerminalStatus = "connecting" | "connected" | "closed" | "error";
 
 interface XtermTerminalProps {
   websocketUrl: string;
+  /** Colour theme and font size for this terminal, as saved for its host. */
+  settings?: TerminalSettings;
   /**
    * `detail` is the gateway's own words for a failure ("edge-01:22 refused the
    * connection…"), so the console can show why a host would not connect instead
@@ -58,27 +61,23 @@ function copyToClipboard(text: string) {
   legacyCopy(text);
 }
 
-const terminalTheme = {
-  background: "#08080f",
-  foreground: "#d9ead6",
-  cursor: "#34d399",
-  cursorAccent: "#08080f",
-  selectionBackground: "rgba(52, 211, 153, 0.3)",
-  black: "#0a0b12",
-  green: "#34d399",
-  brightGreen: "#6ee7b7",
-  cyan: "#22d3ee",
-  red: "#fb7185",
-  yellow: "#fbbf24"
-};
-
-export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCommand }: XtermTerminalProps) {
+export default function XtermTerminal({
+  websocketUrl,
+  settings = DEFAULT_TERMINAL_SETTINGS,
+  onStatusChange,
+  injectedCommand
+}: XtermTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const [status, setStatus] = useState<TerminalStatus>("connecting");
   const statusRef = useRef(onStatusChange);
   statusRef.current = onStatusChange;
+  // Read at construction only. Later changes go through the effect below, so
+  // restyling a terminal never tears down its connection.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const lastInjectedId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -86,10 +85,10 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
 
     const terminal = new Terminal({
       fontFamily: 'var(--font-mono), "SFMono-Regular", Consolas, monospace',
-      fontSize: 13,
+      fontSize: settingsRef.current.fontSize,
       lineHeight: 1.4,
       cursorBlink: true,
-      theme: terminalTheme,
+      theme: themeById(settingsRef.current.themeId).colors,
       allowProposedApi: true
     });
     const fit = new FitAddon();
@@ -97,6 +96,7 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
     terminal.open(containerRef.current);
     fit.fit();
     terminalRef.current = terminal;
+    fitRef.current = fit;
 
     // Clipboard keys, the way a desktop terminal binds them. Left alone, xterm
     // turns Ctrl+C into SIGINT and Ctrl+V into a literal ^V, so neither reaches
@@ -243,9 +243,26 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
       socket.close();
       terminal.dispose();
       terminalRef.current = null;
+      fitRef.current = null;
       socketRef.current = null;
     };
   }, [websocketUrl]);
+
+  // Apply appearance changes in place. The re-fit matters as much as the
+  // repaint: a larger font means fewer columns, and the remote shell has to be
+  // told, or its line wrapping is drawn against the old grid.
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+
+    terminal.options.fontSize = settings.fontSize;
+    terminal.options.theme = themeById(settings.themeId).colors;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      // container hidden (an inactive tab); the ResizeObserver re-fits on show
+    }
+  }, [settings.fontSize, settings.themeId]);
 
   useEffect(() => {
     if (!injectedCommand || !injectedCommand.command) return;
@@ -261,8 +278,10 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
     }
   }, [injectedCommand]);
 
+  // The host's own background carries the theme colour so the padding around
+  // the canvas matches it — otherwise a light theme sits in a dark frame.
   return (
-    <div className="xterm-host" data-status={status}>
+    <div className="xterm-host" data-status={status} style={{ background: themeById(settings.themeId).colors.background }}>
       <div className="xterm-container" ref={containerRef} />
     </div>
   );
