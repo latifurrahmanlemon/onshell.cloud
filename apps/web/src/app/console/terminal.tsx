@@ -23,6 +23,41 @@ interface XtermTerminalProps {
   injectedCommand?: { id: number; command: string; execute?: boolean } | null;
 }
 
+/**
+ * Copy without the async clipboard API when it is unavailable: `navigator.clipboard`
+ * is undefined on a non-secure origin, which is exactly how a self-hosted gateway
+ * gets reached (http://10.x.x.x), and the terminal still has to be copyable there.
+ */
+function legacyCopy(text: string) {
+  const helper = document.createElement("textarea");
+  helper.value = text;
+  helper.setAttribute("readonly", "");
+  helper.style.position = "fixed";
+  helper.style.top = "-1000px";
+  helper.style.opacity = "0";
+  // Selecting the helper takes focus off xterm's textarea, so hand it back or
+  // the next keystroke goes nowhere.
+  const previous = document.activeElement as HTMLElement | null;
+  document.body.appendChild(helper);
+  helper.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    // nothing left to try; the selection stays on screen for a manual copy
+  }
+  helper.remove();
+  previous?.focus?.();
+}
+
+function copyToClipboard(text: string) {
+  if (!text) return;
+  if (navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+    return;
+  }
+  legacyCopy(text);
+}
+
 const terminalTheme = {
   background: "#08080f",
   foreground: "#d9ead6",
@@ -62,6 +97,55 @@ export default function XtermTerminal({ websocketUrl, onStatusChange, injectedCo
     terminal.open(containerRef.current);
     fit.fit();
     terminalRef.current = terminal;
+
+    // Clipboard keys, the way a desktop terminal binds them. Left alone, xterm
+    // turns Ctrl+C into SIGINT and Ctrl+V into a literal ^V, so neither reaches
+    // the clipboard.
+    //
+    // Copy has to go through the clipboard API because an xterm selection is not
+    // a DOM selection, so the browser has nothing of its own to copy. Paste is
+    // the opposite: returning false leaves the browser's default intact, so the
+    // native paste event still lands on xterm's textarea and xterm pastes it
+    // itself — no clipboard-read permission, and it works over plain http too.
+    const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      const key = event.key.toLowerCase();
+      const primary = isMac ? event.metaKey : event.ctrlKey;
+
+      // Ctrl+Shift+C / Ctrl+Shift+V — the Linux terminal convention, and the
+      // escape hatch when the shell needs a plain Ctrl+C.
+      if (event.ctrlKey && event.shiftKey && !event.altKey && (key === "c" || key === "v")) {
+        if (key === "c") {
+          copyToClipboard(terminal.getSelection());
+          event.preventDefault();
+        }
+        return false;
+      }
+
+      // A bare Ctrl+C with nothing selected must still interrupt the process.
+      if (primary && !event.altKey && key === "c" && terminal.hasSelection()) {
+        copyToClipboard(terminal.getSelection());
+        terminal.clearSelection();
+        event.preventDefault();
+        return false;
+      }
+
+      if (primary && !event.altKey && key === "v") return false;
+
+      // Ctrl+Insert / Shift+Insert, as bound on Windows terminals.
+      if (event.key === "Insert") {
+        if (event.ctrlKey && terminal.hasSelection()) {
+          copyToClipboard(terminal.getSelection());
+          event.preventDefault();
+          return false;
+        }
+        if (event.shiftKey) return false;
+      }
+
+      return true;
+    });
 
     const update = (next: TerminalStatus, detail?: string) => {
       setStatus(next);
