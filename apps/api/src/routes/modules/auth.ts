@@ -1094,7 +1094,14 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
 
   app.post("/auth/refresh", async (request, reply) => {
     try {
-      const refreshToken = request.cookies?.refresh_token;
+      // The cookie is the browser's session. A native client has no cookie jar
+      // worth relying on and no origin to be first-party to, so the desktop app
+      // sends the same token in the body instead. The cookie is preferred when
+      // both are present: a browser must not be able to have its session
+      // swapped by a body a page script chose.
+      const body = request.body as { refreshToken?: unknown } | undefined;
+      const refreshToken =
+        request.cookies?.refresh_token ?? (typeof body?.refreshToken === "string" ? body.refreshToken : undefined);
       if (!refreshToken) return reply.code(401).send({ error: "missing_refresh_token" });
 
       const tokenRow = await prisma.refreshToken.findFirst({

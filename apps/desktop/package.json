@@ -1,0 +1,48 @@
+{
+  "name": "@onshell/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Onshell Desktop — this machine's terminal, direct SSH to your servers, and the Onshell console, in one native app.",
+  "author": "Onshell <support@onshell.cloud>",
+  "repository": "https://github.com/latifurrahmanlemon/onshell.cloud",
+  "main": "dist/main.js",
+  "scripts": {
+    "build:renderer": "vite build",
+    "build:main": "node scripts/bundle.mjs",
+    "build": "yarn build:renderer && yarn build:main",
+    "dev": "node scripts/dev.mjs",
+    "start": "yarn build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "lint": "yarn typecheck",
+    "dist": "yarn build && electron-builder",
+    "dist:mac": "yarn build && electron-builder --mac",
+    "dist:win": "yarn build && electron-builder --win",
+    "dist:linux": "yarn build && electron-builder --linux"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "ssh2": "^1.16.0"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^2.5.0",
+    "@onshell/agent": "workspace:*",
+    "@onshell/api-client": "workspace:*",
+    "@onshell/shared": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/ssh2": "^1.15.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "31.7.7",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
