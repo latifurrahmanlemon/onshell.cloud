@@ -720,6 +720,108 @@ export default function PublicPage() {
         </div>
       </motion.section>
 
+      {/* Placed after "how it works" and before pricing on purpose: both of these
+          are reasons to choose the product, and a reader who has just understood
+          the mechanism is the one most likely to care that they can check it and
+          that there is a native app. */}
+      <motion.section
+        className="lp-section lp-desktop"
+        id="desktop"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container">
+          <motion.div className="lp-heading" variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">Onshell Desktop</span>
+            <h2>Or skip the browser entirely</h2>
+            <p>
+              A free, open-source app for Windows, macOS, and Linux — with two things a browser tab
+              structurally cannot do.
+            </p>
+          </motion.div>
+
+          <motion.div className="lp-desktop-grid" variants={motionVariants.staggerTight}>
+            <motion.article className="lp-desktop-card" variants={motionVariants.item}>
+              <SquareTerminal aria-hidden="true" size={20} />
+              <h3>Your own computer&apos;s terminal</h3>
+              <p>
+                A browser cannot spawn a process on the machine it runs on — that is the sandbox the web
+                rests on. The app opens a real PowerShell, zsh, bash, or WSL shell next to your servers,
+                with no network in the path at all.
+              </p>
+            </motion.article>
+
+            <motion.article className="lp-desktop-card" variants={motionVariants.item}>
+              <ShieldCheck aria-hidden="true" size={20} />
+              <h3>Connections that stay yours</h3>
+              <p>
+                A browser cannot speak SSH, so every browser-based client relays through a server that
+                sees the credential. The desktop app dials port 22 itself: we authorise the session and
+                record it, but we are not on the wire and cannot be.
+              </p>
+            </motion.article>
+
+            <motion.article className="lp-desktop-card" variants={motionVariants.item}>
+              <FileLock2 aria-hidden="true" size={20} />
+              <h3>The same team workspace</h3>
+              <p>
+                Hosts, the encrypted vault, per-person access, snippets, and the audit log are shared with
+                everyone else — the app is another way into the same workspace, not a separate island of
+                config on one laptop.
+              </p>
+            </motion.article>
+          </motion.div>
+
+          <motion.div className="lp-desktop-actions" variants={motionVariants.fade}>
+            <a className="primary-button large" href="/desktop">
+              What the desktop app does
+              <ArrowRight aria-hidden="true" size={18} />
+            </a>
+            <a className="secondary-button" href="/download">
+              Download for your platform
+            </a>
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-open"
+        id="open-source"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container lp-open-inner">
+          <motion.div variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">Open source</span>
+            <h2>Don&apos;t trust us — read it</h2>
+            <p>
+              You are being asked to hand this software the credentials to your servers. That is not a thing
+              anyone should do on the strength of a marketing page, so the whole platform is public under the{" "}
+              {site.licenseName}: the credential vault, the session broker, the gateway, the agent, and the
+              desktop app. Not a client library with the interesting parts held back.
+            </p>
+            <p>
+              Want to know what happens to your private key between pasting it and a shell opening? Go and
+              read that file. Would you rather nobody else held it at all? Self-host — there is no licence
+              key and no feature kept back for the hosted version.
+            </p>
+            <div className="lp-open-actions">
+              <a className="primary-button" href={site.repoUrl} rel="noreferrer" target="_blank">
+                View the source
+                <ArrowRight aria-hidden="true" size={17} />
+              </a>
+              <a className="secondary-button" href="/security">
+                How we handle credentials
+              </a>
+            </div>
+          </motion.div>
+        </div>
+      </motion.section>
+
       <motion.section
         className="lp-section lp-pricing"
         id="pricing"

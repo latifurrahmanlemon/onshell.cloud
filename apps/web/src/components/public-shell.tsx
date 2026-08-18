@@ -11,11 +11,14 @@ import { VisitTracker } from "./visit-tracker";
 
 const navLinks = [
   { href: "/#features", label: "Features" },
+  { href: "/desktop", label: "Desktop app" },
   { href: "/browser-ssh-client", label: "Browser SSH" },
-  { href: "/download", label: "Download" },
   { href: "/#pricing", label: "Pricing" },
   { href: "/security", label: "Security" },
-  { href: "/contact", label: "Contact" }
+  // Last, and marked external, because it leaves the site — but present in the
+  // primary nav rather than buried in the footer: "you can read the code" is a
+  // reason people choose this product, not a legal footnote.
+  { href: site.repoUrl, label: "Source", external: true }
 ];
 
 /** Marketing email capture. Guarded by Turnstile when an admin enables it. */
@@ -106,12 +109,16 @@ export function PublicNav() {
           <OnshellMark size={36} />
           <span className="lp-brand-text">
             <span className="brand-name">{site.name}</span>
-            <span className="brand-domain">Browser SSH client</span>
+            <span className="brand-domain">SSH for teams</span>
           </span>
         </a>
         <div className="lp-nav-links">
           {navLinks.map((link) => (
-            <a href={link.href} key={link.href}>
+            <a
+              href={link.href}
+              key={link.href}
+              {...(link.external ? { target: "_blank", rel: "noreferrer" } : {})}
+            >
               {link.label}
             </a>
           ))}
@@ -134,23 +141,42 @@ export function PublicFooter() {
             <OnshellMark size={36} />
             <span className="lp-brand-text">
               <span className="brand-name">{site.name}</span>
-              <span className="brand-domain">Browser SSH client</span>
+              <span className="brand-domain">SSH for teams</span>
             </span>
           </a>
           <p>
-            The best browser-based SSH client for teams: audited terminals, SFTP, and RDP with an encrypted credential
-            vault — no client to install.
+            Audited SSH, SFTP, and RDP for teams, with an encrypted credential vault — from a browser tab, or
+            from the open-source desktop app.
           </p>
           <NewsletterForm />
         </div>
         <div className="lp-footer-col">
           <strong>Product</strong>
           <a href="/#features">Features</a>
+          <a href="/desktop">Desktop app</a>
           <a href="/browser-ssh-client">Browser SSH client</a>
-          <a href="/download">Download the agent</a>
+          <a href="/download">Downloads</a>
           <a href="/#how-it-works">How it works</a>
           <a href="/#pricing">Pricing</a>
           <a href="/#faq">FAQ</a>
+        </div>
+        <div className="lp-footer-col">
+          <strong>Open source</strong>
+          <a href={site.repoUrl} rel="noreferrer" target="_blank">
+            Source on GitHub
+          </a>
+          <a href={`${site.repoUrl}/blob/master/docs/architecture.md`} rel="noreferrer" target="_blank">
+            Architecture
+          </a>
+          <a href={`${site.repoUrl}/blob/master/SECURITY.md`} rel="noreferrer" target="_blank">
+            Security policy
+          </a>
+          <a href={`${site.repoUrl}/blob/master/CONTRIBUTING.md`} rel="noreferrer" target="_blank">
+            Contributing
+          </a>
+          <a href={site.licenseUrl} rel="noreferrer" target="_blank">
+            {site.licenseName} licence
+          </a>
         </div>
         <div className="lp-footer-col">
           <strong>Company</strong>
@@ -170,7 +196,12 @@ export function PublicFooter() {
         <p>
           © {site.foundedYear} {site.name}. All rights reserved.
         </p>
-        <p className="lp-footer-meta">SSH · SFTP · RDP — from any browser</p>
+        <p className="lp-footer-meta">
+          SSH · SFTP · RDP — from a browser or the desktop app ·{" "}
+          <a href={site.repoUrl} rel="noreferrer" target="_blank">
+            open source under {site.licenseName}
+          </a>
+        </p>
       </div>
     </footer>
   );

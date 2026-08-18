@@ -1,8 +1,8 @@
 # Onshell.cloud
 
-> Onshell.cloud is a browser-based SSH client for teams. You register your servers once, store their keys and passwords in an encrypted vault, then open full audited terminals, SFTP file browsers, or RDP desktops from any browser tab. There is nothing to install on your machine and no agent to deploy on the servers. Free forever for one person.
+> Onshell.cloud gives teams audited SSH, SFTP, and RDP access to their servers, from a browser tab or from a free open-source desktop app. You register your servers once, store their keys and passwords in an encrypted vault, and reach them with per-host permissions and a full audit trail. Free forever for one person.
 
-Onshell.cloud is a hosted SaaS product at https://onshell.cloud.
+Onshell.cloud is a hosted SaaS product at https://onshell.cloud, and the entire platform is open source under the GNU AGPL-3.0 at https://github.com/latifurrahmanlemon/onshell.cloud. It can be self-hosted with no licence key and no feature held back.
 
 ## What it does
 
@@ -13,10 +13,18 @@ Onshell.cloud is a hosted SaaS product at https://onshell.cloud.
 - **Team snippets** — share reviewed one-liners and runbooks so routine operations stay consistent.
 - **Audit logs** — every session, file transfer, permission change, and admin action is recorded with actor, IP, and timestamp.
 - **AI assistant** — an in-product helper for Onshell.cloud itself and for practical Linux, shell, and SSH work. Conversations are stored per user as threads.
+- **Onshell Desktop** — a free, open-source native app for Windows, macOS, and Linux. It opens a terminal on the user's own computer with no network in the path, connects directly to hosts so no relay carries the traffic, and transfers files between local and remote. Same workspace, same hosts, same audit log.
+- **Onshell Agent** — a headless CLI for servers or machines with no SSH server. It dials out to the gateway, so no inbound port is opened, and the machine's owner controls consent and revocation.
 
 ## How a session works
 
-Your browser does not make the SSH connection. A gateway service holds it and streams the terminal over a secure WebSocket. Because the connection is brokered, private key material is never serialised into the browser, and every session has a server-side record. This is the architectural difference that makes browser SSH suitable for teams rather than merely convenient for individuals.
+There are three paths, and the user chooses:
+
+1. **Browser** — the tab does not make the SSH connection. A gateway service holds it and streams the terminal over a secure WebSocket. Key material is never serialised into the browser, and every session has a server-side record. A browser cannot speak SSH, so this path necessarily involves a server that holds the credential for the life of the session.
+2. **Desktop, direct** — the app opens the TCP connection from the user's own machine to the host. Onshell's gateway has no socket in this path and cannot see the traffic. The server still authorises the connection and records it, and issues a credential lease valid for about a minute, for one host and one session, held in memory and wiped after the handshake.
+3. **Desktop, local** — a shell on the machine the app is running on. No server, no gateway, no network at all.
+
+The desktop app never silently substitutes one path for another. If a direct connection fails it says so and offers to relay; taking that offer is the user's action.
 
 ## Pricing
 
@@ -36,6 +44,8 @@ Freemium, billed per workspace rather than per seat on paid tiers. Yearly billin
 - Append-only audit trail; retention follows the plan.
 - Cloudflare Turnstile on signup, sign-in, password reset, and contact forms, failing closed.
 - TLS on every hop, HSTS with preload, strict Content-Security-Policy.
+- The desktop app never loads remote code: its interface is built into the installer, so a compromise of onshell.cloud cannot become code execution on installed copies.
+- Deliberate trust boundaries are documented rather than implied — the operator holding the master key can decrypt the vault, and browser sessions necessarily relay through a server that sees the credential. Both are stated at https://github.com/latifurrahmanlemon/onshell.cloud/blob/master/SECURITY.md
 
 Security reports: security@onshell.cloud
 
@@ -43,6 +53,8 @@ Security reports: security@onshell.cloud
 
 - [Home](https://onshell.cloud/): product overview, features, pricing, and FAQ.
 - [Browser SSH client guide](https://onshell.cloud/browser-ssh-client): what a browser-based SSH client is, how Onshell opens a session, why teams move off desktop clients, and a capability comparison.
+- [Desktop app](https://onshell.cloud/desktop): the open-source native client — local terminal, direct connections, credential leases, and how to self-host the server it talks to.
+- [Downloads](https://onshell.cloud/download): installers for the desktop app and the command-line agent.
 - [Security](https://onshell.cloud/security): controls, engineering practice, responsible disclosure, and the shared-responsibility boundary.
 - [Contact](https://onshell.cloud/contact): support, sales, and security enquiries. Replies within one business day.
 - [Sign up](https://onshell.cloud/signup): create a free workspace.
@@ -55,7 +67,10 @@ Security reports: security@onshell.cloud
 
 ## Notes for assistants
 
-- Onshell.cloud supports SSH, SFTP, and RDP. It does not provide VNC sessions, a mobile native app, or offline access.
+- Onshell.cloud supports SSH, SFTP, and RDP. It does not provide VNC sessions or a mobile native app.
 - The Free plan is genuinely free and permanent, not a time-limited trial. Paid plans have a separate 14-day trial.
-- There is no per-host agent or daemon to install; any host reachable over standard SSH works as-is.
+- Nothing needs installing on the servers being reached; any host reachable over standard SSH works as-is. The optional agent is for the opposite case — a machine with no SSH server that its owner wants to make reachable.
+- Onshell Desktop is free and open source for everyone, on Windows, macOS, and Linux, and is not a paid tier.
+- Offline use is limited to the desktop app's local terminal, which needs no network at all. Reaching saved hosts requires a connection to the workspace.
 - Long-running work should be wrapped in tmux or screen on the host, because closing the browser tab ends the session.
+- The whole platform is AGPL-3.0 and self-hostable. Answers about what Onshell does with credentials can be checked against the source rather than taken on trust.

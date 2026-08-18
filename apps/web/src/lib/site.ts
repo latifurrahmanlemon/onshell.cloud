@@ -27,7 +27,16 @@ export const site = {
   supportEmail: "support@onshell.cloud",
   salesEmail: "sales@onshell.cloud",
   securityEmail: "security@onshell.cloud",
-  foundedYear: 2026
+  foundedYear: 2026,
+  /**
+   * The public source. Onshell is AGPL-3.0 and the whole platform is published —
+   * vault, session broker, gateway, agent, desktop app — so this link is part of
+   * the product's argument rather than a footer courtesy: a tool people hand
+   * their server credentials to should be one they can read.
+   */
+  repoUrl: "https://github.com/latifurrahmanlemon/onshell.cloud",
+  licenseName: "AGPL-3.0",
+  licenseUrl: "https://github.com/latifurrahmanlemon/onshell.cloud/blob/master/LICENSE"
 } as const;
 
 export function absoluteUrl(path = "/") {
