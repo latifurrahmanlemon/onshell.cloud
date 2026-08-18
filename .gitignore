@@ -18,3 +18,7 @@ backups/
 # Yarn's local resolution cache. Machine-specific, rebuilt by `yarn install`,
 # and Yarn's own docs say not to commit it.
 .yarn/install-state.gz
+
+# JetBrains project files. Machine-specific paths and personal window layout;
+# they leak local directory structure into a public repository.
+.idea/

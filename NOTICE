@@ -1,0 +1,38 @@
+Onshell.cloud
+Copyright (C) 2026 Latifur Rahman and the Onshell.cloud contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE for the full text.
+
+Why AGPL-3.0
+------------
+Onshell.cloud is a tool people point at their own servers, using credentials
+they cannot afford to have mishandled. That trust is only checkable if the code
+running the service is the code you can read. The AGPL is what keeps those two
+things equal: anyone who runs a modified version of this software as a network
+service has to offer that version's source to its users, so a hosted Onshell can
+never quietly diverge from this repository.
+
+Trademarks
+----------
+The AGPL grants rights to the software, not to the name. "Onshell", the
+Onshell.cloud name, the logo in docs/onshell_cloud_logo.png, and the brand assets
+under apps/web/public/brand are not covered by the licence. You may run, fork,
+and modify this code freely; if you offer it publicly, use your own name and
+branding so nobody is misled about who is holding their credentials.
+
+Third-party software
+--------------------
+This distribution depends on third-party packages, each under its own licence.
+Run `yarn licenses list` for the resolved set. Notable runtime components:
+
+  ssh2            (MIT)            SSH/SFTP client used by the gateway
+  node-pty        (MIT)            pseudo-terminals for local and agent shells
+  guacd / Apache Guacamole (Apache-2.0)  RDP protocol bridge, run as a service
+  xterm.js        (MIT)            terminal renderer
+  Fastify         (MIT)            API and gateway HTTP server
+  Next.js         (MIT)            web application framework
+  Electron        (MIT)            desktop application shell
+  Prisma          (Apache-2.0)     database access layer
