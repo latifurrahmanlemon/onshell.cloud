@@ -40,6 +40,7 @@ import {
   startSharingThisComputer,
   stopSharing
 } from "./runtime/sharing.js";
+import { checkForUpdate } from "./runtime/updates.js";
 import type { ApprovalMode, DesktopDeviceSummary } from "../shared/ipc.js";
 import {
   closeAllTerminals,
@@ -372,6 +373,8 @@ function registerHandlers() {
   });
 
   ipcMain.handle(CHANNELS.terminalClose, (_event, terminalId: string) => closeTerminal(terminalId));
+
+  ipcMain.handle(CHANNELS.updatesCheck, (_event, force?: boolean) => checkForUpdate(force));
 
   ipcMain.handle(CHANNELS.settingsUpdate, async (_event, patch) => {
     await saveSettings(patch);

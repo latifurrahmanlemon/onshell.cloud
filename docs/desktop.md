@@ -167,10 +167,17 @@ to read in one sitting.
 `safeStorage` — Keychain on macOS, DPAPI on Windows, libsecret on Linux — not a JSON
 file next to the config. Access tokens stay in memory.
 
-**Updates are signed.** An auto-updater is a remote code execution channel by
-construction. Windows and macOS builds are code-signed and notarised, the update feed
-is served over HTTPS, and the release workflow that produces the artifacts is in this
-repository where it can be read.
+**There is no auto-updater yet, and that is deliberate.** An updater downloads code and
+runs it as you, which is only acceptable when the payload's signature can be checked —
+and these builds are not code-signed yet. Shipping the download half before the
+verification half is how a release channel becomes an attack channel. So the app checks
+whether a newer version exists, says so, and opens the release page; installing is the
+user's action. `src/main/runtime/updates.ts` is where an electron-updater feed goes once
+the certificates are in place.
+
+The workflow that produces the artifacts is in this repository either way. An installer
+is a thing you run as yourself, and the only honest answer to "what is in it" is a build
+recipe anyone can read: [.github/workflows/desktop.yml](../.github/workflows/desktop.yml).
 
 ## Relationship to the agent
 

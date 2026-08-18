@@ -149,6 +149,16 @@ export type FileSessionTargetRequest =
   | { kind: "direct"; hostId: string; credentialId?: string }
   | { kind: "relay"; hostId: string; credentialId?: string };
 
+/* ---------------------------------------------------------------- updates */
+
+export interface UpdateStatus {
+  current: string;
+  latest?: string;
+  available: boolean;
+  url?: string;
+  checkedAt: string;
+}
+
 /* ---------------------------------------------------------------- sharing */
 
 /** Who may open a session on this machine without someone here agreeing. */
@@ -267,6 +277,15 @@ export interface OnshellBridge {
     }): Promise<AppState>;
   };
 
+  /**
+   * Whether a newer release exists. Checking only — nothing downloads or
+   * installs itself, because these builds are not signed yet and an updater
+   * that cannot verify its payload is a delivery mechanism, not a feature.
+   */
+  updates: {
+    check(force?: boolean): Promise<UpdateStatus>;
+  };
+
   /** Opens a URL in the user's real browser. Refused for anything but http(s). */
   openExternal(url: string): Promise<void>;
 }
@@ -316,6 +335,8 @@ export const CHANNELS = {
   terminalResize: "terminal:resize",
   terminalClose: "terminal:close",
   terminalEvent: "terminal:event",
+
+  updatesCheck: "updates:check",
 
   settingsUpdate: "settings:update",
   openExternal: "app:open-external"

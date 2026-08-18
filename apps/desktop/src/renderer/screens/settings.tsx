@@ -8,7 +8,13 @@
  */
 import { useEffect, useState } from "react";
 import { bridge } from "../bridge.js";
-import type { AppState, ApprovalMode, DesktopDeviceSummary, SharingState } from "../../shared/ipc.js";
+import type {
+  AppState,
+  ApprovalMode,
+  DesktopDeviceSummary,
+  SharingState,
+  UpdateStatus
+} from "../../shared/ipc.js";
 
 const APPROVAL_LABELS: Record<ApprovalMode, string> = {
   trusted: "Anyone in the workspace",
@@ -30,9 +36,11 @@ export function Settings({ state, onClose }: Props) {
   const [devices, setDevices] = useState<DesktopDeviceSummary[]>([]);
   const [sharing, setSharing] = useState<SharingState>();
   const [sharingBusy, setSharingBusy] = useState(false);
+  const [update, setUpdate] = useState<UpdateStatus>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    void bridge.updates.check().then(setUpdate, () => undefined);
     void bridge.devices
       .list()
       .then(setDevices)
@@ -229,6 +237,25 @@ export function Settings({ state, onClose }: Props) {
           Onshell Desktop {state.version} · {state.platform}
           {state.keychainAvailable ? "" : " · no system keychain, so sessions last until you quit"}
         </p>
+
+        {update?.available ? (
+          <p className="hint">
+            Version {update.latest} is available.{" "}
+            <button
+              className="button button--ghost"
+              onClick={() => update.url && void bridge.openExternal(update.url)}
+            >
+              Open the release page
+            </button>
+            <br />
+            Nothing downloads or installs itself. These builds are not code-signed yet, and an updater that
+            cannot verify what it fetched is a delivery mechanism rather than a feature.
+          </p>
+        ) : (
+          <button className="button" onClick={() => void bridge.updates.check(true).then(setUpdate)}>
+            Check for updates
+          </button>
+        )}
       </section>
     </div>
   );
