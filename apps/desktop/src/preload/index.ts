@@ -41,7 +41,27 @@ const bridge: OnshellBridge = {
 
   console: {
     load: () => ipcRenderer.invoke(CHANNELS.consoleLoad),
-    hosts: () => ipcRenderer.invoke(CHANNELS.consoleHosts)
+    hosts: () => ipcRenderer.invoke(CHANNELS.consoleHosts),
+    snippets: () => ipcRenderer.invoke(CHANNELS.consoleSnippets),
+    setFavorite: (hostId, favorite) => ipcRenderer.invoke(CHANNELS.consoleSetFavorite, hostId, favorite)
+  },
+
+  devices: {
+    list: () => ipcRenderer.invoke(CHANNELS.devicesList),
+    revoke: (deviceId) => ipcRenderer.invoke(CHANNELS.devicesRevoke, deviceId)
+  },
+
+  files: {
+    open: (target) => ipcRenderer.invoke(CHANNELS.filesOpen, target),
+    list: (id, path) => ipcRenderer.invoke(CHANNELS.filesList, id, path),
+    read: (id, path) => ipcRenderer.invoke(CHANNELS.filesRead, id, path),
+    write: (id, path, content) => ipcRenderer.invoke(CHANNELS.filesWrite, id, path, content),
+    mkdir: (id, path) => ipcRenderer.invoke(CHANNELS.filesMkdir, id, path),
+    move: (id, from, to) => ipcRenderer.invoke(CHANNELS.filesMove, id, from, to),
+    remove: (id, path, recursive) => ipcRenderer.invoke(CHANNELS.filesRemove, id, path, recursive),
+    transfer: (fromId, fromPath, toId, toPath) =>
+      ipcRenderer.invoke(CHANNELS.filesTransfer, fromId, fromPath, toId, toPath),
+    close: (id) => ipcRenderer.invoke(CHANNELS.filesClose, id)
   },
 
   terminals: {

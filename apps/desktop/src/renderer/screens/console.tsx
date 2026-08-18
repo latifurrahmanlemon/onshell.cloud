@@ -6,11 +6,13 @@
  * That is the claim the app is making — your own machine is a place you can open
  * a shell on, next to the servers, without a tunnel or a round trip.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { bridge, type LocalShell, type TerminalOpened } from "../bridge.js";
-import type { AppState } from "../../shared/ipc.js";
-import type { Host } from "@onshell/api-client";
+import type { AppState, FileSessionTargetRequest } from "../../shared/ipc.js";
+import type { Host, Snippet } from "@onshell/api-client";
 import { TerminalPane } from "../terminal.js";
+import { Files } from "./files.js";
+import { Settings } from "./settings.js";
 
 interface Props {
   state: AppState;
@@ -20,11 +22,19 @@ interface Tab extends TerminalOpened {
   closed?: boolean;
 }
 
+type Overlay =
+  | { kind: "none" }
+  | { kind: "settings" }
+  | { kind: "files"; target: FileSessionTargetRequest; label: string };
+
 export function Console({ state }: Props) {
   const [hosts, setHosts] = useState<Host[]>([]);
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [shells, setShells] = useState<LocalShell[]>([]);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>();
+  const [query, setQuery] = useState("");
+  const [overlay, setOverlay] = useState<Overlay>({ kind: "none" });
   const [error, setError] = useState<string>();
   const [relayOffer, setRelayOffer] = useState<{ host: Host; reason: string }>();
   const [loading, setLoading] = useState(true);
@@ -37,6 +47,12 @@ export function Console({ state }: Props) {
     void bridge.terminals.localShells().then((found) => {
       if (!cancelled) setShells(found);
     });
+    void bridge.console.snippets().then(
+      (found) => {
+        if (!cancelled) setSnippets(found);
+      },
+      () => undefined
+    );
     void bridge.console
       .hosts()
       .then((found) => {
@@ -65,10 +81,29 @@ export function Console({ state }: Props) {
     });
   }, []);
 
+  const visibleHosts = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const matches = needle
+      ? hosts.filter((host) =>
+          [host.name, host.address, host.username, ...(host.tags ?? [])]
+            .filter(Boolean)
+            .some((field) => String(field).toLowerCase().includes(needle))
+        )
+      : hosts;
+    // Pinned hosts first, then alphabetical — the order someone who pinned
+    // anything is expecting to see.
+    return matches
+      .slice()
+      .sort((a, b) => Number(Boolean(b.isFavorite)) - Number(Boolean(a.isFavorite)) || a.name.localeCompare(b.name));
+  }, [hosts, query]);
+
+  const activeTab = tabs.find((tab) => tab.terminalId === activeId);
+
   function accept(result: Awaited<ReturnType<typeof bridge.terminals.open>>) {
     if (!result.ok) return false;
     setTabs((current) => [...current, result.terminal]);
     setActiveId(result.terminal.terminalId);
+    setOverlay({ kind: "none" });
     return true;
   }
 
@@ -85,7 +120,10 @@ export function Console({ state }: Props) {
       kind: state.connectionMode === "direct" ? "direct" : "relay",
       hostId: host.id
     });
-    if (accept(result) || result.ok) return;
+    if (result.ok) {
+      accept(result);
+      return;
+    }
 
     // A direct connection that failed is a question, not just an error: going
     // through the gateway would probably work, but it means Onshell is on the
@@ -101,6 +139,24 @@ export function Console({ state }: Props) {
     if (!accept(result) && !result.ok) setError(result.error);
   }
 
+  async function toggleFavorite(host: Host) {
+    const next = !host.isFavorite;
+    // Optimistic: pinning is trivially reversible and a spinner on a star is
+    // more disruptive than the rare failure it would report.
+    setHosts((current) =>
+      current.map((candidate) => (candidate.id === host.id ? { ...candidate, isFavorite: next } : candidate))
+    );
+    try {
+      await bridge.console.setFavorite(host.id, next);
+    } catch {
+      setHosts((current) =>
+        current.map((candidate) =>
+          candidate.id === host.id ? { ...candidate, isFavorite: !next } : candidate
+        )
+      );
+    }
+  }
+
   async function closeTab(terminalId: string) {
     await bridge.terminals.close(terminalId);
     setTabs((current) => {
@@ -110,12 +166,32 @@ export function Console({ state }: Props) {
     });
   }
 
+  /** Pastes a snippet into the focused terminal, without pressing return. */
+  function sendSnippet(snippet: Snippet) {
+    if (!activeId) {
+      setError("Open a terminal first, then send a snippet to it.");
+      return;
+    }
+    // Deliberately not newline-terminated: a snippet that ran the moment it was
+    // clicked would be a one-click way to execute something on production.
+    bridge.terminals.write(activeId, snippet.command);
+  }
+
   return (
     <div className="console">
       <aside className="sidebar">
         <div className="sidebar__head">
           <div className="sidebar__account">{state.user?.name ?? state.user?.email ?? "Signed in"}</div>
           <div className="sidebar__server">{state.server?.label}</div>
+        </div>
+
+        <div className="sidebar__search">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search hosts"
+            spellCheck={false}
+          />
         </div>
 
         <div className="sidebar__scroll">
@@ -130,21 +206,66 @@ export function Console({ state }: Props) {
 
           <div className="sidebar__section">Hosts</div>
           {loading && <div className="host host__meta">Loading…</div>}
-          {!loading && hosts.length === 0 && <div className="host host__meta">No hosts saved yet.</div>}
-          {hosts.map((host) => (
-            <button key={host.id} className="host" onClick={() => void openHost(host)}>
-              <div className="host__name">{host.name}</div>
-              <div className="host__meta">
-                {host.username ? `${host.username}@` : ""}
-                {host.address}
-                {host.port && host.port !== 22 ? `:${host.port}` : ""}
+          {!loading && visibleHosts.length === 0 && (
+            <div className="host host__meta">{query ? "Nothing matches." : "No hosts saved yet."}</div>
+          )}
+          {visibleHosts.map((host) => (
+            <div key={host.id} className="host host--row">
+              <button className="host__open" onClick={() => void openHost(host)}>
+                <div className="host__name">{host.name}</div>
+                <div className="host__meta">
+                  {host.username ? `${host.username}@` : ""}
+                  {host.address}
+                  {host.port && host.port !== 22 ? `:${host.port}` : ""}
+                </div>
+              </button>
+              <div className="host__actions">
+                <button
+                  className="icon"
+                  title={host.isFavorite ? "Unpin" : "Pin"}
+                  onClick={() => void toggleFavorite(host)}
+                >
+                  {host.isFavorite ? "★" : "☆"}
+                </button>
+                <button
+                  className="icon"
+                  title="Browse files"
+                  onClick={() =>
+                    setOverlay({
+                      kind: "files",
+                      label: host.name,
+                      target: { kind: state.connectionMode === "direct" ? "direct" : "relay", hostId: host.id }
+                    })
+                  }
+                >
+                  ⇄
+                </button>
               </div>
-            </button>
+            </div>
           ))}
+
+          {snippets.length > 0 && (
+            <>
+              <div className="sidebar__section">Snippets</div>
+              {snippets.map((snippet) => (
+                <button
+                  key={snippet.id}
+                  className="host"
+                  onClick={() => sendSnippet(snippet)}
+                  title={snippet.command}
+                >
+                  <div className="host__name">{snippet.name}</div>
+                  <div className="host__meta">types into the open terminal</div>
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="sidebar__foot">
-          <span className="hint">Onshell {state.version}</span>
+          <button className="button button--ghost" onClick={() => setOverlay({ kind: "settings" })}>
+            Settings
+          </button>
           <button className="button button--ghost" onClick={() => void bridge.auth.signOut()}>
             Sign out
           </button>
@@ -157,8 +278,11 @@ export function Console({ state }: Props) {
             {tabs.map((tab) => (
               <div
                 key={tab.terminalId}
-                className={`tab${tab.terminalId === activeId ? " tab--active" : ""}`}
-                onClick={() => setActiveId(tab.terminalId)}
+                className={`tab${tab.terminalId === activeId && overlay.kind === "none" ? " tab--active" : ""}`}
+                onClick={() => {
+                  setActiveId(tab.terminalId);
+                  setOverlay({ kind: "none" });
+                }}
               >
                 <span className={`tab__mode tab__mode--${tab.mode}`}>{tab.mode}</span>
                 <span>
@@ -199,7 +323,29 @@ export function Console({ state }: Props) {
         )}
 
         <div className="surface">
-          {tabs.length === 0 ? (
+          {/* Terminals stay mounted underneath an overlay: unmounting one would
+              throw away its scrollback, and a shell whose history vanishes when
+              you glance at the file browser is not a terminal anyone wants. */}
+          {tabs.map((tab) => (
+            <TerminalPane
+              key={tab.terminalId}
+              terminalId={tab.terminalId}
+              appearance={state.appearance}
+              visible={overlay.kind === "none" && tab.terminalId === activeId}
+            />
+          ))}
+
+          {overlay.kind === "settings" && <Settings state={state} onClose={() => setOverlay({ kind: "none" })} />}
+
+          {overlay.kind === "files" && (
+            <Files
+              remote={overlay.target}
+              hostLabel={overlay.label}
+              onClose={() => setOverlay({ kind: "none" })}
+            />
+          )}
+
+          {overlay.kind === "none" && !activeTab && (
             <div className="empty">
               <h2>Open a terminal</h2>
               <p className="hint">
@@ -214,15 +360,6 @@ export function Console({ state }: Props) {
                 </div>
               )}
             </div>
-          ) : (
-            tabs.map((tab) => (
-              <TerminalPane
-                key={tab.terminalId}
-                terminalId={tab.terminalId}
-                appearance={state.appearance}
-                visible={tab.terminalId === activeId}
-              />
-            ))
           )}
         </div>
       </main>

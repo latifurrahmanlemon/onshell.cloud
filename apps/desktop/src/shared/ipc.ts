@@ -120,6 +120,48 @@ export type TerminalEvent =
   | { terminalId: string; type: "exit"; code?: number; reason?: string }
   | { terminalId: string; type: "status"; message: string };
 
+/* ------------------------------------------------------------------ files */
+
+/** One entry in a directory listing, from any of the three sources. */
+export interface FileEntry {
+  name: string;
+  type: "file" | "directory" | "other";
+  size: number;
+  /** Unix seconds. 0 when the entry could not be stat'ed. */
+  modifiedAt: number;
+}
+
+export interface FileListing {
+  /** The path the backend resolved — "." becomes absolute. */
+  path: string;
+  entries: FileEntry[];
+}
+
+export interface FileSessionOpened {
+  fileSessionId: string;
+  mode: "local" | "direct" | "relay";
+  label: string;
+  startPath: string;
+}
+
+export type FileSessionTargetRequest =
+  | { kind: "local" }
+  | { kind: "direct"; hostId: string; credentialId?: string }
+  | { kind: "relay"; hostId: string; credentialId?: string };
+
+/* ---------------------------------------------------------------- devices */
+
+/** A machine this account has enrolled, as the settings screen lists it. */
+export interface DesktopDeviceSummary {
+  id: string;
+  name: string;
+  platform: string;
+  appVersion?: string;
+  lastSeenAt?: string;
+  revokedAt?: string;
+  createdAt: string;
+}
+
 /* ------------------------------------------------------------------- api */
 
 export interface ConsoleData {
@@ -159,6 +201,26 @@ export interface OnshellBridge {
   console: {
     load(): Promise<ConsoleData>;
     hosts(): Promise<Host[]>;
+    snippets(): Promise<Snippet[]>;
+    setFavorite(hostId: string, favorite: boolean): Promise<void>;
+  };
+
+  devices: {
+    list(): Promise<DesktopDeviceSummary[]>;
+    revoke(deviceId: string): Promise<void>;
+  };
+
+  files: {
+    open(target: FileSessionTargetRequest): Promise<FileSessionOpened>;
+    list(fileSessionId: string, path: string): Promise<FileListing>;
+    read(fileSessionId: string, path: string): Promise<{ content: string; truncated: boolean }>;
+    write(fileSessionId: string, path: string, content: string): Promise<void>;
+    mkdir(fileSessionId: string, path: string): Promise<void>;
+    move(fileSessionId: string, from: string, to: string): Promise<void>;
+    remove(fileSessionId: string, path: string, recursive: boolean): Promise<void>;
+    /** Copies one file between two open sessions, through this process. */
+    transfer(fromSessionId: string, fromPath: string, toSessionId: string, toPath: string): Promise<void>;
+    close(fileSessionId: string): Promise<void>;
   };
 
   terminals: {
@@ -197,6 +259,21 @@ export const CHANNELS = {
 
   consoleLoad: "console:load",
   consoleHosts: "console:hosts",
+  consoleSnippets: "console:snippets",
+  consoleSetFavorite: "console:set-favorite",
+
+  devicesList: "devices:list",
+  devicesRevoke: "devices:revoke",
+
+  filesOpen: "files:open",
+  filesList: "files:list",
+  filesRead: "files:read",
+  filesWrite: "files:write",
+  filesMkdir: "files:mkdir",
+  filesMove: "files:move",
+  filesRemove: "files:remove",
+  filesTransfer: "files:transfer",
+  filesClose: "files:close",
 
   localShells: "terminal:local-shells",
   terminalOpen: "terminal:open",

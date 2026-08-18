@@ -52,7 +52,11 @@ export class DirectUnavailableError extends Error {
  * respect silently by relaying, while a revoked device is something they need to
  * know about.
  */
-async function requestLease(hostId: string, credentialId?: string): Promise<DirectLease> {
+export async function leaseFor(
+  hostId: string,
+  credentialId: string | undefined,
+  protocol: "ssh" | "sftp"
+): Promise<DirectLease> {
   const secret = await deviceSecret();
   if (!secret) {
     throw new DirectUnavailableError(
@@ -65,7 +69,7 @@ async function requestLease(hostId: string, credentialId?: string): Promise<Dire
     return await requireApi().transport.request<DirectLease>("/desktop/leases", {
       method: "POST",
       headers: { "x-onshell-device-secret": secret },
-      body: JSON.stringify({ hostId, credentialId, protocol: "ssh" })
+      body: JSON.stringify({ hostId, credentialId, protocol })
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -92,7 +96,7 @@ export interface OpenDirectOptions {
 }
 
 export async function openDirectSession(options: OpenDirectOptions): Promise<DirectSession> {
-  const lease = await requestLease(options.hostId, options.credentialId);
+  const lease = await leaseFor(options.hostId, options.credentialId, "ssh");
 
   // Held as a buffer rather than left only as the string it arrived as, so
   // there is something concrete to overwrite once ssh2 has read it.

@@ -30,6 +30,8 @@ import {
   useServer
 } from "./runtime/session.js";
 import { forgetDevice } from "./runtime/device.js";
+import { files, openFileSession, type FileSessionTarget } from "./runtime/files.js";
+import type { DesktopDeviceSummary } from "../shared/ipc.js";
 import {
   closeAllTerminals,
   closeTerminal,
@@ -193,6 +195,7 @@ function registerHandlers() {
     // Sessions belong to the account that opened them, so signing out ends them
     // rather than leaving live shells behind an unauthenticated window.
     closeAllTerminals();
+    files.closeAll();
     await signOut();
     // The enrolment secret belongs to the account that created it, so the next
     // person to sign in on this computer enrols as their own device rather than
@@ -217,6 +220,43 @@ function registerHandlers() {
   });
 
   ipcMain.handle(CHANNELS.consoleHosts, () => requireApi().hosts());
+  ipcMain.handle(CHANNELS.consoleSnippets, () => requireApi().snippets());
+  ipcMain.handle(CHANNELS.consoleSetFavorite, async (_event, hostId: string, favorite: boolean) => {
+    await requireApi().setHostFavorite(hostId, favorite);
+  });
+
+  ipcMain.handle(CHANNELS.devicesList, async () => {
+    const payload = await requireApi().transport.request<{ devices: DesktopDeviceSummary[] }>(
+      "/desktop/devices"
+    );
+    return payload.devices;
+  });
+
+  ipcMain.handle(CHANNELS.devicesRevoke, async (_event, deviceId: string) => {
+    await requireApi().transport.request(`/desktop/devices/${encodeURIComponent(deviceId)}/revoke`, {
+      method: "POST"
+    });
+  });
+
+  ipcMain.handle(CHANNELS.filesOpen, (_event, target: FileSessionTarget) => openFileSession(target));
+  ipcMain.handle(CHANNELS.filesList, (_event, id: string, target: string) => files.list(id, target));
+  ipcMain.handle(CHANNELS.filesRead, (_event, id: string, target: string) => files.read(id, target));
+  ipcMain.handle(CHANNELS.filesWrite, (_event, id: string, target: string, content: string) =>
+    files.write(id, target, content)
+  );
+  ipcMain.handle(CHANNELS.filesMkdir, (_event, id: string, target: string) => files.mkdir(id, target));
+  ipcMain.handle(CHANNELS.filesMove, (_event, id: string, from: string, to: string) =>
+    files.move(id, from, to)
+  );
+  ipcMain.handle(CHANNELS.filesRemove, (_event, id: string, target: string, recursive: boolean) =>
+    files.remove(id, target, recursive)
+  );
+  ipcMain.handle(
+    CHANNELS.filesTransfer,
+    (_event, fromId: string, fromPath: string, toId: string, toPath: string) =>
+      files.transfer(fromId, fromPath, toId, toPath)
+  );
+  ipcMain.handle(CHANNELS.filesClose, (_event, id: string) => files.close(id));
 
   ipcMain.handle(CHANNELS.localShells, () => localShells());
 
@@ -280,8 +320,12 @@ if (!app.requestSingleInstanceLock()) {
     // Terminals are the app's whole purpose, and leaving them running with no
     // window is exactly the invisible-remote-access shape this project avoids.
     closeAllTerminals();
+    files.closeAll();
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", closeAllTerminals);
+  app.on("before-quit", () => {
+    closeAllTerminals();
+    files.closeAll();
+  });
 }
