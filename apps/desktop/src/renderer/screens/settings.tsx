@@ -8,7 +8,13 @@
  */
 import { useEffect, useState } from "react";
 import { bridge } from "../bridge.js";
-import type { AppState, DesktopDeviceSummary } from "../../shared/ipc.js";
+import type { AppState, ApprovalMode, DesktopDeviceSummary, SharingState } from "../../shared/ipc.js";
+
+const APPROVAL_LABELS: Record<ApprovalMode, string> = {
+  trusted: "Anyone in the workspace",
+  ask: "Only me — everyone else has to ask",
+  always: "Always ask, including me"
+};
 
 interface Props {
   state: AppState;
@@ -22,6 +28,8 @@ function when(value?: string) {
 
 export function Settings({ state, onClose }: Props) {
   const [devices, setDevices] = useState<DesktopDeviceSummary[]>([]);
+  const [sharing, setSharing] = useState<SharingState>();
+  const [sharingBusy, setSharingBusy] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -29,7 +37,20 @@ export function Settings({ state, onClose }: Props) {
       .list()
       .then(setDevices)
       .catch(() => setError("Could not load your devices."));
+    void bridge.sharing.state().then(setSharing, () => undefined);
   }, []);
+
+  async function runSharing(action: () => Promise<SharingState>) {
+    setSharingBusy(true);
+    setError(undefined);
+    try {
+      setSharing(await action());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That did not work.");
+    } finally {
+      setSharingBusy(false);
+    }
+  }
 
   async function revoke(device: DesktopDeviceSummary) {
     setError(undefined);
@@ -102,6 +123,72 @@ export function Settings({ state, onClose }: Props) {
             }}
           />
         </div>
+      </section>
+
+      <section className="settings__section">
+        <h2>Share this computer</h2>
+        <p className="hint">
+          Lets someone in your workspace open a terminal <em>on this machine</em> from a browser — the
+          opposite direction from everything else here. It is off until you switch it on, the tray icon
+          stays visible while it is on, quitting Onshell stops every session, and every one of them is
+          written to a log on this machine that only you can read.
+        </p>
+
+        {sharing && (
+          <>
+            <div className="settings__choices">
+              <button
+                className={`choice${sharing.running ? " choice--active" : ""}`}
+                disabled={sharingBusy}
+                onClick={() =>
+                  void runSharing(() =>
+                    sharing.running
+                      ? bridge.sharing.stop()
+                      : sharing.paired
+                        ? bridge.sharing.resume()
+                        : bridge.sharing.start()
+                  )
+                }
+              >
+                <strong>
+                  {sharing.running ? "Sharing — stop" : sharing.paired ? "Start sharing" : "Share this computer"}
+                </strong>
+                <span className="hint">
+                  {sharing.running
+                    ? `This machine is reachable from your workspace${sharing.ownerEmail ? ` as ${sharing.ownerEmail}` : ""}.`
+                    : sharing.paired
+                      ? "Paired already — this only brings the connection back up."
+                      : "Pairs this machine with your account and starts serving."}
+                </span>
+              </button>
+            </div>
+
+            {sharing.paired && (
+              <>
+                <h3 className="settings__subhead">Who may connect without asking</h3>
+                <div className="settings__choices">
+                  {(Object.keys(APPROVAL_LABELS) as ApprovalMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      className={`choice choice--compact${sharing.approval === mode ? " choice--active" : ""}`}
+                      disabled={sharingBusy}
+                      onClick={() => void runSharing(() => bridge.sharing.setApproval(mode))}
+                    >
+                      <strong>{APPROVAL_LABELS[mode]}</strong>
+                    </button>
+                  ))}
+                </div>
+                <p className="hint">
+                  This setting lives on this machine, not on the server. A consent rule your workspace admin
+                  could change remotely would not be consent.
+                </p>
+                <button className="button" onClick={() => void bridge.sharing.openLog()}>
+                  Open activity log
+                </button>
+              </>
+            )}
+          </>
+        )}
       </section>
 
       <section className="settings__section">

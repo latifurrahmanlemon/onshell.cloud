@@ -1491,21 +1491,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@onshell/agent-desktop@workspace:apps/agent-desktop":
-  version: 0.0.0-use.local
-  resolution: "@onshell/agent-desktop@workspace:apps/agent-desktop"
-  dependencies:
-    "@electron/notarize": "npm:^2.5.0"
-    "@onshell/agent": "workspace:*"
-    "@types/node": "npm:^22.10.2"
-    electron: "npm:31.7.7"
-    electron-builder: "npm:^25.0.0"
-    esbuild: "npm:^0.25.0"
-    node-pty: "npm:^1.0.0"
-    typescript: "npm:^5.7.2"
-  languageName: unknown
-  linkType: soft
-
 "@onshell/agent-protocol@workspace:*, @onshell/agent-protocol@workspace:packages/agent-protocol":
   version: 0.0.0-use.local
   resolution: "@onshell/agent-protocol@workspace:packages/agent-protocol"

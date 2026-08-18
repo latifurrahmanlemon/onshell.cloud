@@ -126,7 +126,7 @@ export default async function DownloadPage() {
             Reach <span className="lp-grad-text">your own computer</span> from any browser
           </>
         }
-        lead="A browser cannot open a terminal on your machine by itself — that is the sandbox the whole web rests on. The agent is the small program that can. Install it once, pair it with your account, and your desktop is one tab away from your phone. It comes two ways: a desktop app you double-click, or a command-line build for machines with no desktop at all."
+        lead="A browser cannot open a terminal on the machine it is running on, and it cannot speak SSH — those are the sandbox the whole web rests on. Onshell Desktop is the program that can do both: your own machine's shell in the same window as your servers, and connections that go straight from your computer to your host instead of through ours. For a machine with no desktop at all, the command-line agent shares that machine with your workspace instead."
       />
 
       {/* The two ways, stated before either download. The desktop app leads
@@ -155,17 +155,21 @@ export default async function DownloadPage() {
                 Desktop app
               </h3>
               <p className="dl-way-lead-text">
-                A normal installer. It brings its own runtime, so there is nothing to install first and nothing to
-                type — it sits in your menu bar or system tray and you paste the pairing code into it.
+                The whole console as a native app. It brings its own runtime, so there is nothing to install first
+                and nothing to type — and it can do the two things a browser tab cannot.
               </p>
               <ul className="dl-way-points">
                 <li>
                   <Check aria-hidden="true" size={15} />
-                  No Node, no terminal, no unpacking
+                  Your own computer&apos;s terminal, with no network in the path
                 </li>
                 <li>
                   <Check aria-hidden="true" size={15} />
-                  Starts with your computer, quits from the tray
+                  Direct SSH — the traffic never passes through our servers
+                </li>
+                <li>
+                  <Check aria-hidden="true" size={15} />
+                  Optionally shares this machine, so a browser elsewhere can reach it
                 </li>
                 <li>
                   <Check aria-hidden="true" size={15} />
@@ -174,7 +178,7 @@ export default async function DownloadPage() {
               </ul>
               <a className="primary-button large dl-way-btn" href={desktopReleaseUrl} rel="noreferrer" target="_blank">
                 <Download aria-hidden="true" size={18} />
-                Get the desktop app
+                Get Onshell Desktop
                 <ArrowUpRight aria-hidden="true" size={16} />
               </a>
               <p className="dl-way-note">

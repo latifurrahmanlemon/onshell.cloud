@@ -443,13 +443,16 @@ Pending production work (Phase B/C in PROJECT_PLAN.md):
 * Expand gateway tests with disposable SSH/RDP containers
 * Add production observability
 
-In progress — the desktop app (`apps/desktop`, see [docs/desktop.md](docs/desktop.md)):
+Added — the desktop app (`apps/desktop`, see [docs/desktop.md](docs/desktop.md)):
 
 * Electron client with a locally bundled renderer — it never loads remote code
 * This machine's own terminal via `node-pty`, working with the network unplugged
 * Direct SSH/SFTP from the user's machine, with short-lived audited credential leases
 * Relay fallback through the gateway, offered rather than silently substituted
-* "Share this computer" mode, absorbing `apps/agent-desktop` into one installer
+* Dual-pane file transfer between this computer and a host
+* Enrolled-device list, so credential handouts are visible and revocable per machine
+* "Share this computer" mode, which retires `apps/agent-desktop` into one installer
+* Signed installers for Windows, macOS, and Linux from a public build workflow
 
 ## Self-Hosting
 

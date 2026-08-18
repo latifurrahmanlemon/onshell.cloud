@@ -1,11 +1,15 @@
 /**
  * Public surface of the agent core, for embedders.
  *
- * `main.ts` is the CLI. The Electron desktop app in `apps/agent-desktop` needs
- * the same machinery — pair, connect, read the log — but driven by a tray and a
- * window instead of argv, so the logic lives in these modules and both front
- * ends import it. Nothing here opens a shell or a socket on load; that only
- * happens when the embedder constructs an `AgentTunnel` and calls `start()`.
+ * `main.ts` is the CLI. Onshell Desktop (`apps/desktop`) needs the same
+ * machinery — pair, connect, serve a shell, read the log — but driven by a
+ * window and a tray instead of argv, so the logic lives in these modules and
+ * both front ends import it. There is exactly one implementation of who may
+ * open a shell on somebody's machine, which is the point: two would drift, and
+ * the one that drifted would be the one deciding.
+ *
+ * Nothing here opens a shell or a socket on load; that only happens when the
+ * embedder constructs an `AgentTunnel` and calls `start()`.
  */
 export { AGENT_VERSION, configPath, loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.js";
 export { APPROVAL_MODES, isApprovalMode, type ApprovalMode } from "./consent.js";

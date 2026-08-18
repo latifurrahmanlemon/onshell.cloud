@@ -51,6 +51,15 @@ const bridge: OnshellBridge = {
     revoke: (deviceId) => ipcRenderer.invoke(CHANNELS.devicesRevoke, deviceId)
   },
 
+  sharing: {
+    state: () => ipcRenderer.invoke(CHANNELS.sharingState),
+    start: (name) => ipcRenderer.invoke(CHANNELS.sharingStart, name),
+    resume: () => ipcRenderer.invoke(CHANNELS.sharingResume),
+    stop: () => ipcRenderer.invoke(CHANNELS.sharingStop),
+    setApproval: (mode) => ipcRenderer.invoke(CHANNELS.sharingApproval, mode),
+    openLog: () => ipcRenderer.invoke(CHANNELS.sharingOpenLog)
+  },
+
   files: {
     open: (target) => ipcRenderer.invoke(CHANNELS.filesOpen, target),
     list: (id, path) => ipcRenderer.invoke(CHANNELS.filesList, id, path),

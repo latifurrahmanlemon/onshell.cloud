@@ -149,6 +149,21 @@ export type FileSessionTargetRequest =
   | { kind: "direct"; hostId: string; credentialId?: string }
   | { kind: "relay"; hostId: string; credentialId?: string };
 
+/* ---------------------------------------------------------------- sharing */
+
+/** Who may open a session on this machine without someone here agreeing. */
+export type ApprovalMode = "trusted" | "ask" | "always";
+
+export interface SharingState {
+  paired: boolean;
+  running: boolean;
+  ownerEmail?: string;
+  approval: ApprovalMode;
+  agentVersion: string;
+  /** The local journal of every session served from this machine. */
+  logPath: string;
+}
+
 /* ---------------------------------------------------------------- devices */
 
 /** A machine this account has enrolled, as the settings screen lists it. */
@@ -210,6 +225,19 @@ export interface OnshellBridge {
     revoke(deviceId: string): Promise<void>;
   };
 
+  /**
+   * Offering this machine to the workspace — the opposite direction from
+   * everything else here, and off until switched on.
+   */
+  sharing: {
+    state(): Promise<SharingState>;
+    start(name?: string): Promise<SharingState>;
+    resume(): Promise<SharingState>;
+    stop(): Promise<SharingState>;
+    setApproval(mode: ApprovalMode): Promise<SharingState>;
+    openLog(): Promise<void>;
+  };
+
   files: {
     open(target: FileSessionTargetRequest): Promise<FileSessionOpened>;
     list(fileSessionId: string, path: string): Promise<FileListing>;
@@ -261,6 +289,13 @@ export const CHANNELS = {
   consoleHosts: "console:hosts",
   consoleSnippets: "console:snippets",
   consoleSetFavorite: "console:set-favorite",
+
+  sharingState: "sharing:state",
+  sharingStart: "sharing:start",
+  sharingResume: "sharing:resume",
+  sharingStop: "sharing:stop",
+  sharingApproval: "sharing:approval",
+  sharingOpenLog: "sharing:open-log",
 
   devicesList: "devices:list",
   devicesRevoke: "devices:revoke",

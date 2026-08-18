@@ -26,6 +26,12 @@ server.printUrls();
 await new Promise((resolve, reject) => {
   const bundle = spawn(process.execPath, [join(here, "bundle.mjs")], { stdio: "inherit" });
   bundle.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`bundle failed (${code})`))));
+}).then(
+  () =>
+    new Promise((resolve, reject) => {
+      const assets = spawn(process.execPath, [join(here, "copy-assets.mjs")], { stdio: "inherit" });
+      assets.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`assets failed (${code})`))));
+    })
 });
 
 const electronBin = (await import("electron")).default;

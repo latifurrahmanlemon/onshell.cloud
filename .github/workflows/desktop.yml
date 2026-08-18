@@ -1,9 +1,12 @@
-name: Agent desktop
+name: Desktop app
 
-# Builds the desktop-app packaging of the agent — the .dmg / .exe / AppImage a
-# non-technical user double-clicks — as opposed to agent-release.yml, which
-# builds the headless CLI tarball. electron-builder produces the installer for
-# each OS on that OS.
+# Builds Onshell Desktop — the .dmg / .exe / AppImage a person double-clicks —
+# as opposed to agent-release.yml, which builds the headless CLI agent tarball.
+# electron-builder produces the installer for each OS on that OS.
+#
+# This file is public on purpose. An installer with an auto-updater is a remote
+# code execution channel, and the only honest answer to "what is in the binary
+# you want me to run as myself" is a build recipe anyone can read.
 #
 # Signing is driven by secrets, never by a file edit. Set them and the same run
 # turns out signed and (on macOS) notarized; leave them unset and it produces
@@ -38,8 +41,8 @@ jobs:
             platform: linux
 
     runs-on: ${{ matrix.os }}
-    # electron-builder downloads platform toolchains and rebuilds node-pty; a
-    # leg that has not finished in 40 minutes is stuck, not slow.
+    # electron-builder downloads platform toolchains and rebuilds node-pty and
+    # ssh2; a leg that has not finished in 40 minutes is stuck, not slow.
     timeout-minutes: 40
 
     steps:
@@ -71,17 +74,16 @@ jobs:
 
       - run: yarn install --immutable
 
-      # Through turbo, not `yarn workspace … build`: the agent core imports
-      # @onshell/agent-protocol, and only turbo honours the `dependsOn: ["^build"]`
-      # in turbo.json that builds that package first. Calling the workspace script
-      # directly runs tsc against a package whose dist does not exist yet on a
-      # clean checkout, which fails with "Cannot find module
-      # '@onshell/agent-protocol'" and a cascade of ResolvedShell errors behind it.
-      - run: yarn turbo build --filter=@onshell/agent
-      - run: yarn workspace @onshell/agent-desktop build
+      # Through turbo, not `yarn workspace … build`: the desktop app imports the
+      # agent core and the API client, and only turbo honours the
+      # `dependsOn: ["^build"]` in turbo.json that builds those first. Calling
+      # the workspace script directly runs against packages whose dist does not
+      # exist yet on a clean checkout.
+      - run: yarn turbo build --filter=@onshell/agent --filter=@onshell/api-client
+      - run: yarn workspace @onshell/desktop build
 
       - name: Package installers
-        working-directory: apps/agent-desktop
+        working-directory: apps/desktop
         shell: bash
         # An unset secret still arrives as a *defined but empty* environment
         # variable, and electron-builder treats an empty CSC_LINK as a path to a
@@ -118,73 +120,54 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: onshell-agent-desktop-${{ matrix.platform }}
+          name: onshell-desktop-${{ matrix.platform }}
           # The installers, not the unpacked app dirs or blockmaps.
           path: |
-            apps/agent-desktop/release/*.dmg
-            apps/agent-desktop/release/*.zip
-            apps/agent-desktop/release/*.exe
-            apps/agent-desktop/release/*.AppImage
-            apps/agent-desktop/release/*.deb
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
           if-no-files-found: warn
 
       # On a tag, attach this leg's installers to a GitHub Release — installers
       # are ~90-100 MB and there are six per version, so committing them would
       # bloat the git history permanently.
       #
-      # The release is published on the separate, *public* onshell-downloads
-      # repository rather than this one. Release assets inherit the visibility of
-      # their repository, and this repo is private, so a download link here
-      # answers 404 to everyone who is not a collaborator — which defeats the
-      # point of shipping an installer to end users. Publishing across repos is
-      # also why this needs DOWNLOADS_TOKEN: the automatic github.token is scoped
-      # to this repository alone and cannot write a release anywhere else.
-      #
       # `gh release create` races across the three legs; `|| true` makes the
-      # loser of that race fall straight through to upload against the release the
-      # winner made. shell: bash normalises globbing on the Windows runner too.
-      - name: Publish installers to the public downloads repo
+      # loser of that race fall straight through to upload against the release
+      # the winner made. shell: bash normalises globbing on the Windows runner.
+      - name: Publish installers
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
-          DOWNLOADS_REPO: latifurrahmanlemon/onshell-downloads
+          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN || github.token }}
+          DOWNLOADS_REPO: ${{ vars.DOWNLOADS_REPO || github.repository }}
         run: |
           set -euo pipefail
 
-          # Fail loudly rather than finishing green having published nothing: a
-          # tag build whose installers reach no one is a failed release.
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::DOWNLOADS_TOKEN is not set, so the installers cannot be published to $DOWNLOADS_REPO."
-            exit 1
-          fi
-
-          cd apps/agent-desktop/release
+          cd apps/desktop/release
           version="${GITHUB_REF_NAME#desktop-v}"
 
           # Written line by line rather than as one indented multi-line string:
-          # this block is indented inside the YAML, and four leading spaces turn a
-          # Markdown line into a code block, which would render the whole release
-          # note as grey monospace.
+          # this block is indented inside the YAML, and four leading spaces turn
+          # a Markdown line into a code block, which would render the whole
+          # release note as grey monospace.
           printf '%s\n' \
-            'Desktop installers for the Onshell Agent — no Node, no terminal, nothing to pre-install.' \
+            'Onshell Desktop — your own machine'"'"'s terminal, direct SSH to your servers, and the Onshell console in one app.' \
             '' \
             'These builds are **unsigned** while code-signing certificates are being set up, so your computer will refuse to open them at first:' \
             '' \
-            '- **macOS 15 (Sequoia):** the dialog only offers *Move to Trash*, and right-click → Open no longer works. Put the app back if it was trashed, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run `xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"` and open it normally.' \
+            '- **macOS 15 (Sequoia):** the dialog only offers *Move to Trash*, and right-click → Open no longer works. Put the app back if it was trashed, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run `xattr -dr com.apple.quarantine "/Applications/Onshell.app"` and open it normally.' \
             '- **macOS 14 and earlier:** right-click the app and choose Open.' \
-            '- **Windows:** click More info, then Run anyway' \
+            '- **Windows:** click More info, then Run anyway.' \
             '' \
-            'Install it, then paste the pairing code from **My computers → Connect a computer**.' \
+            'On first launch it asks which Onshell server to use — the hosted one, or your own deployment.' \
             > release-notes.md
 
-          # Three legs race to create the release; the two that lose fall through
-          # to upload against the one the winner made. The tag does not exist in
-          # the downloads repo, so `gh release create` makes it there, off that
-          # repo's default branch.
           gh release view "$GITHUB_REF_NAME" --repo "$DOWNLOADS_REPO" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --repo "$DOWNLOADS_REPO" \
-                 --title "Onshell Agent Desktop $version" \
+                 --title "Onshell Desktop $version" \
                  --notes-file release-notes.md \
             || true
 

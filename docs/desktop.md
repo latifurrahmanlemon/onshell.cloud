@@ -185,8 +185,18 @@ repository where it can be read.
 
 The desktop app absorbs the agent's tunnel as a mode — "Share this computer" — so one
 installer covers both directions: your laptop can reach your servers, and your laptop
-can be reached from a browser elsewhere. `apps/agent-desktop`, which was the tray-only
-wrapper around the agent, is retired into this app.
+can be reached from a browser elsewhere. `apps/agent-desktop`, the tray-only wrapper
+around the agent, has been retired into this app.
+
+Pairing is a click rather than a typed code, because the person is already signed in:
+the app mints a pairing code through the API and spends it immediately. The code exists
+to carry authority from a browser into a program that has none, and here the program
+already has it.
+
+The agent core keeps its own configuration file, separate from the app's. That is
+deliberate — a shared machine stays paired, and stays revocable by whoever is sitting at
+it, whether or not anyone is signed in to the desktop app. Two relationships, two
+lifetimes.
 
 Sharing is off until switched on, and the tray icon stays visible while it is on. A
 remote-access program you cannot see running is spyware; the visible presence, and the
@@ -196,16 +206,20 @@ fact that quitting stops every session, is the difference.
 
 ```text
 apps/desktop
-├── src/main/            Node side — windows, tray, IPC handlers, updater
-│   ├── runtime/
-│   │   ├── local-pty.ts    "this computer" shells
-│   │   ├── ssh.ts          direct ssh2 shell + sftp
-│   │   ├── relay.ts        gateway WebSocket fallback
-│   │   ├── lease.ts        credential leases, memory-only, zeroed on close
-│   │   ├── vault.ts        safeStorage-backed token store
-│   │   └── audit.ts        local journal + best-effort upload
-│   └── agent/           "share this computer" — @onshell/agent tunnel
-├── src/preload/         the whole IPC surface, in one readable file
+├── src/main/            Node side — window, tray, IPC handlers
+│   ├── index.ts            lifecycle, window, tray, every handler
+│   └── runtime/
+│       ├── settings.ts     server URL and preferences (never secrets)
+│       ├── vault.ts        safeStorage-backed token store
+│       ├── session.ts      the API client and the sign-in flow
+│       ├── device.ts       this machine's enrolment, secret in the keychain
+│       ├── terminals.ts    local / direct / relay, and which one you got
+│       ├── ssh.ts          direct ssh2 shell, and credential leases
+│       ├── relay.ts        gateway WebSocket, same path as the browser
+│       ├── files.ts        local fs, SFTP, and relayed file routes as one shape
+│       └── sharing.ts      "share this computer" — the @onshell/agent tunnel
+├── src/shared/ipc.ts    the contract — read this to know what the UI can ask for
+├── src/preload/         the whole bridge, in one readable file
 └── src/renderer/        React + xterm.js, bundled by Vite
 ```
 
@@ -218,6 +232,16 @@ The server URL is a setting, asked for on first run and changeable afterwards. A
 running their own Onshell points the same signed installer at their own deployment;
 nothing about the binary is tied to `onshell.cloud`.
 
-## Status
+## Building it
 
-Being built in phases; [rollout.md](rollout.md) tracks what has shipped.
+```bash
+yarn workspace @onshell/desktop dev     # Vite + Electron, against a local server
+yarn workspace @onshell/desktop dist    # installers for this OS
+```
+
+Releases are cut by tagging `desktop-v*`, which runs
+[.github/workflows/desktop.yml](../.github/workflows/desktop.yml) on all three
+platforms. That workflow is public for the same reason the rest of this is: an
+installer with an updater is a remote code execution channel, and the only honest
+answer to "what is in the binary you want me to run as myself" is a recipe anyone can
+read.

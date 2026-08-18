@@ -11,7 +11,7 @@
  * copy of this app, and the only way to guarantee that is for the server never
  * to be a source of executable code.
  */
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CHANNELS, type AppState, type TerminalEvent, type TerminalTarget } from "../shared/ipc.js";
@@ -31,7 +31,16 @@ import {
 } from "./runtime/session.js";
 import { forgetDevice } from "./runtime/device.js";
 import { files, openFileSession, type FileSessionTarget } from "./runtime/files.js";
-import type { DesktopDeviceSummary } from "../shared/ipc.js";
+import {
+  restoreSharing,
+  setApproval,
+  sharingState,
+  shutdownSharing,
+  startSharing,
+  startSharingThisComputer,
+  stopSharing
+} from "./runtime/sharing.js";
+import type { ApprovalMode, DesktopDeviceSummary } from "../shared/ipc.js";
 import {
   closeAllTerminals,
   closeTerminal,
@@ -47,6 +56,7 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.ONSHELL_DEV_SERVER;
 
 let window: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 async function buildState(): Promise<AppState> {
   const settings = await loadSettings();
@@ -72,6 +82,19 @@ async function publishState() {
 function emitTerminalEvent(event: TerminalEvent) {
   if (!window || window.isDestroyed()) return;
   window.webContents.send(CHANNELS.terminalEvent, event);
+}
+
+/** The tray image, copied next to the bundle at build time by copy-assets.mjs. */
+function trayIcon() {
+  const image = nativeImage.createFromPath(path.join(dir, "tray.png"));
+  image.addRepresentation({
+    scaleFactor: 2,
+    buffer: nativeImage.createFromPath(path.join(dir, "tray@2x.png")).toPNG()
+  });
+  // Not a template image: this is the real logo, and macOS renders a template as
+  // a flat silhouette — which of a shield on a tile is just a rounded square.
+  image.setTemplateImage(false);
+  return image;
 }
 
 function createWindow() {
@@ -123,6 +146,55 @@ function createWindow() {
   window.on("closed", () => {
     window = null;
   });
+}
+
+/**
+ * The tray, which exists for one reason: while this machine is being shared, a
+ * program on it is answering requests to open shells. Software that does that
+ * invisibly is spyware, and the difference is an icon the person can see and a
+ * menu that stops it. When sharing is off the tray is still there, saying so.
+ */
+async function refreshTray() {
+  if (!tray) return;
+  const sharing = await sharingState();
+
+  tray.setToolTip(
+    sharing.running
+      ? `Onshell — sharing this computer${sharing.ownerEmail ? ` with ${sharing.ownerEmail}` : ""}`
+      : "Onshell — not sharing this computer"
+  );
+
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: sharing.running ? "Sharing this computer" : "Not sharing this computer",
+        enabled: false
+      },
+      { type: "separator" },
+      sharing.running
+        ? { label: "Stop sharing", click: () => void stopSharing().then(refreshTray) }
+        : {
+            label: sharing.paired ? "Start sharing" : "Share this computer…",
+            click: () => {
+              // Unpaired needs the signed-in session to mint a pairing code, so
+              // it is done from the window rather than silently from a menu.
+              if (sharing.paired) void startSharing().then(refreshTray);
+              else showWindow();
+            }
+          },
+      { label: "Open activity log", enabled: sharing.paired, click: () => void shell.openPath(sharing.logPath) },
+      { type: "separator" },
+      { label: "Open Onshell", click: showWindow },
+      { label: "Quit — ends every session", click: () => app.quit() }
+    ])
+  );
+}
+
+function showWindow() {
+  if (!window) return createWindow();
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
 }
 
 /** Opens a URL in the user's browser. http(s) only — never a file or a scheme handler. */
@@ -225,6 +297,31 @@ function registerHandlers() {
     await requireApi().setHostFavorite(hostId, favorite);
   });
 
+  ipcMain.handle(CHANNELS.sharingState, () => sharingState());
+  ipcMain.handle(CHANNELS.sharingStart, async (_event, name?: string) => {
+    const state = await startSharingThisComputer(name);
+    await refreshTray();
+    return state;
+  });
+  ipcMain.handle(CHANNELS.sharingResume, async () => {
+    const state = await startSharing();
+    await refreshTray();
+    return state;
+  });
+  ipcMain.handle(CHANNELS.sharingStop, async () => {
+    const state = await stopSharing();
+    await refreshTray();
+    return state;
+  });
+  ipcMain.handle(CHANNELS.sharingApproval, async (_event, mode: ApprovalMode) => {
+    const state = await setApproval(mode);
+    await refreshTray();
+    return state;
+  });
+  ipcMain.handle(CHANNELS.sharingOpenLog, async () => {
+    await shell.openPath((await sharingState()).logPath);
+  });
+
   ipcMain.handle(CHANNELS.devicesList, async () => {
     const payload = await requireApi().transport.request<{ devices: DesktopDeviceSummary[] }>(
       "/desktop/devices"
@@ -309,6 +406,13 @@ if (!app.requestSingleInstanceLock()) {
       void restoreSession().then(publishState);
     }
 
+    tray = new Tray(trayIcon());
+    await refreshTray();
+    // Only if the user had it on. A tunnel that came up on its own because a
+    // config file existed would be exactly the invisible remote access the tray
+    // is there to prevent.
+    void restoreSharing().then(refreshTray);
+
     createWindow();
 
     app.on("activate", () => {
@@ -321,11 +425,14 @@ if (!app.requestSingleInstanceLock()) {
     // window is exactly the invisible-remote-access shape this project avoids.
     closeAllTerminals();
     files.closeAll();
+    // Sharing deliberately survives the window: someone who switched it on wants
+    // their machine reachable, and the tray keeps saying so. Quitting stops it.
     if (process.platform !== "darwin") app.quit();
   });
 
   app.on("before-quit", () => {
     closeAllTerminals();
     files.closeAll();
+    shutdownSharing();
   });
 }

@@ -10,7 +10,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build:renderer": "vite build",
-    "build:main": "node scripts/bundle.mjs",
+    "build:main": "node scripts/bundle.mjs && node scripts/copy-assets.mjs",
     "build": "yarn build:renderer && yarn build:main",
     "dev": "node scripts/dev.mjs",
     "start": "yarn build && electron .",
