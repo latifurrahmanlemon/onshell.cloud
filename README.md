@@ -1,23 +1,74 @@
 # Onshell.cloud
 
-**The best browser-based SSH client for teams.** Onshell.cloud is a SaaS platform for
-browser SSH terminals, SFTP file operations, RDP sessions, saved hosts, encrypted
-credentials, snippets, audit logs, an OpenAI-powered assistant, subscriptions,
-packages, SMTP, and platform administration.
+**SSH, SFTP, and RDP for teams — from a browser tab or a desktop app.** Saved hosts, an
+encrypted credential vault, snippets, per-host access grants, a full audit log, and an
+in-product assistant. Run ours or run your own.
+
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 Production domain: **https://onshell.cloud** — one host, with the API under `/api` and
 the gateway under `/gateway` (see [docs/deploy-cloudpanel.md](docs/deploy-cloudpanel.md)).
 
+## Why this repository is public
+
+You are being asked to hand this software the credentials to your servers. That is not
+a thing anyone should do on the strength of a marketing page.
+
+So the whole platform is here — the credential vault, the session broker, the gateway,
+the agent, the desktop app — under the **GNU AGPL-3.0**. Not an SDK, not a client
+library, not an "open core" with the interesting parts held back. If you want to know
+what happens to your private key between the moment you paste it and the moment a shell
+opens, the answer is in [apps/api/src/lib/encryption.ts](apps/api/src/lib/encryption.ts)
+and [apps/api/src/routes/modules/sessions.ts](apps/api/src/routes/modules/sessions.ts),
+and you can go and read it right now.
+
+The AGPL is the part that keeps that true over time: anyone who runs a modified Onshell
+as a network service has to offer their users that version's source. A hosted fork
+cannot quietly diverge from what is written here.
+
+**Start with [docs/architecture.md](docs/architecture.md)** — it names, per path, which
+component holds a plaintext credential and for how long, including the cases where the
+answer is uncomfortable.
+
 ## Apps
 
-* `apps/web` - Next.js public SaaS page, customer console, and admin panel
-* `apps/api` - Fastify API with auth, hosts, credentials, sessions, billing, plans, SMTP, settings, and audit routes
-* `apps/gateway` - SSH/SFTP/RDP gateway service skeleton
-* `apps/agent` - the program a customer installs on their own machine so a browser can open that machine's terminal (see [docs/agent.md](docs/agent.md); what is left to ship it is in [docs/rollout.md](docs/rollout.md))
-* `packages/agent-protocol` - the wire protocol between an agent and the gateway
-* `packages/shared` - shared types and RBAC/business helpers
-* `packages/config` - environment config loader
-* `packages/ui` - shared UI utilities
+* `apps/web` — Next.js public site, customer console, and admin panel
+* `apps/api` — Fastify API: auth, RBAC, hosts, the credential vault, sessions, billing, plans, SMTP, settings, audit
+* `apps/gateway` — SSH/SFTP/RDP sessions and agent-tunnel termination
+* `apps/desktop` — the native client: this machine's own terminal, **direct** SSH that never touches our servers, relay fallback, and "share this computer" (see [docs/desktop.md](docs/desktop.md))
+* `apps/agent` — headless CLI for servers and unattended machines that want to be reachable from a browser (see [docs/agent.md](docs/agent.md))
+* `packages/agent-protocol` — the wire protocol between an agent and the gateway
+* `packages/api-client` — the HTTP client shared by the web console and the desktop app
+* `packages/shared` — shared types and RBAC/business helpers
+* `packages/config` — environment config loader and production secret guards
+* `packages/ui` — shared UI utilities
+
+## How it works
+
+Three ways to reach a shell, and you pick:
+
+| Path | Route | Who is on the wire |
+| --- | --- | --- |
+| **Browser** | tab → API → gateway → your host | the gateway holds the credential for the session |
+| **Desktop, direct** | app → your host, port 22 | nobody. Our servers authorise and audit; they are not in the data path |
+| **Desktop, local** | app → this machine's own shell | nothing leaves the machine, including the network |
+
+Plus the agent, for machines with no SSH server at all: it dials *out* to the gateway
+so there is no inbound port to open, and its owner controls consent, policy, and
+revocation from a tray icon they can see.
+
+The trade-offs are spelled out rather than glossed:
+
+* A browser cannot speak SSH, so browser sessions **must** relay through a server that
+  holds the credential. Every product in this category works this way; we say so.
+* Saved credentials are sealed with AES-256-GCM before hitting the database, and no
+  route ever returns one to a client — but the operator holding `MASTER_ENCRYPTION_KEY`
+  and the database can decrypt them. Self-host and the operator is you.
+* Access control lives entirely in the API. The gateway has no notion of users and is
+  meant to sit on a private network behind `GATEWAY_SHARED_SECRET`.
+
+[docs/architecture.md](docs/architecture.md) has the full map, [SECURITY.md](SECURITY.md)
+has the trust boundaries and how to report a hole in one.
 
 ## Requirements
 
@@ -391,3 +442,68 @@ Pending production work (Phase B/C in PROJECT_PLAN.md):
 * Snippet variables
 * Expand gateway tests with disposable SSH/RDP containers
 * Add production observability
+
+In progress — the desktop app (`apps/desktop`, see [docs/desktop.md](docs/desktop.md)):
+
+* Electron client with a locally bundled renderer — it never loads remote code
+* This machine's own terminal via `node-pty`, working with the network unplugged
+* Direct SSH/SFTP from the user's machine, with short-lived audited credential leases
+* Relay fallback through the gateway, offered rather than silently substituted
+* "Share this computer" mode, absorbing `apps/agent-desktop` into one installer
+
+## Self-Hosting
+
+Everything needed to run your own Onshell is in this repository: the Compose file, the
+migrations, the seed, and the deployment guide. There is no licence key, no phone-home,
+and no feature held back for the hosted version.
+
+```bash
+git clone https://github.com/latifurrahmanlemon/onshell.cloud.git
+cd onshell.cloud
+corepack enable && yarn install
+cp .env.example .env    # then set JWT_SECRET and MASTER_ENCRYPTION_KEY
+docker compose up -d mysql redis guacd
+yarn db:generate && yarn db:migrate && yarn db:seed
+yarn dev
+```
+
+Generate real secrets with `openssl rand -base64 48`. The API refuses to start in
+production while `JWT_SECRET` or `MASTER_ENCRYPTION_KEY` still hold their placeholder
+values — that guard is deliberate, and it is in
+[packages/config/src/index.ts](packages/config/src/index.ts) if you want to see it.
+
+Two things to get right before pointing real servers at it:
+
+1. **Keep the gateway private.** It performs no authorisation. Set
+   `GATEWAY_SHARED_SECRET` and do not publish its port.
+2. **Back up `MASTER_ENCRYPTION_KEY` separately from the database.** Together they open
+   the vault; the key alone opens nothing, and the database alone is ciphertext. Lose
+   the key and every saved credential is unrecoverable — which is the point.
+
+The desktop app's server URL is a setting, so the same signed installer works against
+your deployment.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Small, single-purpose pull requests; `yarn
+typecheck && yarn lint && yarn test` before opening one. There is no CLA — contributors
+keep their copyright, and nobody, including the maintainers, can relicense the project
+out from under them.
+
+Changes to the credential vault, the lease path, authentication, RBAC, the agent's
+consent logic, the desktop IPC boundary, or the update channel get a slower and more
+suspicious review. That is the point of the project, not distrust of you.
+
+Found a vulnerability? **Do not open an issue.** See [SECURITY.md](SECURITY.md).
+
+## Licence
+
+**GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+
+In plain terms: run it, read it, change it, and share it freely. If you distribute a
+modified version, or run one as a service other people use, those people are entitled
+to your version's source under the same licence.
+
+The name and brand are not covered — see [NOTICE](NOTICE). Fork the code as much as you
+like; use your own name when you offer it publicly, so nobody is misled about whose
+software is holding their credentials.
