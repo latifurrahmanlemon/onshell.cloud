@@ -103,27 +103,43 @@ sequenceDiagram
   participant A as API
   participant H as Host
 
-  D->>A: POST /sessions {hostId, mode:"direct", deviceId}
-  A->>A: authenticate user, check host grant,<br/>check org policy allows direct,<br/>check device enrolled and not revoked
+  Note over D,A: once per machine
+  D->>A: POST /desktop/devices {name, fingerprint, platform}
+  A-->>D: {device, secret}  — secret shown once, kept in the OS keychain
+
+  Note over D,A: per connection
+  D->>A: POST /desktop/leases {hostId}<br/>x-onshell-device-secret
+  A->>A: role check, host grant, workspace policy,<br/>device enrolled and not revoked, plan limits
   A->>A: decrypt credential (AES-256-GCM, master key)
-  A-->>D: lease {sessionId, material, expiresAt (60s), hostFingerprint}
-  A->>A: audit ssh.session.open (mode=direct, deviceId)
+  A->>A: create session row + audit ssh.session.open (mode=direct)
+  A-->>D: {sessionId, host, credential, expiresAt (60s)}
   D->>H: ssh2 connect on port 22
-  D->>A: POST /sessions/:id/state {opened or failed}
-  Note over D: material held in main-process memory only,<br/>zeroed on session close. Never in the renderer.<br/>Never on disk.
+  D->>A: POST /desktop/sessions/:id/state {opened / failed / closed}
+  Note over D: material held in main-process memory only,<br/>zeroed once the handshake completes.<br/>Never in the renderer. Never on disk.
 ```
+
+Note the order of the checks, because it is the argument: nothing is read out of
+the vault until every reason to refuse has been exhausted. See
+[routes/modules/desktop.ts](../apps/api/src/routes/modules/desktop.ts).
 
 Rules the implementation has to keep:
 
 | Rule | Why |
 | --- | --- |
 | A lease is for **one host, one session**, and expires in ~60 seconds | It is a launch token, not a copy of the vault |
-| It is only issued to a **device enrolled by that user**, not revoked | Ties the secret to a machine the account owner registered |
+| It is only issued to a **device enrolled by that user**, not revoked | Makes the handout visible per machine, and revocable one machine at a time |
 | It requires the same **host grant** as opening a relayed session | Direct mode must not be a way around RBAC |
 | The material lives in the **main process only** | The renderer runs UI code; it never gets to hold a private key |
 | It is **never written to disk**, and is zeroed on close | Survives neither a crash dump nor a stolen laptop at rest |
 | Every issue is **audited** with the device id | An operator can see which machine asked for what |
 | An org can **turn direct mode off** | Some teams need every byte through an auditable relay |
+
+Being enrolled is not what *authorises* a lease — the signed-in user's own host access
+is — so it is worth being plain that enrolment does not stop someone who has already
+stolen a session: they could enrol a machine of their own. What it buys is that every
+handout is attributable to a named machine and can be cut off one machine at a time,
+which is the difference between noticing a compromise and being able to do anything
+about it.
 
 The honest summary: direct mode gives the user's own machine material for a host that
 user could already open a shell on. It does not grant new access. It changes who is on

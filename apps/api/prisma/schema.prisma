@@ -148,6 +148,7 @@ model User {
   favoriteHosts       HostFavorite[]
   enrolledAgents      AgentDevice[]        @relation("AgentEnrolledBy")
   agentPairingCodes   AgentPairingCode[]   @relation("AgentPairingCreatedBy")
+  desktopDevices      DesktopDevice[]
 
   @@index([referredById])
 }
@@ -156,6 +157,11 @@ model Organization {
   id            String               @id @default(cuid())
   name          String
   slug          String               @unique
+  /// Whether members may open sessions straight from the desktop app instead of
+  /// through the gateway. On by default because it is the more private path —
+  /// the bytes never touch our servers — but some teams need every byte through
+  /// a relay they can inspect, and that decision belongs to the workspace.
+  allowDirectConnect Boolean          @default(true)
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
   members       OrganizationMember[]
@@ -172,6 +178,7 @@ model Organization {
   hostWorkspaces   HostWorkspace[]
   agentDevices     AgentDevice[]
   agentPairingCodes AgentPairingCode[]
+  desktopDevices   DesktopDevice[]
 }
 
 model OrganizationMember {
@@ -396,6 +403,45 @@ model AgentDevice {
   @@unique([organizationId, fingerprint])
   @@index([organizationId])
   @@index([enrolledById])
+}
+
+/// A copy of the desktop app that a member has signed in on.
+///
+/// Not an agent: an agent *serves* a machine's shell to the workspace, while
+/// this *uses* the workspace from a machine. The reason it is a row at all is
+/// the credential lease — direct connections put decrypted credential material
+/// on somebody's laptop, and "which machines have been handed material, and can
+/// I cut one off" has to be an answerable question.
+///
+/// Being enrolled is not what authorises a lease; the user's own access does.
+/// The row is what makes the handout visible in the audit log and revocable
+/// afterwards.
+model DesktopDevice {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  name           String
+  /// Stable machine identifier, so reinstalling the app does not accumulate a
+  /// new row every launch. Spoofable by design and never trusted for auth.
+  fingerprint    String
+  platform       String
+  appVersion     String?
+  /// SHA-256 of the secret handed back at enrolment and presented on every
+  /// lease request. Held in the machine's keychain, never written in the clear.
+  secretHash     String       @unique
+  lastSeenAt     DateTime?
+  /// Set when the owner cuts the machine off. The row stays so the audit trail
+  /// still names the device that held leases.
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One row per machine per person — two accounts on one laptop are two
+  /// devices, because revoking one must not cut off the other.
+  @@unique([userId, fingerprint])
+  @@index([organizationId])
 }
 
 /// A short-lived code someone types into the agent to pair a machine.

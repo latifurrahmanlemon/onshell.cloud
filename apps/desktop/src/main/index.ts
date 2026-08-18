@@ -29,6 +29,7 @@ import {
   signOut,
   useServer
 } from "./runtime/session.js";
+import { forgetDevice } from "./runtime/device.js";
 import {
   closeAllTerminals,
   closeTerminal,
@@ -193,6 +194,10 @@ function registerHandlers() {
     // rather than leaving live shells behind an unauthenticated window.
     closeAllTerminals();
     await signOut();
+    // The enrolment secret belongs to the account that created it, so the next
+    // person to sign in on this computer enrols as their own device rather than
+    // inheriting one that leases credentials under someone else's name.
+    await forgetDevice();
     await publishState();
   });
 

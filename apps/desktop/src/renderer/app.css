@@ -387,3 +387,19 @@ button {
   border-bottom: 1px solid var(--border);
   color: var(--text);
 }
+
+.banner strong {
+  font-weight: 600;
+}
+
+.banner__actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.banner__actions .button {
+  padding: 4px 10px;
+  font-size: 12px;
+}

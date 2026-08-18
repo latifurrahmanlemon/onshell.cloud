@@ -25,6 +25,13 @@ export interface ServerConfig {
 
 export interface DesktopSettings {
   server?: ServerConfig;
+  /**
+   * Stable per-install identifier, so re-enrolling after a reinstall updates
+   * this machine's device row instead of adding another one. Not a secret and
+   * not trusted for authentication — the enrolment secret in the keychain is
+   * what the server actually checks.
+   */
+  deviceFingerprint?: string;
   /** Preferred connection path when a host supports more than one. */
   connectionMode: "direct" | "relay";
   appearance: {
@@ -64,6 +71,7 @@ export async function loadSettings(): Promise<DesktopSettings> {
     // reaching the renderer as a font size is a blank terminal, not a default.
     cache = {
       server: parsed.server,
+      deviceFingerprint: parsed.deviceFingerprint,
       connectionMode: parsed.connectionMode ?? DEFAULTS.connectionMode,
       appearance: { ...DEFAULTS.appearance, ...parsed.appearance },
       sharing: { ...DEFAULTS.sharing, ...parsed.sharing }

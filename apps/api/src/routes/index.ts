@@ -7,6 +7,7 @@ import { registerAuditRoutes } from "./modules/audit.js";
 import { registerAuthRoutes } from "./modules/auth.js";
 import { registerBillingRoutes } from "./modules/billing.js";
 import { registerCredentialRoutes } from "./modules/credentials.js";
+import { registerDesktopRoutes } from "./modules/desktop.js";
 import { registerGrowthRoutes } from "./modules/growth.js";
 import { registerHealthRoutes } from "./modules/health.js";
 import { registerHostRoutes } from "./modules/hosts.js";
@@ -31,6 +32,7 @@ export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig
   await registerHostWorkspaceRoutes(app);
   await registerCredentialRoutes(app);
   await registerAgentRoutes(app, config);
+  await registerDesktopRoutes(app, config);
   await registerSessionRoutes(app, config);
   await registerSnippetRoutes(app);
   await registerAiRoutes(app, config);

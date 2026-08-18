@@ -7,15 +7,25 @@
  * only real subject, and the renderer is told which it got rather than left to
  * assume.
  *
- * Local is implemented here. Direct and relay arrive with their phases; until
- * then they refuse clearly instead of silently falling back to something else,
- * because a terminal that quietly took a different route than the user chose is
- * the one behaviour this app must never have.
+ * When a direct connection cannot be made, this does not quietly relay instead.
+ * The whole promise of direct mode is that Onshell is not on the wire, and a
+ * session that silently stopped being end-to-end would make that promise
+ * worthless. The failure is reported with the reason, and choosing the relay is
+ * something the person does.
  */
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { discoverShells, spawnPty, type AgentPty, type ResolvedShell } from "@onshell/agent";
-import type { LocalShell, TerminalEvent, TerminalOpened, TerminalTarget } from "../../shared/ipc.js";
+import type {
+  LocalShell,
+  TerminalEvent,
+  TerminalOpenResult,
+  TerminalOpened,
+  TerminalTarget
+} from "../../shared/ipc.js";
+import { DirectUnavailableError, openDirectSession } from "./ssh.js";
+import { openRelaySession } from "./relay.js";
+import { requireApi } from "./session.js";
 
 interface OpenTerminal {
   id: string;
@@ -107,19 +117,106 @@ async function openLocal(
   return { terminalId: id, mode: "local", title: shell.label };
 }
 
-export async function openTerminal(target: TerminalTarget, emit: TerminalEmitter): Promise<TerminalOpened> {
-  switch (target.kind) {
-    case "local":
-      return openLocal(target, emit);
-    case "direct":
-      throw new Error("Direct connections are not available in this build yet.");
-    case "relay":
-      throw new Error("Relayed connections are not available in this build yet.");
-    default: {
-      // A target the renderer invented. Refusing beats guessing.
-      const unknown = target as { kind?: unknown };
-      throw new Error(`Unknown terminal target: ${String(unknown.kind)}`);
+/** The saved host, for a title and for the relay's own bookkeeping. */
+async function describeHost(hostId: string) {
+  const hosts = await requireApi().hosts();
+  const host = hosts.find((candidate) => candidate.id === hostId);
+  if (!host) throw new Error("That host is no longer in your workspace.");
+  return host;
+}
+
+/** Dials the host from this machine. Onshell is not on the wire. */
+async function openDirect(
+  target: Extract<TerminalTarget, { kind: "direct" }>,
+  emit: TerminalEmitter
+): Promise<TerminalOpened> {
+  const id = randomUUID();
+  const session = await openDirectSession({
+    hostId: target.hostId,
+    credentialId: target.credentialId,
+    onData: (chunk) => emit({ terminalId: id, type: "data", data: chunk.toString("utf8") }),
+    onExit: (code, reason) => {
+      terminals.delete(id);
+      emit({ terminalId: id, type: "exit", code, reason });
     }
+  });
+
+  terminals.set(id, {
+    id,
+    mode: "direct",
+    title: session.title,
+    sessionId: session.sessionId,
+    write: (data) => session.write(data),
+    resize: (cols, rows) => session.resize(cols, rows),
+    close: () => session.close()
+  });
+
+  emit({
+    terminalId: id,
+    type: "status",
+    message: `Connected directly to ${session.title} — this traffic does not pass through Onshell.`
+  });
+
+  return { terminalId: id, mode: "direct", title: session.title, sessionId: session.sessionId };
+}
+
+/** Through the gateway, exactly as the browser console does it. */
+async function openRelay(
+  target: Extract<TerminalTarget, { kind: "relay" }>,
+  emit: TerminalEmitter
+): Promise<TerminalOpened> {
+  const host = await describeHost(target.hostId);
+  const id = randomUUID();
+  const session = await openRelaySession({
+    hostId: target.hostId,
+    credentialId: target.credentialId,
+    shell: target.shell,
+    title: host.name,
+    onData: (chunk) => emit({ terminalId: id, type: "data", data: chunk }),
+    onExit: (reason) => {
+      terminals.delete(id);
+      emit({ terminalId: id, type: "exit", reason });
+    }
+  });
+
+  terminals.set(id, {
+    id,
+    mode: "relay",
+    title: session.title,
+    sessionId: session.sessionId,
+    write: (data) => session.write(data),
+    resize: (cols, rows) => session.resize(cols, rows),
+    close: () => session.close()
+  });
+
+  return { terminalId: id, mode: "relay", title: session.title, sessionId: session.sessionId };
+}
+
+export async function openTerminal(target: TerminalTarget, emit: TerminalEmitter): Promise<TerminalOpenResult> {
+  try {
+    switch (target.kind) {
+      case "local":
+        return { ok: true, terminal: await openLocal(target, emit) };
+      case "direct":
+        return { ok: true, terminal: await openDirect(target, emit) };
+      case "relay":
+        return { ok: true, terminal: await openRelay(target, emit) };
+      default: {
+        // A target the renderer invented. Refusing beats guessing.
+        const unknown = target as { kind?: unknown };
+        return { ok: false, error: `Unknown terminal target: ${String(unknown.kind)}` };
+      }
+    }
+  } catch (error) {
+    // A direct connection that could not be made is reported *as* a direct
+    // failure, with the offer to relay attached. It is never relayed here: the
+    // whole promise of direct mode is that Onshell is not on the wire, and
+    // silently substituting the relay would break that promise in the one place
+    // nobody would look.
+    if (error instanceof DirectUnavailableError) {
+      return { ok: false, error: error.message, code: error.code, canRelay: true };
+    }
+    return { ok: false, error: error instanceof Error ? error.message : "Could not open that terminal." };
   }
 }
 

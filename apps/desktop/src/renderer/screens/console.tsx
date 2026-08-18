@@ -26,6 +26,7 @@ export function Console({ state }: Props) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>();
   const [error, setError] = useState<string>();
+  const [relayOffer, setRelayOffer] = useState<{ host: Host; reason: string }>();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,29 +65,40 @@ export function Console({ state }: Props) {
     });
   }, []);
 
+  function accept(result: Awaited<ReturnType<typeof bridge.terminals.open>>) {
+    if (!result.ok) return false;
+    setTabs((current) => [...current, result.terminal]);
+    setActiveId(result.terminal.terminalId);
+    return true;
+  }
+
   async function openLocal(shellId?: string) {
     setError(undefined);
-    try {
-      const opened = await bridge.terminals.open({ kind: "local", shellId });
-      setTabs((current) => [...current, opened]);
-      setActiveId(opened.terminalId);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not open that shell.");
-    }
+    const result = await bridge.terminals.open({ kind: "local", shellId });
+    if (!accept(result) && !result.ok) setError(result.error);
   }
 
   async function openHost(host: Host) {
     setError(undefined);
-    try {
-      const opened = await bridge.terminals.open({
-        kind: state.connectionMode === "direct" ? "direct" : "relay",
-        hostId: host.id
-      });
-      setTabs((current) => [...current, opened]);
-      setActiveId(opened.terminalId);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not open that host.");
-    }
+    setRelayOffer(undefined);
+    const result = await bridge.terminals.open({
+      kind: state.connectionMode === "direct" ? "direct" : "relay",
+      hostId: host.id
+    });
+    if (accept(result) || result.ok) return;
+
+    // A direct connection that failed is a question, not just an error: going
+    // through the gateway would probably work, but it means Onshell is on the
+    // wire, and that is the user's call rather than a silent substitution.
+    if (result.canRelay) setRelayOffer({ host, reason: result.error });
+    else setError(result.error);
+  }
+
+  async function openThroughGateway(host: Host) {
+    setRelayOffer(undefined);
+    setError(undefined);
+    const result = await bridge.terminals.open({ kind: "relay", hostId: host.id });
+    if (!accept(result) && !result.ok) setError(result.error);
   }
 
   async function closeTab(terminalId: string) {
@@ -169,6 +181,22 @@ export function Console({ state }: Props) {
         )}
 
         {error && <div className="banner">{error}</div>}
+
+        {relayOffer && (
+          <div className="banner">
+            <strong>{relayOffer.host.name}</strong> could not be reached directly from this machine —{" "}
+            {relayOffer.reason} Connecting through the Onshell gateway will work, but that traffic passes
+            through our servers rather than going straight to your host.
+            <span className="banner__actions">
+              <button className="button button--primary" onClick={() => void openThroughGateway(relayOffer.host)}>
+                Use the gateway
+              </button>
+              <button className="button button--ghost" onClick={() => setRelayOffer(undefined)}>
+                Cancel
+              </button>
+            </span>
+          </div>
+        )}
 
         <div className="surface">
           {tabs.length === 0 ? (

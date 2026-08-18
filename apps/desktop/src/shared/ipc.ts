@@ -32,17 +32,17 @@ export interface AppearanceSettings {
 }
 
 /**
- * Everything the UI needs to decide what to render, in one object.
- *
- * Pushed on every change rather than polled, so the window cannot show a signed
- * -in console after the session was cleared in the main process.
- */
-/**
  * Spelled out rather than reusing `NodeJS.Platform`: this file is compiled into
  * the renderer too, which has no Node types by design.
  */
 export type Platform = "win32" | "darwin" | "linux" | (string & {});
 
+/**
+ * Everything the UI needs to decide what to render, in one object.
+ *
+ * Pushed on every change rather than polled, so the window cannot show a
+ * signed-in console after the session was cleared in the main process.
+ */
 export interface AppState {
   version: string;
   platform: Platform;
@@ -98,6 +98,23 @@ export interface TerminalOpened {
   sessionId?: string;
 }
 
+/**
+ * A result rather than a thrown error, because a failed *direct* connection is
+ * not simply a failure: it is a question for the user, and the answer — relay
+ * instead, or not at all — is theirs. Electron also flattens a thrown Error
+ * across IPC to its message alone, so `code` and `canRelay` would not survive
+ * being raised.
+ */
+export type TerminalOpenResult =
+  | { ok: true; terminal: TerminalOpened }
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      /** True when going through the gateway would probably work instead. */
+      canRelay?: boolean;
+    };
+
 export type TerminalEvent =
   | { terminalId: string; type: "data"; data: string }
   | { terminalId: string; type: "exit"; code?: number; reason?: string }
@@ -146,7 +163,7 @@ export interface OnshellBridge {
 
   terminals: {
     localShells(): Promise<LocalShell[]>;
-    open(target: TerminalTarget): Promise<TerminalOpened>;
+    open(target: TerminalTarget): Promise<TerminalOpenResult>;
     write(terminalId: string, data: string): void;
     resize(terminalId: string, cols: number, rows: number): void;
     close(terminalId: string): Promise<void>;
