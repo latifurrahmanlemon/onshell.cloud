@@ -399,114 +399,56 @@ Google Authenticator 2FA flow:
 3. Call `POST /auth/2fa/verify` with the 6-digit code.
 4. Future email/password or Google logins will require `POST /auth/2fa/complete` before entering the console.
 
-## Current Implementation Status
+## What Is Built
 
-Implemented (verified 2026-07-10 — see PROJECT_PLAN.md section 13 for the full audit):
+**Access** — browser SSH terminals over the gateway WebSocket (xterm.js + ssh2),
+an RDP viewer through guacd, an SFTP file browser, and saved hosts with groups,
+tags, favourites, and per-member access grants. Hosts import from Termius,
+OpenSSH config, PuTTY, RDCMan, `.rdp` files, or plain CSV, and export back out.
 
-* Yarn workspace monorepo
-* Redesigned public SaaS landing page (terminal hero, pricing wired to `/plans` and `/checkout`)
-* Customer console: Termius-style workspace with live xterm.js SSH terminal tabs over the gateway WebSocket, SFTP browser, encrypted credential vault, snippets, team management, audit log, theming (Forest/Slate/Carbon), Framer Motion transitions
-* Admin panel: functional sections for overview, packages, subscriptions, users, SMTP, billing provider, and platform settings with loading/error/toast states
-* Auth: register/login with strong password policy, 2FA via Google Authenticator (TOTP) or email OTP, Google OAuth, refresh-token rotation (`/auth/refresh`), password reset via email OTP
-* Teams: real invitations (emailed accept links), member role management, last-owner protection
-* Resource APIs backed by Prisma with real JWT auth (hosts with groups/tags, encrypted credentials, sessions with API→gateway handoff, snippets, unified audit log)
-* Gateway: real SSH terminal (ssh2 + PTY over WebSocket), guacd RDP protocol bridge, SFTP directory listing
-* PWA: web manifest, installable icons, standalone display
-* Prisma schema, migration, and seed
-* Docker Compose infrastructure
+**The desktop app** (`apps/desktop`) — this machine's own terminal with no network
+in the path, direct SSH that goes from the user's computer straight to their host,
+relay through the gateway when direct cannot work, dual-pane file transfer, and an
+optional "share this computer" mode that retires the old tray agent. See
+[docs/desktop.md](docs/desktop.md).
 
-Added 2026-07-26:
+**The agent** (`apps/agent`) — a headless CLI for servers and machines with no SSH
+server, dialling out to the gateway so there is no inbound port. Pairing, consent
+policy, a local audit journal, and revocation from the console. See
+[docs/agent.md](docs/agent.md).
 
-* Freemium pricing: a permanent Free tier for solo users, auto-assigned on signup,
-  plus Team and Business paid tiers
-* Cloudflare Turnstile on signup, sign-in, password reset, contact, checkout, and
-  newsletter, with credentials and per-form toggles managed from `/admin`
-* Contact-us page and an admin inbox with status triage and internal notes
-* OpenAI-powered AI assistant with persisted threads, per-plan monthly quotas, and
-  admin review of all conversations
-* Growth surfaces: plan/usage meters, upgrade nudges, referral programme with
-  shareable links, and newsletter capture
-* Session-aware public pages (avatar + menu when a visitor already has a session)
-* SEO/AI-SEO: repositioned copy, a `/browser-ssh-client` pillar page, `/security`,
-  expanded JSON-LD (`SoftwareApplication`, `HowTo`, `FAQPage`, `BreadcrumbList`),
-  `llms.txt`, `security.txt`, and an AI-crawler allowlist in `robots.txt`
-* Security hardening: production secret guards, constant-time token comparison,
-  per-account login lockout, per-route rate limits, TTL-bounded challenge stores,
-  no internal error leakage, CSP and security headers, and removal of hardcoded
-  development credentials
+**Identity** — email/password with a strong policy, Google OAuth, 2FA by TOTP or
+email OTP, rotating refresh tokens, per-account lockout, and password reset by
+email code.
 
-Pending production work (Phase B/C in PROJECT_PLAN.md):
+**Teams and governance** — organisations, owner/admin/member/auditor roles,
+emailed invitations with last-owner protection, an encrypted credential vault, and
+a unified audit log the workspace itself can read.
 
-* Full SFTP file operations (upload/download/rename/delete/edit) and the browser RDP viewer UI
-* Billing webhooks (subscription/invoice rows) and plan-limit enforcement
-* Snippet variables
-* Expand gateway tests with disposable SSH/RDP containers
-* Add production observability
+**Commercial** — a permanent free tier plus paid plans, plan-limit enforcement,
+checkout, subscriptions, and an admin panel for packages, users, SMTP, payment
+provider, bot protection, the AI assistant, and platform settings.
 
-Added — the desktop app (`apps/desktop`, see [docs/desktop.md](docs/desktop.md)):
+**Public surface** — marketing site, a `/browser-ssh-client` pillar page,
+`/security`, a contact form with an admin inbox, an OpenAI-backed assistant with
+per-plan quotas, referrals, and SEO/AI-SEO plumbing (JSON-LD, `llms.txt`,
+`security.txt`, crawler allowlist).
 
-* Electron client with a locally bundled renderer — it never loads remote code
-* This machine's own terminal via `node-pty`, working with the network unplugged
-* Direct SSH/SFTP from the user's machine, with short-lived audited credential leases
-* Relay fallback through the gateway, offered rather than silently substituted
-* Dual-pane file transfer between this computer and a host
-* Enrolled-device list, so credential handouts are visible and revocable per machine
-* "Share this computer" mode, which retires `apps/agent-desktop` into one installer
-* Signed installers for Windows, macOS, and Linux from a public build workflow
+**Security posture** — AES-256-GCM credential sealing, production secret guards
+that refuse to boot on placeholder values, constant-time token comparison, per-route
+rate limits, CSP and security headers, and no internal error detail in responses.
+[docs/architecture.md](docs/architecture.md) names the trust boundaries;
+[SECURITY.md](SECURITY.md) says which of them are deliberate.
 
-## Self-Hosting
+## Known Gaps
 
-Everything needed to run your own Onshell is in this repository: the Compose file, the
-migrations, the seed, and the deployment guide. There is no licence key, no phone-home,
-and no feature held back for the hosted version.
+Stated rather than implied, because a list of features with nothing missing from it
+is not a description of real software:
 
-```bash
-git clone https://github.com/latifurrahmanlemon/onshell.cloud.git
-cd onshell.cloud
-corepack enable && yarn install
-cp .env.example .env    # then set JWT_SECRET and MASTER_ENCRYPTION_KEY
-docker compose up -d mysql redis guacd
-yarn db:generate && yarn db:migrate && yarn db:seed
-yarn dev
-```
-
-Generate real secrets with `openssl rand -base64 48`. The API refuses to start in
-production while `JWT_SECRET` or `MASTER_ENCRYPTION_KEY` still hold their placeholder
-values — that guard is deliberate, and it is in
-[packages/config/src/index.ts](packages/config/src/index.ts) if you want to see it.
-
-Two things to get right before pointing real servers at it:
-
-1. **Keep the gateway private.** It performs no authorisation. Set
-   `GATEWAY_SHARED_SECRET` and do not publish its port.
-2. **Back up `MASTER_ENCRYPTION_KEY` separately from the database.** Together they open
-   the vault; the key alone opens nothing, and the database alone is ciphertext. Lose
-   the key and every saved credential is unrecoverable — which is the point.
-
-The desktop app's server URL is a setting, so the same signed installer works against
-your deployment.
-
-## Contributing
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Small, single-purpose pull requests; `yarn
-typecheck && yarn lint && yarn test` before opening one. There is no CLA — contributors
-keep their copyright, and nobody, including the maintainers, can relicense the project
-out from under them.
-
-Changes to the credential vault, the lease path, authentication, RBAC, the agent's
-consent logic, the desktop IPC boundary, or the update channel get a slower and more
-suspicious review. That is the point of the project, not distrust of you.
-
-Found a vulnerability? **Do not open an issue.** See [SECURITY.md](SECURITY.md).
-
-## Licence
-
-**GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
-
-In plain terms: run it, read it, change it, and share it freely. If you distribute a
-modified version, or run one as a service other people use, those people are entitled
-to your version's source under the same licence.
-
-The name and brand are not covered — see [NOTICE](NOTICE). Fork the code as much as you
-like; use your own name when you offer it publicly, so nobody is misled about whose
-software is holding their credentials.
+* No auto-updater in the desktop app yet — builds are not code-signed, and an
+  updater that cannot verify its payload is a delivery mechanism, not a feature.
+* Billing webhooks are not wired, so subscription and invoice rows are not
+  reconciled from the provider automatically.
+* Snippets have no variable substitution.
+* The gateway's protocol tests do not yet stand up disposable SSH/RDP containers.
+* Production observability (tracing, structured metrics) is not in place.

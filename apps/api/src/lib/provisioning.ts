@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { User } from "@onshell/shared";
 import { prisma } from "./prisma.js";
 
@@ -92,28 +92,49 @@ export async function ensureFreeSubscription(organizationId: string) {
 export const LOCAL_HOST_NAME = "Onshell server (local shell)";
 
 /**
- * The one account that may open a shell on the Onshell server itself.
+ * SHA-256 of the single account allowed to open a shell on the Onshell server
+ * itself, lower-cased and trimmed before hashing.
  *
  * Hardcoded on purpose. This was an env flag, and an env flag is a thing
  * somebody can flip — it was flipped on in production, and every account that
  * signed up got a credential-free root-capable shell on the server running the
  * platform. There is no configuration for it now, dynamic or otherwise: to
- * grant it to anyone else, someone has to edit this line, review it and deploy
+ * grant it to anyone else, someone has to edit this line, review it, and deploy
  * it, which is the amount of friction this deserves.
+ *
+ * A hash rather than the address because this repository is public, and the
+ * plaintext would be a signpost reading "compromise this account and you have a
+ * shell on the platform". A hash is not secrecy — an address that is guessed
+ * can be confirmed — but it keeps a personal email out of the source and stops
+ * the answer being handed to a reader who was not looking for it. The security
+ * of the mechanism never rested on the address being unknown; it rests on the
+ * platform-admin check below and on this line being hard to change.
+ *
+ * To rotate it: `node -e "console.log(require('node:crypto')
+ * .createHash('sha256').update('new@address').digest('hex'))"`.
  *
  * This is not the visitor's own computer. A user reaching their own machine
  * pairs the Onshell Agent instead, which is a different mechanism entirely
  * (`isAgent` hosts) and is unaffected by anything here.
  */
-export const LOCAL_SHELL_OWNER_EMAIL = "latifur.tech@gmail.com";
+const LOCAL_SHELL_OWNER_EMAIL_SHA256 =
+  "e59894c6e534eef777a3ad2f6cf1e4a18a149fac4a288cb9f59ba90b2895070d";
 
 /**
  * Both conditions are required, not one: the address identifies the person, and
  * the platform-admin flag means that if the account is ever demoted the shell
  * goes with it rather than lingering on a name.
+ *
+ * The comparison is constant-time. That is close to theatre against an offline
+ * hash guess, but the input arrives from a request and timing-safe comparison
+ * of a secret-derived value costs nothing to write correctly.
  */
 export function canUseLocalShell(user: Pick<User, "email" | "isPlatformAdmin">) {
-  return user.isPlatformAdmin && user.email.trim().toLowerCase() === LOCAL_SHELL_OWNER_EMAIL;
+  if (!user.isPlatformAdmin) return false;
+
+  const candidate = createHash("sha256").update(user.email.trim().toLowerCase()).digest();
+  const expected = Buffer.from(LOCAL_SHELL_OWNER_EMAIL_SHA256, "hex");
+  return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
 
 /**

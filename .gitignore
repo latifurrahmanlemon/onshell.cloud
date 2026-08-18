@@ -22,3 +22,6 @@ backups/
 # JetBrains project files. Machine-specific paths and personal window layout;
 # they leak local directory structure into a public repository.
 .idea/
+
+# Agent/editor scratch. Machine-specific, and not part of the project.
+.claude/

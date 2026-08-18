@@ -1,17 +1,21 @@
-# Deploy onshell.cloud on CloudPanel — `onshell.cloud`
+# Deploying Onshell on CloudPanel
 
-CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + Fastify API + Gateway + MySQL + Redis) কীভাবে
-একটা subdomain `onshell.cloud` এ host করবে, তার step-by-step runbook।
+A step-by-step runbook for hosting the whole stack — Next.js web, Fastify API,
+gateway, MySQL, Redis — behind one domain on a CloudPanel VPS.
 
-## Architecture (single subdomain, path routing)
+`onshell.cloud` is used throughout as the example domain. Substitute your own; the
+only place it genuinely matters is the `.env` and the Nginx vhost.
 
-সব traffic একটাই domain দিয়ে ঢুকবে; CloudPanel এর Nginx সেটা ভেতরের ৩টা Node process এ route করবে:
+## Architecture (single domain, path routing)
+
+All traffic arrives on one domain, and CloudPanel's Nginx routes it to three Node
+processes:
 
 ```
                          https://onshell.cloud   (CloudPanel Nginx + Let's Encrypt SSL)
                                         │
         ┌───────────────────────────────┼───────────────────────────────┐
-        │ location /                     │ location /api/                 │ location /gateway/
+        │ location /                    │ location /api/                │ location /gateway/
         ▼                               ▼                               ▼
    127.0.0.1:5018                  127.0.0.1:5017                  127.0.0.1:5019
    onshell-web (Next.js)           onshell-api (Fastify)           onshell-gateway (WS/SSH/RDP)
@@ -20,37 +24,47 @@ CloudPanel (VPS + root/SSH) এর উপর পুরো stack (Next.js web + F
                                    127.0.0.1:6379 (Redis)
 ```
 
-- Node process গুলো শুধু `127.0.0.1` এ listen করে — বাইরে থেকে সরাসরি reachable নয়। শুধু `80/443` public.
-- Browser-এর API call যায় `https://onshell.cloud/api/...` এ, Nginx সেটা `/api` prefix বাদ দিয়ে API তে পাঠায়।
-- Same-origin, তাই JWT cookie আর CORS নিয়ে বাড়তি ঝামেলা নেই।
+- The Node processes listen on `127.0.0.1` only — nothing reaches them from outside.
+  Only `80/443` are public.
+- The browser calls `https://onshell.cloud/api/...`, and Nginx strips the `/api`
+  prefix before forwarding.
+- Same origin throughout, so the session cookie is first-party and there is no
+  cross-site request for a browser to reason about.
+
+**The gateway must not be published on its own port.** It performs no
+authorisation — access control lives entirely in the API — so it is only safe
+behind this proxy, on loopback, with `GATEWAY_SHARED_SECRET` set. See
+[architecture.md](architecture.md).
 
 ---
 
 ## 0. Prerequisites
 
-- CloudPanel-installed VPS (Ubuntu 22.04/24.04), root বা sudo + SSH access।
-- DNS control for `onshell.cloud`.
-- এই services গুলো VPS-এ লাগবে: **Node.js 22**, **MySQL 8** (CloudPanel দেয়), **Redis**, এবং RDP feature লাগলে **guacd** (Docker)।
+- A CloudPanel VPS (Ubuntu 22.04/24.04) with root or sudo, and SSH access.
+- DNS control for the domain.
+- On the VPS: **Node.js 22**, **MySQL 8** (CloudPanel provides it), **Redis**, and
+  **guacd** (Docker) if you want the RDP feature.
 
 ---
 
-## 1. DNS — subdomain point করা
+## 1. DNS
 
-তোমার DNS provider (Cloudflare/registrar) এ `onshell.cloud`-এর অধীনে একটা **A record** বানাও:
+At your DNS provider, create an **A record** pointing at the VPS:
 
-| Type | Name              | Value            | Proxy/TTL          |
-|------|-------------------|------------------|--------------------|
-| A    | `web`             | `<VPS_PUBLIC_IP>`| DNS only / Auto    |
+| Type | Name  | Value             | Proxy/TTL       |
+|------|-------|-------------------|-----------------|
+| A    | `@`   | `<VPS_PUBLIC_IP>` | DNS only / Auto |
 
-> Cloudflare ব্যবহার করলে প্রথমে **DNS only (grey cloud)** রাখো যাতে Let's Encrypt issue করা যায়। SSL ঠিকমতো হওয়ার পর orange cloud (proxy) অন করতে পারো।
+> On Cloudflare, start with **DNS only (grey cloud)** so Let's Encrypt can issue the
+> certificate. Turn the proxy on afterwards.
 
-`dig +short onshell.cloud` দিয়ে verify করো IP ঠিক আসছে কিনা।
+Verify with `dig +short onshell.cloud`.
 
 ---
 
-## 2. Redis install (VPS-এ, একবার)
+## 2. Install Redis
 
-App সেশন/rate-limit/gateway coordination এর জন্য Redis লাগে:
+Redis backs session coordination, rate limiting, and gateway state:
 
 ```bash
 sudo apt update
@@ -59,58 +73,63 @@ sudo systemctl enable --now redis-server
 redis-cli ping     # => PONG
 ```
 
-Redis default-এ শুধু `127.0.0.1:6379` এ listen করে — সেটাই আমাদের দরকার।
+Redis listens on `127.0.0.1:6379` by default, which is what we want.
 
 ---
 
-## 3. CloudPanel-এ MySQL database বানানো
+## 3. Create the MySQL database
 
 CloudPanel UI → **Databases** → **Add Database**:
 
 - **Database Name:** `onshell_cloud`
 - **Username:** `onshell`
-- **Password:** একটা strong password দাও (নোট করে রাখো)
+- **Password:** a strong one — write it down
 
-CloudPanel MySQL localhost `3306` এ চলে। এই থেকে connection string হবে:
+CloudPanel's MySQL runs on localhost `3306`, so the connection string is:
 
 ```
 mysql://onshell:<DB_PASSWORD>@127.0.0.1:3306/onshell_cloud
 ```
 
-> ⚠️ Password-এ special character (`@ : / # ? %` ইত্যাদি) থাকলে URL-encode করতে হবে (যেমন `@` → `%40`)। ঝামেলা এড়াতে password-এ শুধু letters+digits রাখলে সহজ।
+> ⚠️ Special characters in the password (`@ : / # ? %` …) must be URL-encoded — `@`
+> becomes `%40`. Restricting the password to letters and digits avoids the whole
+> problem.
 
 ---
 
-## 4. CloudPanel-এ Node.js Site বানানো
+## 4. Create the Node.js site
 
 CloudPanel UI → **Sites** → **Add Site** → **Create a Node.js Site**:
 
 - **Domain Name:** `onshell.cloud`
 - **Node.js Version:** `22`
-- **App Port:** `5018`  ← আমাদের web app এই port-এ চলবে
-- **Site User:** `onshell` (একটা system user তৈরি হবে)
-- **Site User Password:** নোট করে রাখো
+- **App Port:** `5018` — the web app will listen here
+- **Site User:** `onshell` (a system user is created)
+- **Site User Password:** write it down
 
-Create করলে CloudPanel:
-- একটা Linux user + home dir বানায়: `/home/onshell/htdocs/onshell.cloud`
-- একটা Nginx vhost বানায় যেটা `443/80` → `127.0.0.1:5018` reverse-proxy করে (এটা আমরা পরে edit করে `/api` আর `/gateway` যোগ করবো)।
+CloudPanel then creates:
 
-> Button/tab-এর নাম CloudPanel version ভেদে সামান্য আলাদা হতে পারে, কিন্তু ধাপগুলো একই।
+- a Linux user and home directory at `/home/onshell/htdocs/onshell.cloud`
+- an Nginx vhost reverse-proxying `443/80` → `127.0.0.1:5018`, which we edit in step 9
+  to add `/api` and `/gateway`
+
+> Button and tab names vary slightly between CloudPanel versions; the steps are the
+> same.
 
 ---
 
-## 5. SSH + runtime (Node 22, Yarn, PM2)
+## 5. Runtime setup (Node 22, Yarn, PM2)
 
-Site user হিসেবে SSH করো (অথবা root এ ঢুকে `su - onshell`):
+SSH in as the site user (or `su - onshell` from root):
 
 ```bash
 ssh onshell@<VPS_PUBLIC_IP>
 ```
 
-nvm দিয়ে Node 22 + corepack(Yarn 4) + PM2 setup (এই user এর জন্য একবার):
+Set up Node 22, Corepack (Yarn 4), and PM2 once for this user:
 
 ```bash
-# nvm install
+# nvm
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
 
@@ -121,74 +140,76 @@ corepack enable
 npm install -g pm2
 
 node -v   # v22.x
-yarn -v   # 4.x (repo-তে ঢুকলে 4.6.0 activate হবে)
+yarn -v   # 4.x — the repo pins 4.6.0, which activates inside the checkout
 pm2 -v
 ```
 
 ---
 
-## 6. কোড আনা + `.env` বানানো
+## 6. Clone the code and write `.env`
 
 ```bash
 cd ~/htdocs/onshell.cloud
-# htdocs খালি থাকলে সরাসরি এখানে clone করো (অথবা temp-এ clone করে content move করো):
-git clone <YOUR_REPO_URL> .
+# Clone straight into htdocs if it is empty, or clone to a temp dir and move the
+# contents in:
+git clone https://github.com/latifurrahmanlemon/onshell.cloud.git .
 ```
 
-Repo root-এ production `.env` বানাও:
+Create the production `.env` at the repository root:
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-`.env`-এ এই মানগুলো বসাও (public URL গুলো subdomain অনুযায়ী):
+Set these values (the public URLs follow your domain):
 
 ```env
 NODE_ENV=production
 LOG_LEVEL=info
 
-# সব Node service শুধু localhost-এ bind করবে (Nginx বাইরে থেকে proxy করে)
+# Every Node service binds to localhost only; Nginx proxies from outside.
 HOST=127.0.0.1
 
-# প্রতিটা Node service যে internal port-এ listen করবে (Nginx এগুলোতে proxy করে)।
-# ecosystem.config.cjs-এর default এগুলোর সাথেই মেলানো, তাই এই লাইনগুলো optional।
+# Internal ports each service listens on, which Nginx proxies to. These match the
+# defaults in ecosystem.config.cjs, so the lines are optional.
 WEB_PORT=5018
 API_PORT=5017
 GATEWAY_PORT=5019
 
-# Public base URLs — single subdomain, path routing
+# Public base URLs — single domain, path routing
 PUBLIC_BASE_URL=https://onshell.cloud
 API_BASE_URL=https://onshell.cloud/api
 GATEWAY_BASE_URL=https://onshell.cloud/gateway
 
-# Web (Next.js) client bundle — build time-এ bake হয়
+# Baked into the Next.js client bundle at build time
 NEXT_PUBLIC_API_BASE_URL=https://onshell.cloud/api
 NEXT_PUBLIC_GATEWAY_BASE_URL=https://onshell.cloud/gateway
 
-# Database (CloudPanel MySQL) + Redis
+# Database (CloudPanel MySQL) and Redis
 DATABASE_URL=mysql://onshell:<DB_PASSWORD>@127.0.0.1:3306/onshell_cloud
 REDIS_URL=redis://127.0.0.1:6379
 
-# Secrets — অবশ্যই বদলাও
+# Secrets — these must be changed. The API refuses to boot in production while
+# they still hold their .env.example placeholders.
 JWT_SECRET=<long-random-string>
 MASTER_ENCRYPTION_KEY=<32-byte-base64-key>
 CORS_ORIGINS=https://onshell.cloud
 
-# API ↔ gateway shared secret। দুই process-এ **একই** value বসাতে হবে।
-# খালি রাখলে gateway-র REST route গুলো unauthenticated থাকে — অর্থাৎ session id
-# জানা যে কেউ ওই session-এর ফাইল list করতে পারবে। Browser আর সরাসরি gateway-র
-# REST-এ call করে না, তাই এটা set করলে কিছু ভাঙবে না।
+# Shared secret between the API and the gateway. The **same** value in both.
+# Leaving it empty leaves the gateway's REST routes unauthenticated — anyone who
+# knows a session id could list that session's files. The browser never calls the
+# gateway's REST API directly, so setting it breaks nothing.
 GATEWAY_SHARED_SECRET=<32-byte-hex>
 
-# Turnstile ভুল configure হয়ে সবাই লক-আউট হলে জরুরি দরজা। স্বাভাবিক সময়ে false।
+# Escape hatch for a misconfigured Turnstile locking everyone out. Normally false.
 TURNSTILE_DISABLED=false
 
-# Admin seed account
+# Seed admin account
 ADMIN_EMAIL=you@example.com
 ADMIN_PASSWORD=<strong-admin-password>
 
-# Google OAuth (optional; না লাগলে খালি রাখো)
+# Google OAuth (optional; leave empty if unused)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=https://onshell.cloud/api/auth/google/callback
@@ -202,12 +223,12 @@ SMTP_PASSWORD=
 SMTP_FROM_EMAIL=noreply@onshell.cloud
 SMTP_FROM_NAME=Onshell
 
-# Guacd (RDP feature চালালে; নাহলে default রাখো)
+# guacd, if you are running the RDP feature; otherwise leave the defaults
 GUACD_HOST=127.0.0.1
 GUACD_PORT=4822
 ```
 
-Random secret বানানোর সহজ উপায়:
+Generating the secrets:
 
 ```bash
 openssl rand -base64 48   # JWT_SECRET
@@ -215,74 +236,86 @@ openssl rand -base64 32   # MASTER_ENCRYPTION_KEY
 openssl rand -hex 32      # GATEWAY_SHARED_SECRET
 ```
 
-> **কেন `set -a && source .env` করে build/start করতে হবে:** `NEXT_PUBLIC_*` variable গুলো `yarn build` এর সময় web bundle-এ **bake** হয়ে যায়, আর PM2 ও start-এর সময় shell env থেকে secret নেয়। তাই প্রতিবার build/start করার আগে `.env` কে shell-এ load করবো।
+> **Back up `MASTER_ENCRYPTION_KEY` separately from the database.** Together they
+> open the credential vault; the key alone opens nothing, and the database alone is
+> ciphertext. Lose the key and every saved credential is unrecoverable — which is
+> the point.
+
+> **Why `set -a && source .env` before building or starting:** the `NEXT_PUBLIC_*`
+> variables are baked into the web bundle during `yarn build`, and PM2 reads secrets
+> from the shell environment at start. So load `.env` into the shell before either.
 
 ---
 
-## 7. Install → Build → Migrate → Seed
+## 7. Install, build, migrate, seed
 
 ```bash
 cd ~/htdocs/onshell.cloud
-set -a && source .env && set +a      # .env কে shell env-এ load করো
+set -a && source .env && set +a      # load .env into the shell environment
 
-# Prisma CLI apps/api/ থেকে run হয়, তাই root .env এর একটা symlink দিয়ে দাও
-# যাতে db:generate/deploy/seed সব সময় DATABASE_URL পায় (একবারই লাগবে):
+# The Prisma CLI runs from apps/api/, so symlink the root .env there once. Without
+# it db:generate / db:deploy / db:seed cannot see DATABASE_URL.
 ln -sf ../../.env apps/api/.env
 
 corepack enable
 yarn install --immutable
 yarn build                            # packages + api/gateway dist + web .next
 yarn db:generate                      # Prisma client (MySQL)
-yarn db:deploy                        # MySQL migration apply
-yarn db:seed                          # admin/plans/settings seed
+yarn db:deploy                        # apply migrations
+yarn db:seed                          # admin, plans, settings
 ```
 
-> **`Environment variable not found: DATABASE_URL` error?** কারণ `yarn db:*` script গুলো `apps/api/`
-> ফোল্ডারে run হয়, আর Prisma root-এর `.env` দেখতে পায় না। উপরের `ln -sf ../../.env apps/api/.env`
-> symlink দিলেই ঠিক হয়ে যায় (অথবা প্রতিবার আগে `set -a && source .env && set +a` করলেও চলবে)।
+> **`Environment variable not found: DATABASE_URL`?** The `yarn db:*` scripts run in
+> `apps/api/`, where Prisma cannot see the root `.env`. The `ln -sf ../../.env
+> apps/api/.env` above fixes it permanently; `set -a && source .env && set +a` before
+> each command works too.
 
-সব সফল হলে `apps/api/dist`, `apps/gateway/dist`, `apps/web/.next` তৈরি হবে এবং DB তে table + admin account বসবে।
+On success you will have `apps/api/dist`, `apps/gateway/dist`, and `apps/web/.next`,
+with the tables and the admin account in the database.
 
 ---
 
-## 8. PM2 দিয়ে ৩টা service চালানো
+## 8. Run the three services under PM2
 
-Repo-তে already একটা `ecosystem.config.cjs` আছে (web=5018, api=5017, gateway=5019)। এটা
-নিজে থেকেই root `.env` load করে নেয়, তাই আলাদা করে source করা লাগে না (shell-এ set করা থাকলে সেটাই অগ্রাধিকার পায়):
+The repository ships `ecosystem.config.cjs` (web 5018, api 5017, gateway 5019). It
+loads the root `.env` itself, so sourcing it separately is not required — anything
+already set in the shell takes precedence:
 
 ```bash
 cd ~/htdocs/onshell.cloud
 pm2 start ecosystem.config.cjs
 pm2 status
-pm2 logs                              # সব service-এর log
+pm2 logs                              # all three services
 ```
 
-তিনটা process `online` দেখালে ঠিক আছে: `onshell-web`, `onshell-api`, `onshell-gateway`।
+Three processes should show `online`: `onshell-web`, `onshell-api`,
+`onshell-gateway`.
 
-**Reboot-এর পরও চালু রাখতে** (systemd)। `pm2 startup` এর জন্য root/sudo লাগে:
+**Surviving a reboot** (systemd). `pm2 startup` needs root:
 
 ```bash
-# site user হিসেবে চালাও — এটা একটা sudo command print করবে:
+# As the site user — this prints a sudo command:
 pm2 startup
 
-# print হওয়া command-টা root/sudo দিয়ে চালাও, যেমন:
+# Run the printed command as root, for example:
 sudo env PATH=$PATH:/home/onshell/.nvm/versions/node/v22.*/bin \
     pm2 startup systemd -u onshell --hp /home/onshell
 
-# তারপর current process list save করো (site user হিসেবে):
+# Then save the current process list, as the site user:
 pm2 save
 ```
 
 ---
 
-## 9. Nginx vhost edit — `/api` আর `/gateway` route যোগ করা
+## 9. Edit the Nginx vhost to add `/api` and `/gateway`
 
-CloudPanel UI → **Sites** → `onshell.cloud` → **Vhost** tab।
+CloudPanel UI → **Sites** → `onshell.cloud` → **Vhost** tab.
 
-ডিফল্ট vhost-এ শুধু `location / { ... :5018 }` আছে। HTTPS `server { }` block-এর ভেতরে, `location / { }` এর **পাশে/উপরে** নিচের দুইটা block যোগ করো:
+The default vhost has only `location / { ... :5018 }`. Inside the HTTPS `server { }`
+block, alongside `location / { }`, add these two:
 
 ```nginx
-    # API (Fastify) — /api/* -> :5017  (/api prefix স্ট্রিপ হয়)
+    # API (Fastify) — /api/* -> :5017, with the /api prefix stripped
     location /api/ {
         proxy_pass http://127.0.0.1:5017/;
         proxy_http_version 1.1;
@@ -293,7 +326,7 @@ CloudPanel UI → **Sites** → `onshell.cloud` → **Vhost** tab।
         client_max_body_size 25m;
     }
 
-    # Gateway (WebSocket + REST) — /gateway/* -> :5019  (/gateway prefix স্ট্রিপ হয়)
+    # Gateway (WebSocket + REST) — /gateway/* -> :5019, prefix stripped
     location /gateway/ {
         proxy_pass http://127.0.0.1:5019/;
         proxy_http_version 1.1;
@@ -308,7 +341,11 @@ CloudPanel UI → **Sites** → `onshell.cloud` → **Vhost** tab।
     }
 ```
 
-`location / { }` block-টা যেন `127.0.0.1:5018` এ যায় সেটা confirm করো (Node.js site বানানোর সময় port 5018 দিলে এটা এমনিতেই থাকবে):
+The long `proxy_read_timeout` matters: terminal and agent WebSockets stay open with
+no traffic for long stretches, and the default would cut them.
+
+Confirm `location / { }` points at `127.0.0.1:5018` — it will already, if you gave
+port 5018 when creating the site:
 
 ```nginx
     location / {
@@ -321,31 +358,39 @@ CloudPanel UI → **Sites** → `onshell.cloud` → **Vhost** tab।
     }
 ```
 
-Save করলে CloudPanel config test করে Nginx reload করে। Error দিলে block-এর বসানোর জায়গা/brace মিলিয়ে দেখো।
+On save, CloudPanel tests the config and reloads Nginx. If it errors, check where the
+blocks were placed and that the braces balance.
 
-> **কেন কাজ করে:** `proxy_pass`-এর শেষে `/` থাকায় Nginx matched prefix (`/api/`, `/gateway/`) কেটে বাকি path পাঠায়। যেমন `/api/auth/login` → API-তে `/auth/login`, আর `/gateway/sessions` → gateway-তে `/sessions`. Nginx longest-prefix match করে, তাই `/api` আর `/gateway` আগে ম্যাচ করে, বাকি সব `/` (web) এ যায়।
+> **Why this works:** the trailing `/` on `proxy_pass` makes Nginx strip the matched
+> prefix and forward the rest — `/api/auth/login` arrives at the API as
+> `/auth/login`, and `/gateway/sessions` arrives at the gateway as `/sessions`. Nginx
+> matches the longest prefix, so `/api` and `/gateway` win and everything else falls
+> through to `/`.
 
 ---
 
 ## 10. SSL (Let's Encrypt)
 
-CloudPanel UI → **Sites** → `onshell.cloud` → **SSL/TLS** → **Actions → New Let's Encrypt Certificate** → **Create and Install**।
+CloudPanel UI → **Sites** → `onshell.cloud` → **SSL/TLS** → **Actions → New Let's
+Encrypt Certificate** → **Create and Install**.
 
-DNS ঠিকমতো point করা থাকলে কয়েক সেকেন্ডে issue হবে এবং HTTP→HTTPS redirect অন হবে। (Cloudflare proxy অন থাকলে issue fail করতে পারে — আগে grey cloud রাখো।)
+With DNS pointing correctly it issues in seconds and enables the HTTP→HTTPS
+redirect. (Issuance can fail while a Cloudflare proxy is on — keep the grey cloud
+until it succeeds.)
 
 ---
 
-## 11. Verify (কাজ করছে কিনা)
+## 11. Verify
 
-VPS থেকে internal check:
+From the VPS:
 
 ```bash
 curl -s http://127.0.0.1:5018 | head -c 200      # web
-curl -s http://127.0.0.1:5017/health             # api  => {"status":"ok",...}
+curl -s http://127.0.0.1:5017/health             # api     => {"status":"ok",...}
 curl -s http://127.0.0.1:5019/health             # gateway
 ```
 
-বাইরে থেকে (public, path routing সহ):
+From outside, through the path routing:
 
 ```bash
 curl -s https://onshell.cloud/api/health     # => API health JSON
@@ -353,13 +398,15 @@ curl -s https://onshell.cloud/gateway/health # => gateway health JSON
 curl -sI https://onshell.cloud               # => 200, Next.js web
 ```
 
-Browser-এ `https://onshell.cloud` খুলে `/login` এ seed করা admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD`) দিয়ে login করে দেখো। Browser DevTools → Network-এ API call গুলো `https://onshell.cloud/api/...` এ যাচ্ছে কিনা confirm করো।
+Then open `https://onshell.cloud/login` in a browser and sign in with the seeded
+admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD`). In DevTools → Network, confirm the API
+calls are going to `https://onshell.cloud/api/...`.
 
 ---
 
-## 12. Firewall (security)
+## 12. Firewall
 
-শুধু web আর SSH public রাখো; app port গুলো (5018/5017/5019) localhost-এই থাকুক:
+Keep only web and SSH public; the app ports stay on loopback:
 
 ```bash
 sudo ufw allow 22
@@ -369,23 +416,25 @@ sudo ufw enable
 sudo ufw status
 ```
 
-`.env`-এ `HOST=127.0.0.1` থাকায় Node process গুলো এমনিতেই বাইরে expose হয় না — ufw সেটার দ্বিতীয় স্তরের সুরক্ষা।
+`HOST=127.0.0.1` in `.env` already keeps the Node processes off the public
+interface; ufw is the second layer.
 
 ---
 
-## 13. Google OAuth (চালালে)
+## 13. Google OAuth (optional)
 
-Google Cloud Console → OAuth client → **Authorized redirect URIs**-এ যোগ করো:
+Google Cloud Console → OAuth client → **Authorized redirect URIs**, add:
 
 ```
 https://onshell.cloud/api/auth/google/callback
 ```
 
-আর `.env`-এ `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` বসিয়ে rebuild/restart করো (ধাপ ১৪)।
+Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` in
+`.env` and rebuild/restart (step 14).
 
 ---
 
-## 14. আপডেট / redeploy (নতুন কোড push করলে)
+## 14. Updating / redeploying
 
 ```bash
 cd ~/htdocs/onshell.cloud
@@ -393,45 +442,47 @@ set -a && source .env && set +a
 git pull
 yarn install --immutable
 yarn build
-yarn db:deploy         # নতুন migration থাকলে
-pm2 reload ecosystem.config.cjs   # zero-downtime মতো restart
+yarn db:deploy         # if there are new migrations
+pm2 reload ecosystem.config.cjs   # near-zero-downtime restart
 pm2 logs
 ```
 
-> `.env`-এ `NEXT_PUBLIC_*` বদলালে অবশ্যই `yarn build` আবার চালাতে হবে — নাহলে পুরনো URL bundle-এ থেকে যাবে।
+> Changing any `NEXT_PUBLIC_*` value requires a fresh `yarn build` — otherwise the
+> old URL stays baked into the bundle.
 
 ---
 
 ## 15. RDP feature (guacd — optional)
 
-RDP-through-browser লাগলে guacd দরকার। সহজ উপায় Docker:
+RDP through the browser needs guacd. Docker is the simplest route:
 
 ```bash
 sudo apt install -y docker.io
 sudo docker run -d --name guacd --restart unless-stopped -p 127.0.0.1:4822:4822 guacamole/guacd:1.5.5
 ```
 
-`.env`-এ `GUACD_HOST=127.0.0.1` আর `GUACD_PORT=4822` রাখো, তারপর gateway restart। RDP না লাগলে এই ধাপ skip করা যায়।
+Keep `GUACD_HOST=127.0.0.1` and `GUACD_PORT=4822` in `.env`, then restart the
+gateway. Skip this step entirely if you do not need RDP.
 
 ---
 
 ## 16. Troubleshooting
 
-| সমস্যা | কারণ / সমাধান |
+| Symptom | Cause / fix |
 |---|---|
-| `502 Bad Gateway` | PM2 process down বা ভুল port। `pm2 status`, `pm2 logs onshell-web` দেখো; vhost-এর port (5018/5017/5019) মিলিয়ে দেখো। |
-| `525 SSL handshake failed` | Cloudflare error — Cloudflare ↔ origin এর মধ্যে TLS handshake ফেল। কারণ: Cloudflare proxy (orange) অন কিন্তু origin-এ valid SSL cert নেই (grey cloud না রেখে Let's Encrypt issue করায় বসেনি), বা SSL/TLS mode ভুল। মূল পেজ cache থেকে load হলেও `/api/*` (dynamic) origin hit করে বলে ওখানেই 525 দেখা যায়। **সমাধান:** grey cloud করে Let's Encrypt issue করো (ধাপ ১০), **অথবা** Cloudflare Origin Certificate origin-এ বসাও; তারপর SSL/TLS mode = **Full (strict)**। "Flexible" ব্যবহার করো না। Verify (Cloudflare bypass করে origin টেস্ট): `curl -sv --resolve onshell.cloud:443:<VPS_IP> https://onshell.cloud/api/health`। |
-| Web খোলে, কিন্তু login/API fail | `NEXT_PUBLIC_API_BASE_URL` ভুল বা build-এ bake হয়নি → `.env` ঠিক করে `yarn build` আবার চালাও। DevTools-এ actual call URL দেখো। |
-| `P1001: can't reach database` | `DATABASE_URL` ভুল, MySQL down, বা password-এ special char URL-encode হয়নি। `mysql -u onshell -p onshell_cloud` দিয়ে test করো। |
-| Migration fail / access denied | CloudPanel-এ DB user-এর privilege, host `127.0.0.1` ঠিক আছে কিনা দেখো। |
-| `P3009: migrate found failed migrations` | একটা migration আগে fail করেছে, তাই Prisma নতুন কোনোটাই চালাবে না। নিচের **১৬.১** দেখো। |
-| Redis error | `redis-cli ping` → `PONG` আসছে কিনা; `REDIS_URL` ঠিক আছে কিনা। |
-| WebSocket (gateway) connect হয় না | `/gateway/` location-এ `Upgrade`/`Connection "upgrade"` header আছে কিনা; Cloudflare proxy-তে WebSocket allow আছে কিনা। |
-| Reboot-এর পর সব বন্ধ | `pm2 startup` (root) + `pm2 save` করা হয়নি — ধাপ ৮ আবার দেখো। |
+| `502 Bad Gateway` | A PM2 process is down, or the port is wrong. Check `pm2 status` and `pm2 logs onshell-web`, and confirm the vhost ports (5018/5017/5019). |
+| `525 SSL handshake failed` | A Cloudflare error: TLS between Cloudflare and the origin failed. Usually the proxy (orange cloud) is on but the origin has no valid certificate — Let's Encrypt could not issue because the grey cloud was never set — or the SSL/TLS mode is wrong. The main page may load from cache while `/api/*` hits the origin, which is why the 525 shows up there first. **Fix:** grey cloud, issue Let's Encrypt (step 10), **or** install a Cloudflare Origin Certificate; then set SSL/TLS mode to **Full (strict)**. Do not use "Flexible". Test the origin directly with `curl -sv --resolve onshell.cloud:443:<VPS_PUBLIC_IP> https://onshell.cloud/api/health`. |
+| Web loads but login/API fails | `NEXT_PUBLIC_API_BASE_URL` is wrong or was not baked in. Fix `.env` and run `yarn build` again. Check the actual request URL in DevTools. |
+| `P1001: can't reach database` | Wrong `DATABASE_URL`, MySQL down, or an un-encoded special character in the password. Test with `mysql -u onshell -p onshell_cloud`. |
+| Migration fails / access denied | Check the database user's privileges in CloudPanel and that the host is `127.0.0.1`. |
+| `P3009: migrate found failed migrations` | A migration failed earlier, so Prisma will not run any others. See **16.1**. |
+| Redis errors | Confirm `redis-cli ping` answers `PONG` and that `REDIS_URL` is right. |
+| WebSocket (gateway) will not connect | Check the `/gateway/` location has the `Upgrade` and `Connection "upgrade"` headers, and that WebSockets are allowed if Cloudflare is proxying. |
+| Everything stops after a reboot | `pm2 startup` (as root) and `pm2 save` were not run — see step 8. |
 
 ---
 
-## 16.1 `P3009` — fail করা migration থেকে recover
+## 16.1 Recovering from `P3009`
 
 ```text
 Error: P3009
@@ -439,70 +490,71 @@ migrate found failed migrations in the target database
 The `2026...._xxx` migration started at ... failed
 ```
 
-Prisma fail হওয়া migration-টা `_prisma_migrations`-এ `finished_at = NULL` রেখে দেয় এবং
-তারপরের কোনো migration আর চালায় না। **ঠিক কী কারণে fail করেছে সেটা আগে দেখতে হবে** —
-কারণ না জেনে `resolve` করলে schema আর migration history আলাদা হয়ে যাবে।
+Prisma leaves the failed migration in `_prisma_migrations` with `finished_at = NULL`
+and refuses to run anything after it. **Find out why it failed first** — resolving
+without knowing leaves the schema and the migration history disagreeing.
 
-**ধাপ ১ — আসল error আর DB-র বর্তমান অবস্থা দেখো**
+**Step 1 — read the real error and the database's current state**
 
 ```bash
 cd /home/onshell/htdocs/onshell.cloud
 
-# আসল error message (Prisma এটা DB-তেই লিখে রাখে)
-mysql -u onshell -p onshell -e "
+# Prisma records the actual error in the database itself
+mysql -u onshell -p onshell_cloud -e "
   SELECT migration_name, started_at, finished_at, rolled_back_at, logs
   FROM _prisma_migrations ORDER BY started_at DESC LIMIT 3\G"
 ```
 
-**ধাপ ২ — migration-টা আদৌ কতটুকু apply হয়েছে যাচাই করো**
+**Step 2 — check how much of it actually applied**
 
-MySQL-এ DDL transactional **নয়**, তাই একটা migration মাঝপথে থেমে যেতে পারে। ফাইলটা খুলে
-উপর থেকে নিচে প্রতিটা statement-এর ফল DB-তে আছে কিনা মিলিয়ে দেখো, যেমন:
+DDL is **not** transactional in MySQL, so a migration can stop halfway. Open the
+file and check each statement's effect against the database, for example:
 
 ```bash
-mysql -u onshell -p onshell -e "SHOW TABLES LIKE 'Agent%'; SHOW COLUMNS FROM \`Host\` LIKE 'isAgent';"
+mysql -u onshell -p onshell_cloud -e "SHOW TABLES LIKE 'Agent%'; SHOW COLUMNS FROM \`Host\` LIKE 'isAgent';"
 ```
 
-* **কিছুই apply হয়নি** (খালি ফল) → ধাপ ৩-এ যাও।
-* **আংশিক apply হয়েছে** → যতটুকু হয়েছে হাতে undo করো (`DROP TABLE` / `ALTER TABLE … DROP
-  COLUMN`), যাতে migration-টা আবার শুরু থেকে চলতে পারে। এটা না করলে দ্বিতীয়বার
-  `Duplicate column name` বা `Table already exists` দিয়ে আবার fail করবে।
+* **Nothing applied** (empty result) → go to step 3.
+* **Partially applied** → undo what did apply by hand (`DROP TABLE`, `ALTER TABLE …
+  DROP COLUMN`) so the migration can run from the start. Without this it fails again
+  with `Duplicate column name` or `Table already exists`.
 
-**ধাপ ৩ — কারণটা ঠিক করো, তারপর rolled-back mark করে আবার চালাও**
+**Step 3 — fix the cause, mark it rolled back, run again**
 
 ```bash
-git pull                       # fix সহ নতুন কোড
+git pull                       # the fix
 
 yarn workspace @onshell/api prisma migrate resolve \
   --rolled-back 20260731174638_add_agent_devices
 
 yarn db:deploy
-yarn db:status                 # "Database schema is up to date!" আসতে হবে
+yarn db:status                 # should say "Database schema is up to date!"
 ```
 
-`--rolled-back` শুধু বলে "এই চেষ্টাটা হয়নি" — এটা নিজে থেকে DB-তে কিছু undo করে না।
-সেজন্যই ধাপ ২ আগে করতে হয়। `--applied` ব্যবহার **করবে না** যদি না তুমি নিজে হাতে
-পুরো SQL চালিয়ে থাকো; নাহলে Prisma ভাববে কাজ হয়ে গেছে আর column গুলো কোনোদিন তৈরি হবে না।
+`--rolled-back` only records "that attempt did not happen" — it undoes nothing in
+the database itself, which is why step 2 comes first. Do **not** use `--applied`
+unless you ran the whole SQL by hand; otherwise Prisma believes the work is done and
+those columns are never created.
 
-**ধাপ ৪ — service restart**
+**Step 4 — restart the services**
 
 ```bash
-yarn install                   # node-pty-র postinstall chmod সহ
+yarn install                   # includes node-pty's postinstall chmod
 yarn build
 pm2 restart ecosystem.config.cjs --update-env
 ```
 
-### কেন এটা হয়েছিল (২ অগাস্ট ২০২৬)
+### Why this happened once (2 August 2026)
 
-`20260731174638_add_agent_devices`-এ Prisma লিখেছিল ``ALTER TABLE `host` `` — ছোট হাতের
-অক্ষরে — অথচ table-টার আসল নাম `Host`। macOS/Windows-এর MySQL-এ
-`lower_case_table_names` 1 বা 2 থাকে, তাই ওখানে case মিলুক না মিলুক চলে যায়। Linux-এ
-default **0**, অর্থাৎ case-sensitive — সেখানে এটা `Table 'onshell.host' doesn't exist`
-দিয়ে fail করে।
+`20260731174638_add_agent_devices` was written as ``ALTER TABLE `host` `` — lower
+case — while the table is really `Host`. MySQL on macOS and Windows runs with
+`lower_case_table_names` set to 1 or 2, so the case mismatch passes there. On Linux
+the default is **0**, meaning case-sensitive, and it failed with
+`Table 'onshell.host' doesn't exist`.
 
-এই ধরনের ভুল আর যাতে server পর্যন্ত না পৌঁছায়, সেজন্য `yarn check:migrations`
-(`scripts/check-migration-case.mjs`) প্রতিটা migration-এর table নামের case যাচাই করে, আর
-CI Linux MySQL-এর উপর `yarn db:deploy` চালায়।
+So that this cannot reach a server again, `yarn check:migrations`
+(`scripts/check-migration-case.mjs`) verifies the table-name case in every migration,
+and CI runs `yarn db:deploy` against MySQL on Linux.
 
 ---
 
@@ -518,12 +570,18 @@ CI Linux MySQL-এর উপর `yarn db:deploy` চালায়।
 
 ---
 
-## বিকল্প: প্রতি service-এর জন্য আলাদা subdomain
+## Alternative: a subdomain per service
 
-একটাই path routing-এর বদলে চাইলে আলাদা subdomain-ও করা যায় (cleaner separation, তবে ৩টা site + ৩টা SSL):
+Instead of path routing you can give each service its own subdomain — cleaner
+separation, at the cost of three sites and three certificates:
 
 - `onshell.cloud` → web (5018)
 - `api.onshell.cloud` → api (5017)
 - `gateway.onshell.cloud` → gateway (5019)
 
-তখন `.env`-এ `API_BASE_URL`/`NEXT_PUBLIC_API_BASE_URL` = `https://api.onshell.cloud` (path prefix ছাড়া) দিতে হবে, আর CloudPanel-এ প্রতিটার জন্য আলাদা **Reverse Proxy Site** বানাতে হবে। বেশিরভাগ ক্ষেত্রে উপরের single-subdomain approach-ই যথেষ্ট আর সহজ।
+Then set `API_BASE_URL` and `NEXT_PUBLIC_API_BASE_URL` to `https://api.onshell.cloud`
+(no path prefix) and create a separate **Reverse Proxy Site** in CloudPanel for each.
+For most deployments the single-domain approach above is simpler and enough.
+
+**Do not give the gateway a public subdomain unless you have set
+`GATEWAY_SHARED_SECRET`.** It authorises nothing on its own.

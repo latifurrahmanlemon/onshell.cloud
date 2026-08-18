@@ -246,9 +246,32 @@ yarn workspace @onshell/desktop dev     # Vite + Electron, against a local serve
 yarn workspace @onshell/desktop dist    # installers for this OS
 ```
 
-Releases are cut by tagging `desktop-v*`, which runs
-[.github/workflows/desktop.yml](../.github/workflows/desktop.yml) on all three
-platforms. That workflow is public for the same reason the rest of this is: an
+## Cutting a release
+
+The version in `apps/desktop/package.json` is what ends up in the installer names
+and in the app's own "Onshell Desktop x.y.z", so bump it first and let the tag
+match:
+
+```bash
+git tag desktop-v0.2.0
+git push origin desktop-v0.2.0
+```
+
+That runs [.github/workflows/desktop.yml](../.github/workflows/desktop.yml) on
+macOS, Windows, and Linux runners, and publishes the six installers as a GitHub
+Release on `onshell-downloads` — the public repository the download page already
+links to. `DOWNLOADS_TOKEN` has to be set for that; without it the job fails
+loudly rather than finishing green having published nothing.
+
+Numbering starts at 0.2.0 rather than 0.1.0: `desktop-v0.1.x` tags already exist
+from the old agent-only tray app, and reusing a version for different software
+would make "which build is this" unanswerable from the tag alone.
+
+Running the workflow by hand (`workflow_dispatch`) builds all three legs and
+uploads them as run artifacts without publishing anything, which is the way to
+check a packaging change before committing to a version number.
+
+Everything below is what that workflow does under the hood. That workflow is public for the same reason the rest of this is: an
 installer with an updater is a remote code execution channel, and the only honest
 answer to "what is in the binary you want me to run as myself" is a recipe anyone can
 read.

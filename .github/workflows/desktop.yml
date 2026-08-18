@@ -17,9 +17,15 @@ on:
     tags: ["desktop-v*"]
   workflow_dispatch:
 
-# Read-only: the release is created on the public onshell-downloads repo with a
-# PAT (DOWNLOADS_TOKEN), not with the automatic token, so this job never needs
-# write access to this repository. Checkout is all it uses the token for.
+# Read-only: the release is published on the separate onshell-downloads repo
+# with a PAT (DOWNLOADS_TOKEN), not with the automatic token, so this job never
+# needs write access here. Checkout is all it uses the token for.
+#
+# It stays on that repo rather than moving here now that this one is public,
+# because the download page and every link already handed out point there, and
+# a release history that jumps repositories mid-product is worse than one that
+# lives somewhere slightly odd. Set the DOWNLOADS_REPO variable to override —
+# a fork will want it pointing at its own repository.
 permissions:
   contents: read
 
@@ -137,14 +143,23 @@ jobs:
       # `gh release create` races across the three legs; `|| true` makes the
       # loser of that race fall straight through to upload against the release
       # the winner made. shell: bash normalises globbing on the Windows runner.
+      # Only on a tag: a manual run is for checking that the three legs still
+      # build, and it must not quietly publish a release nobody asked for.
       - name: Publish installers
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN || github.token }}
-          DOWNLOADS_REPO: ${{ vars.DOWNLOADS_REPO || github.repository }}
+          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+          DOWNLOADS_REPO: ${{ vars.DOWNLOADS_REPO || 'latifurrahmanlemon/onshell-downloads' }}
         run: |
           set -euo pipefail
+
+          # Fail loudly rather than finishing green having published nothing: a
+          # tag build whose installers reach no one is a failed release.
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::DOWNLOADS_TOKEN is not set, so the installers cannot be published to $DOWNLOADS_REPO."
+            exit 1
+          fi
 
           cd apps/desktop/release
           version="${GITHUB_REF_NAME#desktop-v}"
