@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { prisma } from "../../lib/prisma.js";
-import { toPublicUser } from "../../lib/prisma-mappers.js";
+import { membershipOrder, toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { createAudit } from "./auth.js";
 
@@ -62,15 +62,8 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Runtim
       const updated = await prisma.user.update({
         where: { id: user.id },
         data,
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
-
-      // Keep the membership for the active organization first so toPublicUser
-      // resolves the same role/org the caller is authenticated against.
-      const memberships = [...updated.memberships].sort(
-        (a, b) =>
-          Number(b.organizationId === user.organizationId) - Number(a.organizationId === user.organizationId)
-      );
 
       await createAudit({
         organizationId: user.organizationId,
@@ -82,7 +75,10 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Runtim
         metadata: { fields: Object.keys(data) }
       });
 
-      return { user: toPublicUser({ ...updated, memberships }) };
+      // Scoped to the workspace the caller is authenticated against, so the
+      // response carries the same role and organization the request did — a
+      // profile edit must not move anyone.
+      return { user: toPublicUser(updated, user.organizationId) };
     } catch (error) {
       return handleRouteError(reply, error);
     }

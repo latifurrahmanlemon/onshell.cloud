@@ -19,11 +19,11 @@ import {
 import { maskEmail } from "../../lib/mask-email.js";
 import { prisma } from "../../lib/prisma.js";
 import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
-import { toPublicUser } from "../../lib/prisma-mappers.js";
+import { membershipOrder, toPublicUser } from "../../lib/prisma-mappers.js";
 import { generateReferralCode } from "../../lib/provisioning.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { hashToken } from "../../lib/token.js";
-import { createAudit, issueTokens } from "./auth.js";
+import { createAudit, emailField, issueTokens } from "./auth.js";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -54,7 +54,14 @@ const roleToPublic: Record<Role, PublicRole> = {
 };
 
 const inviteSchema = z.object({
-  email: z.string().email(),
+  // The same normalising field the auth routes use, rather than a bare
+  // `z.string().email()`. An invitation used to persist with whatever casing the
+  // inviter typed; acceptance only ever found it because MySQL's
+  // utf8mb4_0900_ai_ci collation compares case-insensitively, so the invitation
+  // would have become unacceptable the moment the column was given a
+  // case-sensitive collation — or the row read by anything that compares in
+  // application code.
+  email: emailField,
   role: z.enum(["admin", "devops", "developer", "auditor"])
 });
 
@@ -220,7 +227,7 @@ export async function registerOrganizationRoutes(
       const body = inviteSchema.parse(request.body);
       const existingUser = await prisma.user.findUnique({
         where: { email: body.email },
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
       if (existingUser?.memberships.some((membership) => membership.organizationId === actor.organizationId)) {
         return reply.code(409).send({ error: "already_a_member" });
@@ -407,7 +414,7 @@ export async function registerOrganizationRoutes(
 
       const existingUser = await prisma.user.findUnique({
         where: { email: invitation.email },
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
 
       if (existingUser) {
@@ -425,6 +432,21 @@ export async function registerOrganizationRoutes(
               }
             });
           }
+          // Point the account at the workspace it just joined.
+          //
+          // `requiresLogin: true` below sends the accepter to a sign-in, and a
+          // sign-in resolves the workspace from this column — so without this
+          // line, accepting an invitation and then doing exactly what the page
+          // told you to do lands you back in your own workspace, with the host
+          // you were granted invisible and nothing to explain why. That is the
+          // report this whole change came from.
+          //
+          // Deliberately only a preference: it does not sign anybody in, does
+          // not touch a live session, and is overridden the moment they switch.
+          await tx.user.update({
+            where: { id: existingUser.id },
+            data: { lastActiveOrganizationId: invitation.organizationId }
+          });
           await tx.invitation.update({
             where: { id: invitation.id },
             data: { acceptedAt: new Date() }
@@ -469,6 +491,7 @@ export async function registerOrganizationRoutes(
             email: invitation.email,
             passwordHash,
             referralCode,
+            lastActiveOrganizationId: invitation.organizationId,
             memberships: {
               create: {
                 organizationId: invitation.organizationId,
@@ -476,7 +499,7 @@ export async function registerOrganizationRoutes(
               }
             }
           },
-          include: { memberships: true }
+          include: { memberships: membershipOrder }
         });
 
         await tx.invitation.update({
@@ -487,7 +510,11 @@ export async function registerOrganizationRoutes(
         return createdUser;
       });
 
-      const user = { ...toPublicUser(prismaUser), authMethods: ["password" as const] };
+      const user = {
+        // The workspace they were invited to, which is also their only one.
+        ...toPublicUser(prismaUser, invitation.organizationId),
+        authMethods: ["password" as const]
+      };
       await createAudit({
         organizationId: invitation.organizationId,
         actorId: user.id,

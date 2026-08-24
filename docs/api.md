@@ -20,11 +20,48 @@ The API currently exposes development route contracts backed by in-memory data. 
 * `POST /auth/2fa/complete`
 * `POST /auth/2fa/disable`
 * `GET /auth/2fa/status`
+* `GET /auth/organizations`
+* `POST /auth/organizations/:organizationId/switch`
 * `GET /auth/google/start`
 * `GET /auth/google`
 * `GET /auth/google/callback`
 
 Successful login returns tokens and also sets `access_token` and `refresh_token` HTTP-only cookies for browser clients.
+
+### Workspaces, for accounts that belong to more than one
+
+An account can hold memberships in several organizations — accepting an invitation with an
+address that already has an account is the ordinary way it happens. One of them is *active*
+for the session, and everything else the API returns is scoped to it.
+
+`GET /auth/organizations` lists them: `{ activeOrganizationId, organizations: [{ id, name,
+slug, role, isActive, joinedAt }] }`. `role` is the role held in *that* workspace, which is
+not usually the same in all of them.
+
+`POST /auth/organizations/:organizationId/switch` re-issues the session against that
+workspace and returns `{ user, organization, changed, accessToken?, refreshToken? }`.
+Switching to the workspace already active is a no-op: `changed: false`, and no session is
+minted. Everything the client had loaded belongs to the previous workspace and must be
+discarded — including open terminals, which stay connected to machines the new workspace has
+no claim on.
+
+The membership is resolved from the authenticated user id and the path. Nothing in the body
+is read, and the role always comes from the target membership — a role in a request would be
+a client asking to be an owner. A workspace the caller is not a member of returns **404**,
+identical to one that does not exist, so the endpoint is not an oracle for organization ids.
+
+The stored workspace is a preference, never an authorization: every request re-reads the
+memberships and re-derives the role, so removing a member takes effect on their next request
+rather than at token expiry. When the workspace a live token names is no longer one of the
+caller's, `GET /auth/me` and `POST /auth/refresh` fall back to one that is and say so, in
+`activeOrganizationChanged: { reason: "membership_revoked", previousOrganizationId,
+previousOrganizationName, organizationId, organizationName }`. Nothing leaks either way — the
+fallback is a workspace they really belong to — but the console needs to be able to tell the
+user "you were removed from X, you are now in Y" rather than silently showing a different
+workspace's hosts.
+
+`GET /auth/me` returns `organizations` alongside `user` and `organization`, so a client can
+decide whether to offer a switcher on its first call.
 
 Session length: the access token lives 12 hours; the refresh cookie lives `SESSION_TTL_DAYS`
 (default 30) and slides — `POST /auth/refresh` rotates it and restarts the clock, so a browser

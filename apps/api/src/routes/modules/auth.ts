@@ -9,7 +9,8 @@ import bcrypt from "bcryptjs";
 import { generateSecret, generateURI, verify } from "otplib";
 import QRCode from "qrcode";
 import { z } from "zod";
-import { getAuthenticatedUser } from "../../lib/current-user.js";
+import { resolveActiveMembership } from "../../lib/active-organization.js";
+import { getAuthenticatedSession, getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail, isSmtpEnabled } from "../../lib/email.js";
 import { passwordResetEmail, signInCodeEmail, twoFactorChangeCodeEmail } from "../../lib/email-template.js";
 import { encryptSecret, decryptSecret } from "../../lib/encryption.js";
@@ -17,7 +18,12 @@ import { clearLoginFailures, getLoginLock, recordLoginFailure } from "../../lib/
 import { prisma } from "../../lib/prisma.js";
 import { isRefreshTokenUsable } from "../../lib/refresh-token-policy.js";
 import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
-import { toPublicUser, type UserWithMembership } from "../../lib/prisma-mappers.js";
+import {
+  membershipOrder,
+  roleFromPrisma,
+  toPublicUser,
+  type UserWithMembership
+} from "../../lib/prisma-mappers.js";
 import {
   ensureFreeSubscription,
   ensureLocalHost,
@@ -50,7 +56,7 @@ const authRateLimit = (max: number, timeWindow = "1 minute") => ({
  * way in. Without this, `Ada@x.com` and `ada@x.com` become two accounts and the
  * unique index does not prevent the duplicate.
  */
-const emailField = z
+export const emailField = z
   .string()
   .email()
   .transform((value) => value.trim().toLowerCase());
@@ -109,6 +115,10 @@ const changePasswordSchema = z.object({
 const googleCallbackSchema = z.object({
   code: z.string(),
   state: z.string()
+});
+
+const switchOrganizationParamsSchema = z.object({
+  organizationId: z.string().min(1).max(64)
 });
 
 type GoogleProfile = {
@@ -184,6 +194,21 @@ async function uniqueOrganizationSlug(name: string) {
   return slug;
 }
 
+/**
+ * Mints a session for `user`, in the workspace `user.organizationId` names.
+ *
+ * There is no separate organization parameter because there must not be one:
+ * `user` came out of `toPublicUser`, which already had to be told which
+ * workspace it meant, and a second source of truth here is how the JWT and the
+ * session row would come to disagree.
+ *
+ * The workspace is written onto the session row as well as into the token. The
+ * clients call `/auth/refresh` on any 401 and on tab focus, so a choice that
+ * lived only in the access token would be reset to the default by a background
+ * refresh — the user bounced into another workspace with nothing to explain it.
+ * It is also recorded on the account, so the next sign-in starts where this one
+ * left off.
+ */
 export async function issueTokens(
   reply: FastifyReply,
   config: RuntimeConfig,
@@ -204,13 +229,24 @@ export async function issueTokens(
   const sessionTtlSeconds = config.sessionTtlDays * 24 * 60 * 60;
   const expiresAt = new Date(Date.now() + sessionTtlSeconds * 1000);
 
-  await prisma.refreshToken.create({
-    data: {
-      userId: user.id,
-      tokenHash: hashToken(refreshToken),
-      expiresAt
-    }
-  });
+  // Empty for an account with no membership at all, which the column models as
+  // null rather than as a foreign key to nothing.
+  const organizationId = user.organizationId || null;
+
+  await prisma.$transaction([
+    prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(refreshToken),
+        organizationId,
+        expiresAt
+      }
+    }),
+    prisma.user.update({
+      where: { id: user.id },
+      data: { lastActiveOrganizationId: organizationId }
+    })
+  ]);
 
   // Scoped to the registrable domain (".onshell.cloud") when the request is
   // actually on it, so onshell.cloud and api.onshell.cloud share one session.
@@ -450,7 +486,7 @@ async function upsertGoogleUser(rawProfile: GoogleProfile) {
     },
     include: {
       user: {
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       }
     }
   });
@@ -459,7 +495,7 @@ async function upsertGoogleUser(rawProfile: GoogleProfile) {
 
   const existingByEmail = await prisma.user.findUnique({
     where: { email: profile.email },
-    include: { memberships: true }
+    include: { memberships: membershipOrder }
   });
 
   if (existingByEmail) {
@@ -477,7 +513,7 @@ async function upsertGoogleUser(rawProfile: GoogleProfile) {
       data: {
         emailVerifiedAt: profile.email_verified ? new Date() : existingByEmail.emailVerifiedAt
       },
-      include: { memberships: true }
+      include: { memberships: membershipOrder }
     });
   }
 
@@ -514,11 +550,81 @@ async function upsertGoogleUser(rawProfile: GoogleProfile) {
           }
         }
       },
-      include: { memberships: true }
+      include: { memberships: membershipOrder }
     });
 
     return user;
   });
+}
+
+function toPublicOrganization(organization: {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: Date;
+}) {
+  return {
+    id: organization.id,
+    name: organization.name,
+    slug: organization.slug,
+    createdAt: organization.createdAt.toISOString()
+  };
+}
+
+/**
+ * Every workspace this account can switch into, with the role it holds in each.
+ *
+ * The role is read per membership rather than taken from the session, because
+ * someone can be an owner of their own workspace and an auditor of a workspace
+ * they were invited to — and a switcher that showed one role for both would be
+ * telling them the wrong thing about what they are about to be able to do.
+ */
+async function listMemberships(userId: string, activeOrganizationId: string) {
+  const memberships = await prisma.organizationMember.findMany({
+    where: { userId },
+    include: { organization: true },
+    orderBy: { createdAt: "asc" }
+  });
+
+  return memberships.map((membership) => ({
+    id: membership.organizationId,
+    name: membership.organization.name,
+    slug: membership.organization.slug,
+    role: roleFromPrisma[membership.role],
+    isActive: membership.organizationId === activeOrganizationId,
+    joinedAt: membership.createdAt.toISOString()
+  }));
+}
+
+/**
+ * Describes a workspace substitution the caller did not ask for.
+ *
+ * The case is a live access token naming a workspace the person has since been
+ * removed from. They keep working, in a workspace they genuinely belong to, so
+ * nothing has leaked — but until this existed the change was invisible, and a
+ * console whose host list silently becomes somebody else's is indistinguishable
+ * from a console that has broken.
+ *
+ * Naming the workspace they lost is not a disclosure: they were a member of it
+ * minutes ago and hold a token that says so.
+ */
+async function describeOrganizationChange(
+  previousOrganizationId: string,
+  organization: { id: string; name: string } | null
+) {
+  const previous = await prisma.organization.findUnique({
+    where: { id: previousOrganizationId },
+    select: { name: true }
+  });
+
+  return {
+    reason: "membership_revoked" as const,
+    previousOrganizationId,
+    // Null when the workspace itself was deleted rather than the membership.
+    previousOrganizationName: previous?.name ?? null,
+    organizationId: organization?.id ?? null,
+    organizationName: organization?.name ?? null
+  };
 }
 
 async function addAuthMethods(user: PublicUser, prismaUser: UserWithMembership) {
@@ -551,7 +657,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       const referredById = await resolveReferrer(body.referralCode);
       const referralCode = await generateReferralCode();
 
-      const prismaUser = await prisma.$transaction(async (tx) => {
+      const { prismaUser, organizationId } = await prisma.$transaction(async (tx) => {
         const organization = await tx.organization.create({
           data: {
             name: body.organizationName,
@@ -559,13 +665,14 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
           }
         });
 
-        return tx.user.create({
+        const createdUser = await tx.user.create({
           data: {
             name: body.name,
             email: body.email,
             passwordHash,
             referralCode,
             referredById,
+            lastActiveOrganizationId: organization.id,
             memberships: {
               create: {
                 organizationId: organization.id,
@@ -573,11 +680,13 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
               }
             }
           },
-          include: { memberships: true }
+          include: { memberships: membershipOrder }
         });
+
+        return { prismaUser: createdUser, organizationId: organization.id };
       });
 
-      const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
+      const user = await addAuthMethods(toPublicUser(prismaUser, organizationId), prismaUser);
       // Start every new workspace on the Free tier so the freemium funnel and
       // the console's usage/upgrade surfaces have a plan to read from, and give
       // it the built-in local host so there is something to open a terminal on
@@ -617,7 +726,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
 
       const prismaUser = await prisma.user.findUnique({
         where: { email: body.email },
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
       if (!prismaUser?.passwordHash) {
         recordLoginFailure(body.email, request.ip);
@@ -635,7 +744,11 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       }
 
       const passwordValid = await bcrypt.compare(body.password, prismaUser.passwordHash);
-      const publicUser = toPublicUser(prismaUser);
+      // Sign in where they were, not in whichever workspace is oldest. The
+      // stored preference is checked against the live memberships rather than
+      // trusted, so a workspace they have since been removed from — or one that
+      // has been deleted — falls back instead of failing the sign-in.
+      const publicUser = toPublicUser(prismaUser, prismaUser.lastActiveOrganizationId);
       if (!passwordValid) {
         recordLoginFailure(body.email, request.ip);
         await createAudit({
@@ -738,7 +851,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
 
       const prismaUser = await prisma.user.findUnique({
         where: { id: challenge.userId },
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
       if (!prismaUser) return reply.code(404).send({ error: "user_not_found" });
 
@@ -759,7 +872,12 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       }
 
       store.pendingTwoFactorChallenges.delete(body.challengeId);
-      const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
+      // The second factor completes the sign-in that /auth/login started, so it
+      // has to land in the same workspace that would have.
+      const user = await addAuthMethods(
+        toPublicUser(prismaUser, prismaUser.lastActiveOrganizationId),
+        prismaUser
+      );
       await createAudit({
         organizationId: user.organizationId,
         actorId: user.id,
@@ -1057,7 +1175,10 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       store.googleOAuthStates.delete(query.state);
       const googleProfile = await getGoogleProfile(config, query.code);
       const prismaUser = await upsertGoogleUser(googleProfile);
-      const user = await addAuthMethods(toPublicUser(prismaUser), prismaUser);
+      const user = await addAuthMethods(
+        toPublicUser(prismaUser, prismaUser.lastActiveOrganizationId),
+        prismaUser
+      );
       await Promise.all([ensureFreeSubscription(user.organizationId), ensureLocalHost(user)]);
 
       await createAudit({
@@ -1097,11 +1218,123 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
   });
 
   app.get("/auth/me", async (request, reply) => {
+    const session = await getAuthenticatedSession(request, config);
+    if (!session) return reply.code(401).send({ error: "unauthorized" });
+
+    const { user } = session;
+    const organization = await prisma.organization.findUnique({ where: { id: user.organizationId } });
+    return {
+      user,
+      organization,
+      // Bundled in rather than left to a second request: the console needs it on
+      // its very first call to decide whether to render a switcher at all, and a
+      // switcher that appears a moment after the header has drawn is worse than
+      // one that was always there.
+      organizations: await listMemberships(user.id, user.organizationId),
+      ...(session.revokedOrganizationId
+        ? { activeOrganizationChanged: await describeOrganizationChange(session.revokedOrganizationId, organization) }
+        : {})
+    };
+  });
+
+  /**
+   * The workspaces this account belongs to, and which one it is reading.
+   *
+   * Resolved from the authenticated user id. Nothing in the request says whose
+   * memberships to list, because there is no answer to that question a caller
+   * should be able to supply.
+   */
+  app.get("/auth/organizations", async (request, reply) => {
     const user = await getAuthenticatedUser(request, config);
     if (!user) return reply.code(401).send({ error: "unauthorized" });
 
-    const organization = await prisma.organization.findUnique({ where: { id: user.organizationId } });
-    return { user, organization };
+    return {
+      activeOrganizationId: user.organizationId,
+      organizations: await listMemberships(user.id, user.organizationId)
+    };
+  });
+
+  /**
+   * Point this session at another of the caller's workspaces.
+   *
+   * The whole new attack surface of workspace switching is this handler, so:
+   *
+   *  * the membership is looked up by the *authenticated* user id and the
+   *    organization id in the path — never by anything in a body, which would
+   *    let a caller name someone else's membership;
+   *  * the role comes from the target membership, re-read here. A role in a
+   *    request would be a client asking to be an owner;
+   *  * a workspace the caller is not in answers 404, not 403. A 403 would make
+   *    this endpoint an oracle for which organization ids exist;
+   *  * nothing is granted by the switch that the caller did not already have.
+   *    The stored workspace is a preference: every later request re-reads the
+   *    memberships (`getAuthenticatedSession`) and falls back if this one has
+   *    gone, so being removed from a workspace still takes effect on the next
+   *    request rather than at token expiry.
+   *
+   * The presented refresh token is deliberately *not* revoked. The browser's
+   * cookie is overwritten by the new pair so nothing will present the old one
+   * again, and a bearer client that ignores this response keeps the session it
+   * already had — pointed at the workspace it was already reading — instead of
+   * being signed out by a call it made itself.
+   */
+  app.post("/auth/organizations/:organizationId/switch", authRateLimit(20), async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const params = switchOrganizationParamsSchema.parse(request.params);
+      const membership = await prisma.organizationMember.findUnique({
+        where: {
+          organizationId_userId: {
+            organizationId: params.organizationId,
+            userId: actor.id
+          }
+        },
+        include: { organization: true }
+      });
+      // Same answer for "no such workspace" and "not yours". The caller learns
+      // only that this switch is not available to them.
+      if (!membership) return reply.code(404).send({ error: "organization_not_found" });
+
+      if (membership.organizationId === actor.organizationId) {
+        return { user: actor, organization: toPublicOrganization(membership.organization), changed: false };
+      }
+
+      const prismaUser = await prisma.user.findUnique({
+        where: { id: actor.id },
+        include: { memberships: membershipOrder }
+      });
+      if (!prismaUser) return reply.code(401).send({ error: "unauthorized" });
+
+      const user = await addAuthMethods(toPublicUser(prismaUser, membership.organizationId), prismaUser);
+      const tokens = await issueTokens(reply, config, user, request);
+
+      await createAudit({
+        organizationId: membership.organizationId,
+        actorId: actor.id,
+        action: "auth.organization.switch",
+        targetType: "organization",
+        targetId: membership.organizationId,
+        ipAddress: request.ip,
+        metadata: { from: actor.organizationId, role: user.role }
+      });
+      // A switch mints a session, so it belongs in the login log next to the
+      // other ways one comes into existence. `SESSION` because the credential
+      // that produced it was the session the caller already held.
+      await recordAuthEvent(request, {
+        email: user.email,
+        userId: user.id,
+        event: "LOGIN",
+        method: "SESSION",
+        success: true,
+        reason: "organization_switch"
+      });
+
+      return { ...tokens, organization: toPublicOrganization(membership.organization), changed: true };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
   });
 
   app.post("/auth/refresh", async (request, reply) => {
@@ -1120,7 +1353,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         where: { tokenHash: hashToken(refreshToken) },
         include: {
           user: {
-            include: { memberships: true }
+            include: { memberships: membershipOrder }
           }
         }
       });
@@ -1139,8 +1372,30 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         });
       }
 
-      const user = await addAuthMethods(toPublicUser(tokenRow.user), tokenRow.user);
-      return issueTokens(reply, config, user, request);
+      // The workspace comes off the session row, which is the only place it
+      // could survive a rotation: this handler is called on any 401 and on tab
+      // focus, and before the row carried it a background refresh would silently
+      // reset the caller to their oldest membership.
+      //
+      // Re-validated rather than trusted. If the membership has gone the session
+      // falls back to one that has not — and says so, so the console can tell
+      // the user they were removed instead of showing them a different
+      // workspace's hosts without explanation.
+      const active = resolveActiveMembership(tokenRow.user.memberships, tokenRow.organizationId);
+      const user = await addAuthMethods(
+        toPublicUser(tokenRow.user, active.membership?.organizationId ?? null),
+        tokenRow.user
+      );
+      const tokens = await issueTokens(reply, config, user, request);
+      if (!active.fellBack) return tokens;
+
+      return {
+        ...tokens,
+        activeOrganizationChanged: await describeOrganizationChange(
+          tokenRow.organizationId as string,
+          await prisma.organization.findUnique({ where: { id: user.organizationId } })
+        )
+      };
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -1207,7 +1462,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
 
       const prismaUser = await prisma.user.findUnique({
         where: { email: body.email },
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
       if (!prismaUser) return reply.code(401).send({ error: "invalid_reset_code" });
 
@@ -1234,7 +1489,9 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         revokeRefreshTokens({ userId: prismaUser.id })
       ]);
 
-      const publicUser = toPublicUser(prismaUser);
+      // Only used to attribute the audit row, so the workspace they were last
+      // in is the right one to file it under.
+      const publicUser = toPublicUser(prismaUser, prismaUser.lastActiveOrganizationId);
       if (publicUser.organizationId) {
         await createAudit({
           organizationId: publicUser.organizationId,

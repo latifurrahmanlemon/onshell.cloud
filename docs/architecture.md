@@ -194,6 +194,30 @@ password".
 The desktop app uses bearer tokens instead of cookies, with the refresh token in the OS
 keychain via Electron's `safeStorage`.
 
+### Which workspace a session is in
+
+An account can belong to several organizations, and one of them is active for the session.
+That choice lives on the session row (`RefreshToken.organizationId`) rather than only in the
+access token, because both clients call `/auth/refresh` on any 401 and on tab focus — a
+choice held only in the token would be reset by a background refresh, moving the user into
+another workspace with nothing on screen to explain it. It is also recorded on the account
+(`User.lastActiveOrganizationId`), so signing in again lands where they left off.
+
+Neither column is an authorization. Every request re-loads the memberships and re-derives the
+role from the one that resolves ([lib/current-user.ts](../apps/api/src/lib/current-user.ts),
+[lib/active-organization.ts](../apps/api/src/lib/active-organization.ts)), so the token's
+`organizationId` and `role` claims are read as a request and never as a fact. That is what
+makes removing a member effective on their very next call instead of at token expiry, and
+what stops a workspace switch from widening the reach of an older, still-valid token. Where a
+session names a workspace the person is no longer in, it falls back to one they are — and
+reports the substitution, because a host list that silently becomes another workspace's is
+indistinguishable from a broken console.
+
+The fallback is the oldest membership, which is a decision rather than an accident: it used
+to be `memberships[0]` from an unordered load, which resolved through the userId index in
+primary-key order and so was *always* the oldest — pinning anyone who accepted an invitation
+to a second workspace inside their first one permanently.
+
 ## Deployment
 
 One host serves everything in production: Nginx routes `/api` to the API and `/gateway`

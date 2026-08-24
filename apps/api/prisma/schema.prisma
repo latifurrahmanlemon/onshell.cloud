@@ -124,6 +124,14 @@ model User {
   referralCode        String?              @unique
   /// The user whose referral link produced this signup, when any.
   referredById        String?
+  /// The workspace this account was last looking at.
+  ///
+  /// A preference, never an authorization: every request re-reads the
+  /// memberships and falls back if this one has gone. What it buys is that
+  /// signing in again lands the person where they left off, instead of in
+  /// whichever membership happens to be oldest — which for anyone who accepted
+  /// an invitation to a second workspace is the wrong one.
+  lastActiveOrganizationId String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   memberships         OrganizationMember[]
@@ -138,6 +146,7 @@ model User {
   oauthAccounts       OAuthAccount[]
   referredBy          User?                @relation("UserReferral", fields: [referredById], references: [id], onDelete: SetNull)
   referrals           User[]               @relation("UserReferral")
+  lastActiveOrganization Organization?     @relation("UserLastActiveOrganization", fields: [lastActiveOrganizationId], references: [id], onDelete: SetNull)
   aiThreads           AiThread[]
   handledContacts     ContactMessage[]     @relation("ContactHandledBy")
   visitorLogs         VisitorLog[]
@@ -151,6 +160,7 @@ model User {
   desktopDevices      DesktopDevice[]
 
   @@index([referredById])
+  @@index([lastActiveOrganizationId])
 }
 
 model Organization {
@@ -179,6 +189,8 @@ model Organization {
   agentDevices     AgentDevice[]
   agentPairingCodes AgentPairingCode[]
   desktopDevices   DesktopDevice[]
+  refreshTokens    RefreshToken[]
+  lastActiveForUsers User[]           @relation("UserLastActiveOrganization")
 }
 
 model OrganizationMember {
@@ -575,12 +587,25 @@ model RefreshToken {
   id        String    @id @default(cuid())
   userId    String
   tokenHash String    @unique
+  /// Which of the user's workspaces this session is looking at.
+  ///
+  /// It lives on the session row rather than only in the access JWT because the
+  /// clients call `/auth/refresh` on any 401 and on tab focus. An active
+  /// organization that existed only in the token would be quietly reset by a
+  /// background refresh, moving someone into another workspace mid-session with
+  /// nothing on screen to explain it.
+  ///
+  /// Nullable: sessions issued before this column existed have no answer, and
+  /// neither does a user with no membership at all.
+  organizationId String?
   revokedAt DateTime?
   expiresAt DateTime
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([userId, revokedAt])
+  @@index([organizationId])
 }
 
 model TwoFactorSecret {

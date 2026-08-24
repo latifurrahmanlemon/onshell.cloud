@@ -38,6 +38,8 @@ import type {
   LocalRoute,
   MemberHostAccess,
   Organization,
+  OrganizationList,
+  OrganizationSwitchResult,
   PendingInvitation,
   RemoteFileContent,
   RemoteSession,
@@ -182,6 +184,37 @@ export function createApiClient(options: ApiClientOptions) {
     deleteSnippet: (id: string) => request<unknown>(`/snippets/${id}`, { method: "DELETE" }),
 
     audit: async (limit = 50) => unwrapList<AuditLog>(await request(`/audit?limit=${limit}`), "logs"),
+
+    /**
+     * Every workspace this account belongs to. Distinct from `organization()`
+     * below, which describes the one workspace the session is currently in.
+     */
+    myOrganizations: () => request<OrganizationList>("/auth/organizations"),
+    /**
+     * Points the session at another of the caller's workspaces, re-issuing it
+     * against that workspace's membership and role.
+     *
+     * 404 (`organization_not_found`) for a workspace the caller is not a member
+     * of — the API does not distinguish that from one that does not exist, so
+     * this is not a way to probe for organization ids.
+     *
+     * Everything the caller had loaded belongs to the *previous* workspace and
+     * must be discarded: hosts, credentials, sessions, and above all open
+     * terminals, which stay connected to machines the new workspace has no claim
+     * on. A bearer client also has to keep the returned pair, which `adopt` does
+     * for it here — without that it would carry on using the token naming the
+     * workspace it just left.
+     */
+    switchOrganization: async (organizationId: string) => {
+      const result = await request<OrganizationSwitchResult>(
+        `/auth/organizations/${encodeURIComponent(organizationId)}/switch`,
+        { method: "POST" }
+      );
+      if (result.accessToken && result.refreshToken && options.auth?.adopt) {
+        await options.auth.adopt({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+      }
+      return result;
+    },
 
     organization: () => request<Record<string, unknown>>("/organizations/current"),
     updateOrganization: (body: { name: string }) =>

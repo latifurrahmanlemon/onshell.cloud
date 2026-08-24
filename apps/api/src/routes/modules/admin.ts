@@ -13,12 +13,13 @@ import {
   createAiCompletion,
   DEFAULT_SYSTEM_PROMPT
 } from "../../lib/ai.js";
+import { resolveActiveMembership } from "../../lib/active-organization.js";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { encryptSecret } from "../../lib/encryption.js";
 import { describeSmtpFailure, sendSmtpTestEmail } from "../../lib/email.js";
 import { prisma } from "../../lib/prisma.js";
 import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
-import { toPublicUser } from "../../lib/prisma-mappers.js";
+import { membershipOrder, toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
 
 const planSchema = z.object({
@@ -340,14 +341,23 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     if (!actor) return reply.code(403).send({ error: "forbidden" });
 
     const users = await prisma.user.findMany({
-      include: { memberships: { include: { organization: true } } },
+      include: { memberships: { ...membershipOrder, include: { organization: true } } },
       orderBy: { createdAt: "desc" }
     });
 
-    return users.map((user) => ({
-      ...toPublicUser(user),
-      organizationName: user.memberships[0]?.organization?.name ?? null
-    }));
+    // A platform-admin listing is not a session, so there is no active workspace
+    // to scope it to. Each row is shown as the person's own session would see
+    // it — the workspace they were last in, falling back to their oldest — so
+    // the `role` column agrees with the role they actually get when they sign in.
+    return users.map((user) => {
+      const publicUser = toPublicUser(user, user.lastActiveOrganizationId);
+      return {
+        ...publicUser,
+        organizationName:
+          user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization
+            ?.name ?? null
+      };
+    });
   });
 
   app.post("/admin/users", async (request, reply) => {
@@ -372,22 +382,24 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       }
 
       const slug = await uniqueOrganizationSlug(body.name);
-      const prismaUser = await prisma.$transaction(async (tx) => {
+      const { prismaUser, organizationId } = await prisma.$transaction(async (tx) => {
         const organization = await tx.organization.create({
           data: { name: `${body.name}'s Organization`, slug }
         });
-        return tx.user.create({
+        const createdUser = await tx.user.create({
           data: {
             name: body.name,
             email,
             passwordHash,
             isPlatformAdmin: body.isPlatformAdmin,
+            lastActiveOrganizationId: organization.id,
             memberships: {
               create: { organizationId: organization.id, role: roleToPrisma[body.role] }
             }
           },
-          include: { memberships: true }
+          include: { memberships: membershipOrder }
         });
+        return { prismaUser: createdUser, organizationId: organization.id };
       });
 
       await createAudit({
@@ -400,7 +412,7 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
         metadata: { email, role: body.role, isPlatformAdmin: body.isPlatformAdmin, invited: body.sendInvite }
       });
 
-      return reply.code(201).send(toPublicUser(prismaUser));
+      return reply.code(201).send(toPublicUser(prismaUser, organizationId));
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -414,7 +426,10 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const { userId } = z.object({ userId: z.string() }).parse(request.params);
       const body = updateUserSchema.parse(request.body);
 
-      const target = await prisma.user.findUnique({ where: { id: userId }, include: { memberships: true } });
+      const target = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { memberships: membershipOrder }
+      });
       if (!target) return reply.code(404).send({ error: "user_not_found" });
 
       if (userId === actor.id && body.isPlatformAdmin === false) {
@@ -426,20 +441,23 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       if (body.isPlatformAdmin !== undefined) data.isPlatformAdmin = body.isPlatformAdmin;
       if (body.emailVerified !== undefined) data.emailVerifiedAt = body.emailVerified ? new Date() : null;
 
-      if (body.role !== undefined) {
-        const membership = target.memberships[0];
-        if (membership) {
-          await prisma.organizationMember.update({
-            where: { id: membership.id },
-            data: { role: roleToPrisma[body.role] }
-          });
-        }
+      // The admin list shows one workspace per person — the one their own
+      // session resolves to — so the role edited here has to be the role in that
+      // same workspace, or the panel would be editing something it never showed.
+      // Per-workspace role changes for a multi-workspace member belong to that
+      // workspace's own team panel, not to the platform admin.
+      const editedMembership = resolveActiveMembership(target.memberships, target.lastActiveOrganizationId).membership;
+      if (body.role !== undefined && editedMembership) {
+        await prisma.organizationMember.update({
+          where: { id: editedMembership.id },
+          data: { role: roleToPrisma[body.role] }
+        });
       }
 
       const updated = await prisma.user.update({
         where: { id: userId },
         data,
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
 
       await createAudit({
@@ -457,7 +475,7 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
         }
       });
 
-      return toPublicUser(updated);
+      return toPublicUser(updated, editedMembership?.organizationId ?? null);
     } catch (error) {
       return handleRouteError(reply, error);
     }
@@ -508,7 +526,7 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const { userId } = z.object({ userId: z.string() }).parse(request.params);
       const body = assignPlanSchema.parse(request.body);
 
-      const target = await prisma.user.findUnique({ where: { id: userId }, include: { memberships: true } });
+      const target = await prisma.user.findUnique({ where: { id: userId }, include: { memberships: membershipOrder } });
       if (!target) return reply.code(404).send({ error: "user_not_found" });
 
       const organizationId = target.memberships[0]?.organizationId;

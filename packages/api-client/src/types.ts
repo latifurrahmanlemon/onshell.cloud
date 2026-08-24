@@ -32,9 +32,65 @@ export type {
   User
 };
 
+/**
+ * One workspace this account belongs to.
+ *
+ * `role` is the role held *in that workspace*, not the caller's current role:
+ * being an owner of your own workspace and an auditor of one you were invited to
+ * is the ordinary case, and a switcher that showed one role for both would tell
+ * the user the wrong thing about what they are about to be able to do.
+ */
+export interface MembershipSummary {
+  id: string;
+  name: string;
+  slug: string;
+  role: Role;
+  isActive: boolean;
+  joinedAt: string;
+}
+
+/**
+ * The server put the session in a different workspace from the one it asked for.
+ *
+ * Happens when a live token names a workspace the person has since been removed
+ * from. They keep working, in a workspace they really do belong to — but a
+ * console whose host list silently becomes somebody else's is indistinguishable
+ * from a console that has broken, so the substitution is reported rather than
+ * performed quietly.
+ */
+export interface ActiveOrganizationChange {
+  reason: "membership_revoked";
+  previousOrganizationId: string;
+  /** Null when the workspace itself was deleted rather than the membership. */
+  previousOrganizationName: string | null;
+  organizationId: string | null;
+  organizationName: string | null;
+}
+
 export interface CurrentIdentity {
   user: User;
   organization?: Organization;
+  /** Every workspace this account can switch into. One entry is the common case. */
+  organizations?: MembershipSummary[];
+  activeOrganizationChanged?: ActiveOrganizationChange;
+}
+
+export interface OrganizationList {
+  activeOrganizationId: string;
+  organizations: MembershipSummary[];
+}
+
+/**
+ * `changed` is false when the caller asked for the workspace it was already in,
+ * which is a no-op rather than an error and mints no new session.
+ */
+export interface OrganizationSwitchResult {
+  user: User;
+  organization: Organization;
+  changed: boolean;
+  /** Present only when a session was actually minted, i.e. `changed` is true. */
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 /** A member's effective host access, as returned alongside the team list. */

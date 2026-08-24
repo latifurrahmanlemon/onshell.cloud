@@ -1,8 +1,9 @@
 import type { FastifyRequest } from "fastify";
 import { loadConfig, type RuntimeConfig } from "@onshell/config";
 import type { User } from "@onshell/shared";
+import { resolveActiveMembership } from "./active-organization.js";
 import { prisma } from "./prisma.js";
-import { toPublicUser } from "./prisma-mappers.js";
+import { membershipOrder, toPublicUser } from "./prisma-mappers.js";
 import { verifyAccessToken } from "./token.js";
 
 const defaultConfig = loadConfig("api");
@@ -18,14 +19,36 @@ function getAccessToken(request: FastifyRequest) {
 }
 
 /**
+ * What the JWT asked for, and what the database was willing to give.
+ *
+ * The two come apart in exactly one situation, and it is the one worth naming:
+ * the caller holds a live token for a workspace they have since been removed
+ * from. They get the fallback workspace, which is one they really are in — no
+ * cross-tenant access — but a caller told nothing about the substitution sees
+ * their hosts replaced by someone else's for no visible reason.
+ */
+export interface AuthenticatedSession {
+  user: User;
+  /** The workspace the token named, when it is not the one that was resolved. */
+  revokedOrganizationId?: string;
+}
+
+/**
  * Verifies the access-token JWT (Authorization bearer header or access_token
  * cookie) and loads the user plus their organization membership from Prisma.
  * Returns null for unauthenticated requests or users without a membership.
+ *
+ * The token's `organizationId` and `role` claims are read as a *request*, never
+ * as a fact. The memberships are re-loaded here on every call and the role is
+ * re-derived from the one that resolved, which is what makes revoking a member
+ * take effect on their very next request instead of whenever their token
+ * happens to expire — and what stops a workspace switch from widening the reach
+ * of an older, still-valid token.
  */
-export async function getAuthenticatedUser(
+export async function getAuthenticatedSession(
   request: FastifyRequest,
   config: RuntimeConfig = defaultConfig
-): Promise<User | null> {
+): Promise<AuthenticatedSession | null> {
   const token = getAccessToken(request);
   if (!token) return null;
 
@@ -34,15 +57,21 @@ export async function getAuthenticatedUser(
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    include: { memberships: true }
+    include: { memberships: membershipOrder }
   });
   if (!user || user.memberships.length === 0) return null;
 
-  const memberships = [...user.memberships].sort(
-    (a, b) =>
-      Number(b.organizationId === payload.organizationId) -
-      Number(a.organizationId === payload.organizationId)
-  );
+  const active = resolveActiveMembership(user.memberships, payload.organizationId);
+  return {
+    user: toPublicUser(user, active.membership?.organizationId ?? null),
+    ...(active.fellBack ? { revokedOrganizationId: payload.organizationId } : {})
+  };
+}
 
-  return toPublicUser({ ...user, memberships });
+/** The common case: the caller only needs to know who is asking. */
+export async function getAuthenticatedUser(
+  request: FastifyRequest,
+  config: RuntimeConfig = defaultConfig
+): Promise<User | null> {
+  return (await getAuthenticatedSession(request, config))?.user ?? null;
 }

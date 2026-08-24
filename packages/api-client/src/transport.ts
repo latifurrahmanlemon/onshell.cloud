@@ -51,6 +51,15 @@ export interface AuthStrategy {
    * one in-flight refresh between them.
    */
   refresh?(): Promise<boolean>;
+  /**
+   * Take over a token pair the server handed back outside a refresh.
+   *
+   * Only one route does that today — switching workspace re-issues the session —
+   * and a bearer client that ignored the pair would keep using the token naming
+   * the workspace it just left, so the switch would appear to do nothing. A
+   * cookie client has nothing to do here: the response already set the cookies.
+   */
+  adopt?(tokens: TokenPair): Promise<void> | void;
 }
 
 export interface TransportOptions {
@@ -220,6 +229,7 @@ export function bearerAuth(options: BearerAuthOptions): AuthStrategy {
       const tokens = await options.load();
       return tokens ? { authorization: `Bearer ${tokens.accessToken}` } : {};
     },
+    adopt: options.save,
     refresh() {
       inFlight ??= (async () => {
         const tokens = await options.load();

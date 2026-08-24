@@ -24,7 +24,17 @@ import type {
   ThemePreference,
   User
 } from "@onshell/shared";
+import { resolveActiveMembership } from "./active-organization.js";
 import { prisma } from "./prisma.js";
+
+/**
+ * Ordering for every `memberships` include in the API.
+ *
+ * Without it the order is the query plan's business, and the fallback in
+ * `active-organization.ts` becomes "whichever row the index happened to yield"
+ * rather than "the workspace held longest".
+ */
+export const membershipOrder = { orderBy: { createdAt: "asc" } } as const;
 
 /** Coerce the free-form Json column into a validated ThemePreference. */
 function toThemePreference(value: PrismaUser["themePreference"]): ThemePreference | null {
@@ -36,7 +46,7 @@ function toThemePreference(value: PrismaUser["themePreference"]): ThemePreferenc
   return { mode, accent };
 }
 
-const roleMap: Record<OrganizationMember["role"], Role> = {
+export const roleFromPrisma: Record<OrganizationMember["role"], Role> = {
   OWNER: "owner",
   ADMIN: "admin",
   DEVOPS: "devops",
@@ -109,15 +119,26 @@ export type UserWithMembership = PrismaUser & {
   memberships: OrganizationMember[];
 };
 
-export function toPublicUser(user: UserWithMembership): User {
-  const membership = user.memberships[0];
+/**
+ * The account as a client sees it, scoped to one workspace.
+ *
+ * `activeOrganizationId` is not optional on purpose. `role` and
+ * `organizationId` are both derived from a single membership, so a caller that
+ * did not say which workspace it meant was not choosing the default — it was
+ * getting the oldest membership by accident, which is the bug this signature
+ * exists to make impossible to reintroduce. Pass `null` where no workspace is
+ * being asked for (a freshly created account with exactly one, an admin listing
+ * that is not a session) and the fallback in `resolveActiveMembership` applies.
+ */
+export function toPublicUser(user: UserWithMembership, activeOrganizationId: string | null): User {
+  const { membership } = resolveActiveMembership(user.memberships, activeOrganizationId);
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     avatarUrl: user.avatarUrl ?? null,
     themePreference: toThemePreference(user.themePreference),
-    role: membership ? roleMap[membership.role] : "developer",
+    role: membership ? roleFromPrisma[membership.role] : "developer",
     organizationId: membership?.organizationId ?? "",
     isPlatformAdmin: user.isPlatformAdmin,
     emailVerifiedAt: user.emailVerifiedAt?.toISOString(),

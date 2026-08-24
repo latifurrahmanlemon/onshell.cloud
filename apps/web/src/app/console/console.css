@@ -1508,6 +1508,126 @@
   text-overflow: ellipsis;
 }
 
+/* Workspace switcher — only rendered for accounts in more than one workspace. */
+.workspace-switcher {
+  position: relative;
+  margin: 6px 0 2px;
+}
+
+.workspace-switch-trigger {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12.5px;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.workspace-switch-trigger:hover:not(:disabled),
+.workspace-switch-trigger.is-open {
+  border-color: var(--accent-weak-border);
+  color: var(--text);
+}
+
+.workspace-switch-trigger:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.workspace-switch-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspace-switch-chevron {
+  flex: 0 0 auto;
+}
+
+.workspace-switch-spin {
+  animation: console-spin 0.9s linear infinite;
+}
+
+.workspace-switch-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  /* Wider than the collapsed sidebar on purpose: the menu has to stay readable
+     when the rail it hangs off is 60px of icons. */
+  min-width: max(100%, 230px);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.workspace-switch-head {
+  margin: 4px 8px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workspace-switch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-switch-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.workspace-switch-item.is-active {
+  color: var(--accent);
+}
+
+.workspace-switch-item:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.workspace-switch-item-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+
+.workspace-switch-item-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspace-switch-item-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
 .nav-item {
   position: relative;
   gap: 11px;
@@ -1573,6 +1693,12 @@
   }
 
   .app-shell.is-collapsed .nav-item {
+    justify-content: center;
+  }
+
+  /* The name and chevron carry `nav-label`, so they hide with the rest of the
+     rail's text; the icon stays as the affordance. */
+  .app-shell.is-collapsed .workspace-switch-trigger {
     justify-content: center;
   }
 

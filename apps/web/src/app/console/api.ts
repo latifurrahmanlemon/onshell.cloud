@@ -15,6 +15,7 @@ import { apiBaseUrl, gatewayBaseUrl } from "../../lib/site";
 export { ApiError };
 export { MAX_EDITABLE_FILE_BYTES } from "@onshell/api-client";
 export type {
+  ActiveOrganizationChange,
   AiMessage,
   AiSendResult,
   AiStatus,
@@ -36,6 +37,7 @@ export type {
   LaunchedSession,
   LocalRoute,
   MemberHostAccess,
+  MembershipSummary,
   PendingInvitation,
   RemoteDirectory,
   RemoteFileContent,

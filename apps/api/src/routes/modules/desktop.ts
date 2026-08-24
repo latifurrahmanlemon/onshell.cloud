@@ -45,7 +45,7 @@ import {
 import { decryptSecret } from "../../lib/encryption.js";
 import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
-import { recordAudit, toPublicUser } from "../../lib/prisma-mappers.js";
+import { membershipOrder, recordAudit, toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { hashToken } from "../../lib/token.js";
 import { issueTokens, recordAuthEvent } from "./auth.js";
@@ -195,13 +195,17 @@ export async function registerDesktopRoutes(app: FastifyInstance, config: Runtim
 
       const prismaUser = await prisma.user.findUnique({
         where: { id: result.userId },
-        include: { memberships: true }
+        include: { memberships: membershipOrder }
       });
       if (!prismaUser || prismaUser.memberships.length === 0) {
         return reply.code(404).send({ error: "user_not_found" });
       }
 
-      const user = toPublicUser(prismaUser);
+      // Same workspace a password sign-in would land in: the one the account was
+      // last reading. The approval said which *account* to hand over, and says
+      // nothing about which of its workspaces — so guessing here would put the
+      // app in a different workspace from the browser that authorised it.
+      const user = toPublicUser(prismaUser, prismaUser.lastActiveOrganizationId);
       await recordAuthEvent(request, {
         email: user.email,
         userId: user.id,

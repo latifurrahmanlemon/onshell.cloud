@@ -49,7 +49,12 @@ function yearlySaving(plan: ConsolePlan) {
 }
 
 /** Loads the growth overview once and exposes it to the console surfaces. */
-export function useGrowth() {
+/**
+ * `epoch` is a re-fetch trigger, not data. Plan, usage, and referral figures are
+ * per workspace, so switching workspace has to discard them — leaving the old
+ * workspace's quota on screen would have people reading the wrong limits.
+ */
+export function useGrowth(epoch = 0) {
   const [growth, setGrowth] = useState<GrowthOverview | null>(null);
 
   useEffect(() => {
@@ -65,7 +70,7 @@ export function useGrowth() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [epoch]);
 
   return growth;
 }
