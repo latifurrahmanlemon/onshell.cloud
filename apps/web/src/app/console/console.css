@@ -2200,15 +2200,16 @@
   color: var(--text);
 }
 
-/* Owners and admins reach everything by role — shown, but not editable. */
-.host-access-chip:disabled {
-  cursor: default;
-  opacity: 0.6;
+/* Owners and admins reach everything by role. The chip stays operable — it
+   opens the explanation — but must not promise an editable grant. */
+.host-access-chip.is-implicit {
+  border-style: dashed;
+  color: var(--accent-text);
 }
 
 .access-scope {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin: 0;
   padding: 12px;
   border: 1px solid var(--border);
@@ -2225,11 +2226,41 @@
   text-transform: uppercase;
 }
 
+/* Two cards side by side rather than a stacked radio pair: the choice decides
+   whether everything below it applies, so it should not read as one more row of
+   the form it governs. */
+.access-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .form-grid label.access-radio {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
   cursor: pointer;
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
+}
+
+.form-grid label.access-radio:hover {
+  border-color: var(--border-strong);
+}
+
+.form-grid label.access-radio.is-selected {
+  border-color: var(--accent-weak-border);
+  background: var(--accent-weak);
+}
+
+/* The ring belongs on the card, not on the 16px radio inside it — the card is
+   what the eye is tracking while the arrow keys move the choice. */
+.form-grid label.access-radio:has(input:focus-visible) {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 .form-grid .access-radio input {
@@ -2258,14 +2289,196 @@
   font-weight: 500;
 }
 
-/* The shared .form-grid select height would collapse the list to one row. */
-.form-grid select.host-access-select {
-  height: auto;
-  padding: 6px;
+/* Stands where the picker would be, so choosing "All hosts" reads as an answer
+   rather than as a control that stopped working. */
+.access-scope-note {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.form-grid select.host-access-select:disabled {
-  opacity: 0.5;
+.access-scope-note svg {
+  flex: 0 0 auto;
+  color: var(--accent-text);
+}
+
+/* The shared picker's list is surface-2, which is also this card — nested, it
+   lost its edge entirely and the rows read as loose text on the card. */
+.access-scope .host-picker-list {
+  background: var(--surface);
+}
+
+.access-scope .empty-state {
+  padding: 22px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+}
+
+/* ---- Host access: before/after summary ---- */
+
+.access-diff {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.access-diff-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.access-diff-head > svg {
+  flex: 0 0 auto;
+  color: var(--soft);
+}
+
+.access-diff-state {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.access-diff-state small {
+  color: var(--soft);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.access-diff-state strong {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.access-diff-state.is-next strong {
+  color: var(--text);
+}
+
+.access-diff-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.access-diff-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.access-diff-pill.is-added {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+}
+
+.access-diff-pill.is-removed {
+  background: color-mix(in srgb, var(--rose) 14%, transparent);
+  color: var(--rose);
+}
+
+.access-diff-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.access-diff-verb {
+  margin-right: 6px;
+  font-weight: 750;
+}
+
+.access-diff-verb.is-added {
+  color: var(--green);
+}
+
+.access-diff-verb.is-removed {
+  color: var(--rose);
+}
+
+/* Losing (or gaining) the org-wide grant is the one change a count cannot
+   convey: three ticked hosts look identical whether they are an addition or
+   all that is left of everything. */
+.access-diff-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.access-diff-note.is-warn {
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  color: var(--text);
+}
+
+.access-diff-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--amber);
+}
+
+/* ---- Host access: the owner/admin case, where there is nothing to grant ---- */
+
+.access-implicit {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--accent-weak-border);
+  border-radius: 10px;
+  background: var(--accent-weak);
+}
+
+.access-implicit-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.access-implicit-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.access-implicit-text strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+@media (max-width: 620px) {
+  .access-choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ==========================================================================
@@ -2442,13 +2655,44 @@
 
 .host-picker-item-main {
   display: grid;
+  flex: 1 1 auto;
   gap: 1px;
   min-width: 0;
 }
 
+.host-picker-item-name {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
 .host-picker-item-main strong {
+  overflow: hidden;
   color: var(--text);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Marks what the subject holds already, so a control that rewrites the whole
+   set still shows which rows are a change and which are the status quo. */
+.host-picker-flag {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* The environment is the field a wrong tick turns on, so it keeps its own
+   column at the end of the row rather than joining the grey meta line. */
+.host-picker-item .env-pill {
+  flex: 0 0 auto;
 }
 
 .host-picker-item-main small {

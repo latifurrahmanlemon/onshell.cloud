@@ -170,23 +170,39 @@ export function Drawer({
 }
 
 /**
- * Ticking hosts off a list — shared by vault assignment and by workspaces.
+ * Ticking hosts off a list — shared by vault assignment, by workspaces and by
+ * the team panel's host-access drawer.
  *
  * Selection order is preserved (a ticked host is appended), because a workspace
  * opens its terminals in the order it stores them. Its own search box is there
  * because an estate of any size makes a plain list unusable, and the drawer it
  * sits in has no other way to narrow it.
+ *
+ * A row carries the environment, group and tags as well as the address because
+ * the hostname is rarely what the decision turns on: estates that name machines
+ * `web-02` in three environments made "which one did I just tick" unanswerable
+ * from the row itself, and the environment is exactly the field you regret not
+ * having read when granting access or attaching a credential.
  */
 function HostPicker({
   hosts,
   selected,
   onChange,
   emptyHint,
+  label = "Hosts",
+  granted,
 }: {
   hosts: Host[];
   selected: string[];
   onChange: (ids: string[]) => void;
   emptyHint: string;
+  /** Names the group for screen readers; the picker has no visible caption. */
+  label?: string;
+  /**
+   * Ids the subject holds already. Rows carrying one are flagged, so a control
+   * that rewrites the whole set can still be read as a change to what is there.
+   */
+  granted?: readonly string[];
 }) {
   const [needle, setNeedle] = useState("");
   const visible = useMemo(() => {
@@ -199,13 +215,17 @@ function HostPicker({
     );
   }, [hosts, needle]);
 
+  const grantedSet = useMemo(() => new Set(granted ?? []), [granted]);
+
   const toggle = (hostId: string, checked: boolean) =>
     onChange(checked ? [...selected, hostId] : selected.filter((id) => id !== hostId));
 
   return (
-    <div className="span-two host-picker">
+    <div aria-label={label} className="span-two host-picker" role="group">
       <div className="host-picker-head">
-        <span>
+        {/* Announced on change: with bulk actions in reach, the count is the only
+            feedback that a click did what it looked like it did. */}
+        <span aria-live="polite" role="status">
           {selected.length} of {hosts.length} host{hosts.length === 1 ? "" : "s"} selected
         </span>
         {/* One credential across thirty hosts is a normal shape, so both
@@ -238,8 +258,9 @@ function HostPicker({
       ) : (
         <>
           <div className="search-field host-picker-search">
-            <Search size={14} />
+            <Search aria-hidden="true" size={14} />
             <input
+              aria-label="Filter hosts by name, address, group or tag"
               onChange={(event) => setNeedle(event.target.value)}
               placeholder="Filter by name, address, group or tag…"
               value={needle}
@@ -249,26 +270,34 @@ function HostPicker({
             <p className="field-note">No host matches “{needle}”.</p>
           ) : (
             <ul className="host-picker-list">
-              {visible.map((host) => (
-                <li key={host.id}>
-                  <label className="host-picker-item">
-                    <input
-                      aria-label={`Select ${host.name}`}
-                      checked={selected.includes(host.id)}
-                      onChange={(event) => toggle(host.id, event.target.checked)}
-                      type="checkbox"
-                    />
-                    <span className="host-picker-item-main">
-                      <strong>{host.name}</strong>
-                      <small>
-                        {host.username ? `${host.username}@` : ""}
-                        {host.address}:{host.port} · {host.type.toUpperCase()}
-                        {host.group ? ` · ${host.group}` : ""}
-                      </small>
-                    </span>
-                  </label>
-                </li>
-              ))}
+              {visible.map((host) => {
+                const held = grantedSet.has(host.id);
+                return (
+                  <li key={host.id}>
+                    <label className="host-picker-item">
+                      <input
+                        aria-label={`Select ${host.name}${held ? " (already granted)" : ""}`}
+                        checked={selected.includes(host.id)}
+                        onChange={(event) => toggle(host.id, event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span className="host-picker-item-main">
+                        <span className="host-picker-item-name">
+                          <strong>{host.name}</strong>
+                          {held && <span className="host-picker-flag">Granted</span>}
+                        </span>
+                        <small>
+                          {host.username ? `${host.username}@` : ""}
+                          {host.address}:{host.port} · {host.type.toUpperCase()}
+                          {host.group ? ` · ${host.group}` : ""}
+                          {host.tags.length > 0 ? ` · ${host.tags.join(", ")}` : ""}
+                        </small>
+                      </span>
+                      <span className={cx("env-pill", host.environment)}>{host.environment}</span>
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </>
@@ -2995,10 +3024,68 @@ type TeamTab = "members" | "invitations";
 
 /** Compact label for the host-access column and the drawer's summary line. */
 function hostAccessLabel(access: MemberHostAccess | undefined) {
+  // Role-derived access is spelled out rather than shown as a plain "All hosts":
+  // the two look identical in the column but only one of them is editable, and
+  // reading the row was the only way anyone found that out.
+  if (access?.implicit) return "All hosts (by role)";
   if (access?.allHosts) return "All hosts";
   const count = access?.hostIds.length ?? 0;
   if (count === 0) return "No hosts";
   return `${count} host${count === 1 ? "" : "s"}`;
+}
+
+interface HostAccessDiff {
+  /** Ids gained by saving. */
+  added: string[];
+  /** Ids lost by saving. */
+  removed: string[];
+  /** Ids held before and after. */
+  kept: number;
+  /** Set when the org-wide grant itself is being taken away or handed over. */
+  scope: "to-all" | "from-all" | null;
+  changed: boolean;
+}
+
+/**
+ * What saving would actually do to a member's grants.
+ *
+ * `replaceHostAccess` rewrites the row set wholesale rather than diffing it, so
+ * the drawer is the only place a wholesale swap can be seen as one — without
+ * this, dropping someone from every host to three of them looked exactly like
+ * ticking three boxes.
+ */
+function hostAccessDiff(
+  before: MemberHostAccess | undefined,
+  next: { allHosts: boolean; hostIds: string[] },
+): HostAccessDiff {
+  const beforeAll = before?.allHosts ?? false;
+  const beforeIds = new Set(beforeAll ? [] : (before?.hostIds ?? []));
+  const nextIds = new Set(next.allHosts ? [] : next.hostIds);
+
+  const added = [...nextIds].filter((id) => !beforeIds.has(id));
+  const removed = [...beforeIds].filter((id) => !nextIds.has(id));
+  const scope = beforeAll === next.allHosts ? null : next.allHosts ? "to-all" : "from-all";
+
+  return {
+    added,
+    removed,
+    kept: [...nextIds].filter((id) => beforeIds.has(id)).length,
+    scope,
+    changed: scope !== null || added.length > 0 || removed.length > 0,
+  };
+}
+
+/**
+ * "web-01, web-02 and 4 more" for a diff line.
+ *
+ * An id with no host behind it is named rather than dropped: a grant outlives
+ * the host row it points at, and silently omitting those made the count and the
+ * list disagree on exactly the change that needed explaining.
+ */
+function hostNameList(ids: string[], nameById: Map<string, string>, limit = 4) {
+  const names = ids.map((id) => nameById.get(id) ?? "a host that no longer exists");
+  if (names.length <= limit) return names.join(", ");
+  return `${names.slice(0, limit).join(", ")} and ${names.length - limit} more`;
 }
 
 export function TeamView({
@@ -3035,6 +3122,23 @@ export function TeamView({
   const [accessHostIds, setAccessHostIds] = useState<string[]>([]);
   const manager = canManageUsers(currentUser.role);
 
+  const hostNameById = useMemo(
+    () => new Map(hosts.map((host) => [host.id, host.name])),
+    [hosts],
+  );
+  const accessImplicit = accessMember?.hostAccess?.implicit ?? false;
+  const accessDiff = useMemo(
+    () =>
+      hostAccessDiff(accessMember?.hostAccess, {
+        allHosts: accessAllHosts,
+        hostIds: accessHostIds,
+      }),
+    [accessMember, accessAllHosts, accessHostIds],
+  );
+  const accessAfterLabel = accessAllHosts
+    ? "All hosts"
+    : hostAccessLabel({ allHosts: false, hostIds: accessHostIds, implicit: false });
+
   const teamTabs: Array<{ value: TeamTab; label: string }> = [
     { value: "members", label: `Members (${members.length})` },
     { value: "invitations", label: `Pending invitations (${invitations.length})` },
@@ -3049,6 +3153,11 @@ export function TeamView({
   async function saveHostAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!accessMember) return;
+    // The API answers 409 `member_has_implicit_host_access` for owners and
+    // admins. The drawer shows them no form at all, so reaching here means the
+    // role changed under an open drawer — stop rather than turn a fact about
+    // their role into an error toast.
+    if (accessMember.hostAccess?.implicit) return;
     setBusy(true);
     try {
       await consoleApi.setMemberHostAccess(accessMember.id, {
@@ -3224,11 +3333,14 @@ export function TeamView({
         const implicit = member.hostAccess?.implicit ?? false;
         const label = hostAccessLabel(member.hostAccess);
         if (!manager) return <span className="data-muted">{label}</span>;
+        // Still a button for owners and admins, even though there is nothing to
+        // grant: as a disabled chip it could not be focused, so the one place
+        // that explained why it does nothing was a tooltip no keyboard or
+        // screen-reader user could reach. It opens the explanation instead.
         return (
           <button
             aria-label={`Host access for ${member.name}: ${label}`}
-            className="host-access-chip"
-            disabled={implicit}
+            className={cx("host-access-chip", implicit && "is-implicit")}
             onClick={() => openHostAccess(member)}
             title={
               implicit
@@ -3237,7 +3349,7 @@ export function TeamView({
             }
             type="button"
           >
-            <MonitorUp size={13} />
+            {implicit ? <ShieldCheck size={13} /> : <MonitorUp size={13} />}
             {label}
           </button>
         );
@@ -3461,73 +3573,176 @@ export function TeamView({
       <Drawer
         onClose={() => setAccessMember(null)}
         open={accessMember !== null}
-        subtitle="Members can only see, open and manage the hosts granted to them here."
+        subtitle={
+          accessImplicit
+            ? "This member reaches every host through their role, not through grants."
+            : "Members can only see, open and manage the hosts granted to them here."
+        }
         title={accessMember ? `Host access — ${accessMember.name}` : "Host access"}
       >
-        {accessMember && (
-          <form className="form-grid" onSubmit={saveHostAccess}>
-            <fieldset className="span-two access-scope">
-              <legend>Scope</legend>
-              <label className="access-radio">
-                <input
-                  checked={accessAllHosts}
-                  name="hostAccessScope"
-                  onChange={() => setAccessAllHosts(true)}
-                  type="radio"
-                  value="all"
-                />
-                <span>
-                  <strong>All hosts</strong>
-                  <small>Every host in this organization, including ones added later.</small>
-                </span>
-              </label>
-              <label className="access-radio">
-                <input
-                  checked={!accessAllHosts}
-                  name="hostAccessScope"
-                  onChange={() => setAccessAllHosts(false)}
-                  type="radio"
-                  value="specific"
-                />
-                <span>
-                  <strong>Specific hosts</strong>
-                  <small>Only the hosts selected below.</small>
-                </span>
-              </label>
-            </fieldset>
-
-            <label className="span-two">
-              Hosts
-              <select
-                className="host-access-select"
-                disabled={accessAllHosts}
-                multiple
-                onChange={(event) =>
-                  setAccessHostIds(
-                    Array.from(event.target.selectedOptions, (option) => option.value),
-                  )
-                }
-                size={Math.min(8, Math.max(3, hosts.length))}
-                value={accessHostIds}
-              >
-                {hosts.map((host) => (
-                  <option key={host.id} value={host.id}>
-                    {host.name} ({host.address})
-                  </option>
-                ))}
-              </select>
-              <small className="field-note">
-                {accessAllHosts
-                  ? "All hosts granted — the list above is ignored."
-                  : `${accessHostIds.length} of ${hosts.length} host${hosts.length === 1 ? "" : "s"} selected. Hold ⌘/Ctrl or Shift to pick several.`}
-              </small>
-            </label>
-
-            <div className="form-actions span-two">
-              <SubmitButton busy={busy} label="Save Host Access" />
+        {accessMember &&
+          (accessImplicit ? (
+            <div className="confirm-body">
+              <div className="access-implicit">
+                <p className="access-implicit-title">
+                  <ShieldCheck aria-hidden="true" size={15} />
+                  Access comes from the role
+                </p>
+                <p className="access-implicit-text">
+                  <strong>{accessMember.name}</strong> is an <strong>{accessMember.role}</strong>, and every{" "}
+                  {accessMember.role} reaches every host in this organization — the ones here now and the ones
+                  added later. Grants are not consulted, so there is nothing to pick and nothing this drawer
+                  could save.
+                </p>
+                <p className="access-implicit-text">
+                  To decide host by host, first change their role to <strong>devops</strong>,{" "}
+                  <strong>developer</strong> or <strong>auditor</strong> in the Role column, then reopen this
+                  drawer.
+                </p>
+              </div>
+              <div className="form-actions">
+                <button className="secondary-button" onClick={() => setAccessMember(null)} type="button">
+                  Close
+                </button>
+              </div>
             </div>
-          </form>
-        )}
+          ) : (
+            <form className="form-grid" key={accessMember.id} onSubmit={saveHostAccess}>
+              {/* The picker lives inside the scope fieldset rather than beside
+                  it: as a sibling that only greyed out, "All hosts" and a list
+                  of ticked hosts read as two settings that could both apply. */}
+              <fieldset className="span-two access-scope">
+                <legend>Scope</legend>
+                <div className="access-choices">
+                  <label className={cx("access-radio", accessAllHosts && "is-selected")}>
+                    <input
+                      checked={accessAllHosts}
+                      name="hostAccessScope"
+                      onChange={() => setAccessAllHosts(true)}
+                      type="radio"
+                      value="all"
+                    />
+                    <span>
+                      <strong>All hosts</strong>
+                      <small>Every host in this organization, including ones added later.</small>
+                    </span>
+                  </label>
+                  <label className={cx("access-radio", !accessAllHosts && "is-selected")}>
+                    <input
+                      checked={!accessAllHosts}
+                      name="hostAccessScope"
+                      onChange={() => setAccessAllHosts(false)}
+                      type="radio"
+                      value="specific"
+                    />
+                    <span>
+                      <strong>Specific hosts</strong>
+                      <small>Only the hosts ticked below — new hosts stay out of reach.</small>
+                    </span>
+                  </label>
+                </div>
+
+                {accessAllHosts ? (
+                  <p className="access-scope-note">
+                    <ShieldCheck aria-hidden="true" size={14} />
+                    Nothing to tick — this grant follows the estate as it grows.
+                  </p>
+                ) : hosts.length === 0 ? (
+                  <EmptyState
+                    hint="Add one under Hosts, then come back to grant it."
+                    icon={<MonitorUp size={22} />}
+                    title="No hosts in this organization yet"
+                  />
+                ) : (
+                  <HostPicker
+                    emptyHint="No hosts in this organization yet — add one under Hosts, then grant it here."
+                    granted={accessMember.hostAccess?.hostIds}
+                    hosts={hosts}
+                    label="Hosts to grant"
+                    onChange={setAccessHostIds}
+                    selected={accessHostIds}
+                  />
+                )}
+              </fieldset>
+
+              {/* Saving rewrites the grants rather than merging them, so the
+                  before/after pair is shown rather than only the new state —
+                  "three hosts" and "three hosts instead of everything" are the
+                  same list and very different decisions.
+
+                  A group rather than a live region: the picker already
+                  announces the count on every tick, and announcing the whole
+                  block again on the same keystroke buried it. This is navigable
+                  instead, and sits directly above Save. */}
+              <div aria-label="Access change summary" className="access-diff span-two" role="group">
+                <div className="access-diff-head">
+                  <span className="access-diff-state">
+                    <small>Today</small>
+                    <strong>{hostAccessLabel(accessMember.hostAccess)}</strong>
+                  </span>
+                  <ChevronRight aria-hidden="true" size={14} />
+                  <span className={cx("access-diff-state", accessDiff.changed && "is-next")}>
+                    <small>After saving</small>
+                    <strong>{accessAfterLabel}</strong>
+                  </span>
+                </div>
+
+                {accessDiff.changed ? (
+                  <>
+                    <div className="access-diff-counts">
+                      {accessDiff.added.length > 0 && (
+                        <span className="access-diff-pill is-added">+{accessDiff.added.length} granted</span>
+                      )}
+                      {accessDiff.removed.length > 0 && (
+                        <span className="access-diff-pill is-removed">−{accessDiff.removed.length} revoked</span>
+                      )}
+                      {accessDiff.kept > 0 && (
+                        <span className="access-diff-pill">{accessDiff.kept} unchanged</span>
+                      )}
+                    </div>
+
+                    {accessDiff.scope === "from-all" && (
+                      <p className="access-diff-note is-warn">
+                        <AlertTriangle aria-hidden="true" size={14} />
+                        {accessMember.name} reaches every host today, including hosts added in future. Saving
+                        replaces that with the {accessHostIds.length === 1 ? "single host" : `${accessHostIds.length} hosts`}{" "}
+                        ticked above.
+                      </p>
+                    )}
+                    {accessDiff.scope === "to-all" && (
+                      <p className="access-diff-note is-warn">
+                        <AlertTriangle aria-hidden="true" size={14} />
+                        Saving hands {accessMember.name} every host in this organization, including ones added
+                        later.
+                      </p>
+                    )}
+
+                    {accessDiff.added.length > 0 && (
+                      <p className="access-diff-line">
+                        <span className="access-diff-verb is-added">Granting</span>
+                        {hostNameList(accessDiff.added, hostNameById)}
+                      </p>
+                    )}
+                    {accessDiff.removed.length > 0 && (
+                      <p className="access-diff-line">
+                        <span className="access-diff-verb is-removed">Revoking</span>
+                        {hostNameList(accessDiff.removed, hostNameById)}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="field-note">Nothing changed yet — saving would leave this as it is.</p>
+                )}
+              </div>
+
+              <div className="form-actions span-two">
+                <button className="secondary-button" disabled={busy} onClick={() => setAccessMember(null)} type="button">
+                  Cancel
+                </button>
+                <SubmitButton busy={busy} label="Save Host Access" />
+              </div>
+            </form>
+          ))}
       </Drawer>
 
       <Drawer
