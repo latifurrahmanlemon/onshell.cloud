@@ -12,6 +12,7 @@ import {
 } from "../../lib/ai.js";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail } from "../../lib/email.js";
+import { contactNotificationEmail } from "../../lib/email-template.js";
 import { prisma } from "../../lib/prisma.js";
 import { handleRouteError } from "../../lib/reply.js";
 import {
@@ -75,16 +76,6 @@ const newsletterSchema = z.object({
   source: z.string().trim().max(60).default("footer"),
   turnstileToken: z.string().optional()
 });
-
-/** Escapes user text before it is interpolated into the notification email. */
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 export async function registerPublicRoutes(app: FastifyInstance, config: RuntimeConfig) {
   /**
@@ -154,31 +145,21 @@ export async function registerPublicRoutes(app: FastifyInstance, config: Runtime
         // Best-effort notification. A failed send must not fail the submission —
         // the message is already durable and visible in the admin inbox.
         const notifyEmail = process.env.CONTACT_NOTIFY_EMAIL?.trim() || "support@onshell.cloud";
+        const message = contactNotificationEmail({
+          name: body.name,
+          email: body.email,
+          company: body.company,
+          topic: body.topic,
+          message: body.message,
+          adminUrl: `${config.siteUrl}/admin?section=inbox&message=${created.id}`,
+          siteUrl: config.siteUrl
+        });
         void sendTransactionalEmail({
           masterEncryptionKey: config.masterEncryptionKey,
           recipient: notifyEmail,
-          subject: `[Onshell.cloud] ${body.topic} enquiry from ${body.name}`,
-          text: [
-            `Topic: ${body.topic}`,
-            `Name: ${body.name}`,
-            `Email: ${body.email}`,
-            body.company ? `Company: ${body.company}` : undefined,
-            "",
-            body.message,
-            "",
-            `Open in admin: ${config.siteUrl}/admin?section=inbox&message=${created.id}`
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          html: [
-            `<p><strong>Topic:</strong> ${escapeHtml(body.topic)}</p>`,
-            `<p><strong>Name:</strong> ${escapeHtml(body.name)}<br/>`,
-            `<strong>Email:</strong> ${escapeHtml(body.email)}`,
-            body.company ? `<br/><strong>Company:</strong> ${escapeHtml(body.company)}` : "",
-            "</p>",
-            `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(body.message)}</pre>`,
-            `<p><a href="${config.siteUrl}/admin?section=inbox&message=${created.id}">Open in the admin inbox</a></p>`
-          ].join(""),
+          subject: message.subject,
+          text: message.text,
+          html: message.html,
           kind: "contact_notification",
           logger: app.log
         });

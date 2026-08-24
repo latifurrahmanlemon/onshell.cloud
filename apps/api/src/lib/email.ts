@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import type { EmailLogStatus, SmtpSetting } from "@prisma/client";
+import { smtpTestEmail } from "./email-template.js";
 import { decryptSecret } from "./encryption.js";
 import { prisma } from "./prisma.js";
 
@@ -242,14 +243,18 @@ export async function sendSmtpTestEmail(input: {
   smtp: SmtpSetting;
   masterEncryptionKey: string;
   recipient: string;
+  /** From the runtime config, so the template never reads the environment itself. */
+  siteUrl: string;
 }) {
+  const message = smtpTestEmail({ siteUrl: input.siteUrl });
+
   return sendEmail({
     smtp: input.smtp,
     masterEncryptionKey: input.masterEncryptionKey,
     recipient: input.recipient,
-    subject: "Onshell.cloud SMTP test",
-    text: "SMTP is configured and Onshell.cloud can send email.",
-    html: "<p>SMTP is configured and <strong>Onshell.cloud</strong> can send email.</p>",
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
     kind: "smtp_test"
   });
 }
