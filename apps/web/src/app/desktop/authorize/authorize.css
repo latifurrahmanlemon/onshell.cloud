@@ -1,0 +1,42 @@
+/*
+ * The few things this page needs that auth.css does not already have. Kept
+ * local rather than added to the shared auth stylesheet: nothing else displays
+ * a claim made by an unauthenticated client, and the styling exists to make that
+ * claim readable rather than to make it look trustworthy.
+ */
+
+.dauth-facts {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 16px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.28));
+  border-radius: 12px;
+  background: var(--surface-muted, rgba(127, 127, 127, 0.06));
+}
+
+.dauth-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dauth-facts dt {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.dauth-facts dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  text-align: right;
+  /* A machine name is arbitrary text from the network; it must wrap rather than
+     push the card wide or spill over the approve button. */
+  overflow-wrap: anywhere;
+}

@@ -207,6 +207,66 @@ button {
   border-top: 1px solid var(--border);
 }
 
+.button--block {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+.gate__hint {
+  margin: 10px 0 0;
+}
+
+.gate__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.gate__divider::before,
+.gate__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/*
+ * The user code, deliberately hard to misread: this is the one thing the person
+ * has to carry from this window into their browser, and a code they transcribe
+ * wrongly is a sign-in they blame on the app.
+ */
+.gate__code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 18px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+.gate__code span {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.gate__code strong {
+  font-family: var(--font-mono, monospace);
+  font-size: 30px;
+  letter-spacing: 0.16em;
+  user-select: all;
+}
+
 /* -------------------------------------------------------------- console */
 
 .console {

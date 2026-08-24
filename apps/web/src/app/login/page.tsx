@@ -111,6 +111,57 @@ function mapGoogleRedirectError(code: string): string {
   }
 }
 
+const RETURN_TO_KEY = "onshell-login-return-to";
+const RETURN_TO_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * Only a same-origin path is ever honoured as a post-login destination.
+ *
+ * A value that is allowed to name a host is an open redirect handed to whoever
+ * wrote the link, and "sign in, then be sent somewhere that looks like us" is
+ * the oldest phishing chain there is. `//evil.example` and `/\evil.example` are
+ * both browser-legal ways of naming a host, so the test is "a slash followed by
+ * something that is not another slash or a backslash" rather than "starts with
+ * a slash".
+ */
+function isSafeReturnTo(value: string | null): value is string {
+  return typeof value === "string" && /^\/[^/\\]/.test(value);
+}
+
+/**
+ * Remembers where to go after signing in.
+ *
+ * `?next=` exists for the desktop app's browser sign-in: `/desktop/authorize`
+ * sends a signed-out visitor here and needs them back with the request id
+ * intact. It is kept in sessionStorage rather than only on the URL because the
+ * Google leg returns to `/login?challengeId=…` when 2FA is on, and losing the
+ * destination there would strand the person on the console with a desktop app
+ * still waiting for them. Timestamped so a destination from earlier in the tab's
+ * life cannot hijack an unrelated sign-in twenty minutes later.
+ */
+function rememberReturnTo(value: string | null) {
+  if (!isSafeReturnTo(value)) return;
+  try {
+    window.sessionStorage.setItem(RETURN_TO_KEY, JSON.stringify({ path: value, at: Date.now() }));
+  } catch {
+    // Private mode, or storage disabled. The default destination still works.
+  }
+}
+
+function readReturnTo(consume: boolean) {
+  try {
+    const raw = window.sessionStorage.getItem(RETURN_TO_KEY);
+    if (consume) window.sessionStorage.removeItem(RETURN_TO_KEY);
+    if (!raw) return "/console";
+    const stored = JSON.parse(raw) as { path?: unknown; at?: unknown };
+    const fresh = typeof stored.at === "number" && Date.now() - stored.at < RETURN_TO_TTL_MS;
+    const path = typeof stored.path === "string" ? stored.path : null;
+    return fresh && isSafeReturnTo(path) ? path : "/console";
+  } catch {
+    return "/console";
+  }
+}
+
 export default function LoginPage() {
   const reduceMotion = useReducedMotion();
   // Separate challenges: sign-in and password-reset are independently
@@ -150,6 +201,7 @@ export default function LoginPage() {
     const urlChallengeId = params.get("challengeId");
     const urlMethod = params.get("method");
     const urlError = params.get("error");
+    rememberReturnTo(params.get("next"));
 
     if (urlChallengeId) {
       const resolvedMethod: TwoFactorMethod = urlMethod === "email" ? "email" : "totp";
@@ -225,8 +277,11 @@ export default function LoginPage() {
         return;
       }
 
-      setStatus("success", "Signed in. Redirecting to your console…");
-      window.location.href = "/console";
+      // Back to wherever the visitor was headed — the desktop approval page,
+      // usually — rather than always the console.
+      const destination = readReturnTo(true);
+      setStatus("success", "Signed in. Taking you back…");
+      window.location.href = destination;
     } catch {
       loginTurnstile.reset();
       setStatus("error", "Network error. Please check your connection and try again.");
@@ -257,8 +312,9 @@ export default function LoginPage() {
         return;
       }
 
-      setStatus("success", "Verified. Redirecting to your console…");
-      window.location.href = "/console";
+      const destination = readReturnTo(true);
+      setStatus("success", "Verified. Taking you back…");
+      window.location.href = destination;
     } catch {
       setStatus("error", "Network error. Please check your connection and try again.");
     } finally {
@@ -304,7 +360,10 @@ export default function LoginPage() {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(`${apiBaseUrl}/auth/google/start?returnTo=/console`, {
+      // Peeked rather than consumed: with 2FA on, Google comes back through
+      // /login again and the destination has to survive that round trip.
+      const returnTo = encodeURIComponent(readReturnTo(false));
+      const response = await fetch(`${apiBaseUrl}/auth/google/start?returnTo=${returnTo}`, {
         credentials: "include"
       });
       const payload = await response.json().catch(() => ({}));
