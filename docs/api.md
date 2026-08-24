@@ -80,6 +80,39 @@ Agent hosts accept `ssh` and `sftp` sessions, gated per device by `allowShell` a
 `allowFiles`; `rdp` is refused. `POST /sessions` also takes an optional `shell` for agent
 hosts, naming one of the tokens that machine advertised.
 
+## Desktop
+
+The native app. Full design in [desktop.md](desktop.md).
+
+Signing in from the browser, because a native window cannot render Google's redirect or
+a Turnstile widget:
+
+* `POST /desktop/auth/requests`
+* `POST /desktop/auth/requests/:requestId/poll`
+* `GET /desktop/auth/requests/:requestId/preview`
+* `POST /desktop/auth/requests/:requestId/approve`
+* `POST /desktop/auth/requests/:requestId/deny`
+
+Create and poll carry no user session — the caller is an app that does not have one yet,
+which is the whole point. Poll authenticates with the `x-onshell-device-secret` returned
+once at creation, and the poll that finds an approval returns the token pair and
+consumes the request; a second poll gets `expired`. Preview, approve, and deny are the
+browser's half and need a signed-in session; approve additionally requires the user code
+displayed in the app window, which is deliberately not carried in the URL. Requests live
+five minutes in memory, with a five-attempt cap on the code.
+
+Enrolment and credential leases for direct connections:
+
+* `POST /desktop/devices`
+* `GET /desktop/devices`
+* `POST /desktop/devices/:deviceId/revoke`
+* `POST /desktop/leases`
+* `POST /desktop/sessions/:sessionId/state`
+
+A lease is not a new authorisation: it is issued only for a host the caller could
+already open a relayed session on, it names one host and one session, and it expires in
+60 seconds.
+
 ## Credentials
 
 * `GET /credentials`

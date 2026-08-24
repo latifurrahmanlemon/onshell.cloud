@@ -12,12 +12,15 @@
  * to be a source of executable code.
  */
 import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } from "electron";
+import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CHANNELS, type AppState, type TerminalEvent, type TerminalTarget } from "../shared/ipc.js";
 import { deriveServerConfig, loadSettings, saveSettings, LOCAL_DEV_SERVER } from "./runtime/settings.js";
 import { keychainAvailable } from "./runtime/vault.js";
 import {
+  awaitBrowserSignIn,
+  cancelBrowserSignIn,
   completeTwoFactor,
   currentServer,
   currentUser,
@@ -27,6 +30,7 @@ import {
   restoreSession,
   signIn,
   signOut,
+  startBrowserSignIn,
   useServer
 } from "./runtime/session.js";
 import { forgetDevice } from "./runtime/device.js";
@@ -146,6 +150,11 @@ function createWindow() {
 
   window.on("closed", () => {
     window = null;
+    // Nothing is left waiting for a browser that has nowhere to report back to.
+    // A poll loop outliving its window is an invisible request to the server
+    // every couple of seconds, which is exactly the kind of thing that gets
+    // noticed as a bug months later.
+    cancelBrowserSignIn();
   });
 }
 
@@ -263,6 +272,37 @@ function registerHandlers() {
   });
 
   ipcMain.handle(CHANNELS.resendCode, (_event, challengeId: string) => resendTwoFactorCode(challengeId));
+
+  /**
+   * Sign in from the browser.
+   *
+   * The renderer supplies nothing: the machine name, the platform, and the
+   * version come from this process, and the URL is opened through the same
+   * `openExternal` guard every other link uses rather than being handed to the
+   * window to navigate to. A renderer that could choose either would be a
+   * renderer that could send the user to a page of its choosing while the app
+   * displayed a genuine-looking code.
+   */
+  ipcMain.handle(CHANNELS.browserSignInStart, async () => {
+    const started = await startBrowserSignIn({
+      machineName: hostname(),
+      platform: process.platform,
+      appVersion: app.getVersion()
+    });
+    if (started.ok) await openExternal(started.verificationUrl);
+    return started;
+  });
+
+  ipcMain.handle(CHANNELS.browserSignInAwait, async () => {
+    const outcome = await awaitBrowserSignIn();
+    // Only an approval changes anything, but the push is unconditional: it is
+    // what takes the window off the sign-in screen, and a state that disagreed
+    // with the session would be worse than a redundant message.
+    await publishState();
+    return outcome;
+  });
+
+  ipcMain.handle(CHANNELS.browserSignInCancel, () => cancelBrowserSignIn());
 
   ipcMain.handle(CHANNELS.signOut, async () => {
     // Sessions belong to the account that opened them, so signing out ends them
@@ -436,6 +476,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     closeAllTerminals();
     files.closeAll();
+    cancelBrowserSignIn();
     shutdownSharing();
   });
 }

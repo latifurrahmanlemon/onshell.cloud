@@ -36,7 +36,10 @@ const bridge: OnshellBridge = {
     signIn: (request) => ipcRenderer.invoke(CHANNELS.signIn, request),
     completeTwoFactor: (challengeId, code) => ipcRenderer.invoke(CHANNELS.completeTwoFactor, challengeId, code),
     resendCode: (challengeId) => ipcRenderer.invoke(CHANNELS.resendCode, challengeId),
-    signOut: () => ipcRenderer.invoke(CHANNELS.signOut)
+    signOut: () => ipcRenderer.invoke(CHANNELS.signOut),
+    startBrowserSignIn: () => ipcRenderer.invoke(CHANNELS.browserSignInStart),
+    awaitBrowserSignIn: () => ipcRenderer.invoke(CHANNELS.browserSignInAwait),
+    cancelBrowserSignIn: () => ipcRenderer.invoke(CHANNELS.browserSignInCancel)
   },
 
   console: {
