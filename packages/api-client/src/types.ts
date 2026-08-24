@@ -76,6 +76,45 @@ export interface InviteResult extends PendingInvitation {
 }
 
 /**
+ * What the accept page can learn about an invitation before accepting it.
+ *
+ * Read with the token alone, by someone who may have no account yet, so it is
+ * narrower than `PendingInvitation`: no id, no organization id, and `email` is
+ * masked by the API (`l•••@example.com`) rather than returned in full.
+ */
+export interface InvitationPreview {
+  organizationName: string;
+  role: Role;
+  /** Masked. Enough for the recipient to recognise the mailbox, no more. */
+  email: string;
+  /** True when the invited address already has an account, so no password is needed. */
+  existingUser: boolean;
+  expiresAt: string;
+}
+
+/**
+ * The membership was added to an account that already existed. No session comes
+ * back with this — the person still has to sign in, with whatever password and
+ * second factor that account already has.
+ */
+export interface InvitationAcceptedForExistingUser {
+  accepted: true;
+  existingUser: true;
+  requiresLogin: true;
+  organizationId: string;
+}
+
+/**
+ * Two genuinely different outcomes, distinguished by `requiresLogin`: an
+ * invitation accepted by a brand-new user creates the account and signs it in
+ * (cookies on the response, tokens in the body), while one accepted for an
+ * existing account only grants the membership.
+ */
+export type AcceptInvitationResult =
+  | InvitationAcceptedForExistingUser
+  | { user: User; accessToken: string; refreshToken: string };
+
+/**
  * A direct route to an agent running on the same machine as this client.
  *
  * Offered by the API; whether it can actually be used is decided at the client,

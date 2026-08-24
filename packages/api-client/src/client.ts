@@ -14,6 +14,7 @@
 import type { Transport, TransportOptions } from "./transport.js";
 import { createTransport } from "./transport.js";
 import type {
+  AcceptInvitationResult,
   AgentDevice,
   AiSendResult,
   AiStatus,
@@ -31,6 +32,7 @@ import type {
   HostImportPreview,
   HostImportResult,
   HostWorkspace,
+  InvitationPreview,
   InviteResult,
   LaunchedSession,
   LocalRoute,
@@ -196,6 +198,31 @@ export function createApiClient(options: ApiClientOptions) {
       unwrapList<PendingInvitation>(await request("/organizations/current/invitations"), "invitations"),
     revokeInvitation: (id: string) =>
       request<unknown>(`/organizations/current/invitations/${id}`, { method: "DELETE" }),
+    /**
+     * Reads an invitation without accepting it, so the accept page can name the
+     * workspace and decide whether to ask for a password.
+     *
+     * Unauthenticated, unlike everything above it: the token from the emailed
+     * link is the credential, and the recipient may not have an account yet.
+     * Throws `ApiError` with status 404 for a token that is unknown, expired, or
+     * already used — the API does not distinguish the three.
+     */
+    lookupInvitation: (token: string) =>
+      request<InvitationPreview>(`/invitations/lookup?token=${encodeURIComponent(token)}`),
+    /**
+     * Accepts an invitation. Also unauthenticated.
+     *
+     * `name` and `password` are required only when the invited address has no
+     * account yet — `existingUser: false` from the lookup — and are rejected as
+     * missing rather than guessed at. Accepting as a new user creates the
+     * account and returns a session; accepting for an existing one only adds the
+     * membership, and the person still has to sign in.
+     */
+    acceptInvitation: (body: { token: string; name?: string; password?: string }) =>
+      request<AcceptInvitationResult>("/invitations/accept", {
+        method: "POST",
+        body: JSON.stringify(body)
+      }),
     changeMemberRole: (userId: string, role: Role) =>
       request<unknown>(`/organizations/current/members/${userId}`, {
         method: "PATCH",
