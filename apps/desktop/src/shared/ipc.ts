@@ -69,6 +69,33 @@ export type SignInResult =
   | { ok: false; challenge: TwoFactorChallenge }
   | { ok: false; error: string };
 
+/**
+ * A browser sign-in the main process has started and is now polling for.
+ *
+ * The renderer gets the code to display and the URL to show in case the browser
+ * did not open — and nothing else. The device secret that will collect the
+ * token pair stays in the main process, for the reason in
+ * `main/runtime/session.ts`.
+ */
+export type BrowserSignInStart =
+  | {
+      ok: true;
+      /** The code the person must type into the browser to approve. */
+      userCode: string;
+      /** Where the browser was sent; shown so it can be opened by hand. */
+      verificationUrl: string;
+      expiresAt: string;
+    }
+  | { ok: false; error: string };
+
+/** How the wait ended. `approved` is the only one that signs anybody in. */
+export type BrowserSignInOutcome =
+  | { status: "approved"; user: User }
+  | { status: "denied" }
+  | { status: "expired" }
+  | { status: "cancelled" }
+  | { status: "failed"; error: string };
+
 /* -------------------------------------------------------------- terminals */
 
 /** A shell this machine can offer, discovered at startup. */
@@ -221,6 +248,14 @@ export interface OnshellBridge {
     completeTwoFactor(challengeId: string, code: string): Promise<SignInResult>;
     resendCode(challengeId: string): Promise<boolean>;
     signOut(): Promise<void>;
+    /**
+     * Hands sign-in to the user's real browser, where Google SSO, bot
+     * protection, and an existing session all already work. Two calls rather
+     * than one so the window can show the code the moment it has it, then wait.
+     */
+    startBrowserSignIn(): Promise<BrowserSignInStart>;
+    awaitBrowserSignIn(): Promise<BrowserSignInOutcome>;
+    cancelBrowserSignIn(): Promise<void>;
   };
 
   console: {
@@ -303,6 +338,9 @@ export const CHANNELS = {
   completeTwoFactor: "auth:complete-2fa",
   resendCode: "auth:resend-code",
   signOut: "auth:sign-out",
+  browserSignInStart: "auth:browser-start",
+  browserSignInAwait: "auth:browser-await",
+  browserSignInCancel: "auth:browser-cancel",
 
   consoleLoad: "console:load",
   consoleHosts: "console:hosts",

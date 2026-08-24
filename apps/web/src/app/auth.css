@@ -420,6 +420,95 @@
   }
 }
 
+/* ---- Invitation acceptance (/invite) ----
+   The token in the link is all the visitor brings, so the card has to state
+   plainly what they are joining before it asks for a password. */
+.invite-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  color: var(--soft);
+}
+
+/* The card's CTAs are sometimes links rather than buttons (sign in, sign up),
+   and the shared button styles in globals.css do not assume an <a>. */
+.auth-card a.primary-button,
+.auth-card a.secondary-button {
+  text-decoration: none;
+}
+
+.invite-summary {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.invite-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.invite-summary-row dt {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.invite-summary-row dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  /* Long workspace names and masked addresses both wrap rather than widen the
+     card, which is a fixed 440px on desktop and the viewport on mobile. */
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.invite-summary-row dd > svg {
+  flex: none;
+  color: var(--soft);
+}
+
+.invite-role {
+  padding: 2px 9px;
+  border: 1px solid var(--accent-weak-border);
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+/* The one line on a dead-end card that says whether the link is spent or the
+   failure was ours — the difference between "ask for a new invite" and "retry". */
+.invite-dead-end {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.invite-dead-end > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--soft);
+}
+
 /* Reassurance line under the signup CTA — freemium messaging at the point of
    commitment, where hesitation is highest. */
 .auth-fineprint {

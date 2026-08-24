@@ -1,6 +1,6 @@
 /**
- * The desktop app's two extra needs: being a known machine, and getting a
- * credential it can dial a host with.
+ * The desktop app's three extra needs: signing in without a password, being a
+ * known machine, and getting a credential it can dial a host with.
  *
  * Everything else the app does goes through the same routes the browser console
  * uses. What is different is that a native client can open a TCP connection, so
@@ -20,6 +20,12 @@
  * the user's own access is — but it is what makes the handout visible
  * afterwards and revocable one machine at a time.
  *
+ * Signing in is the other half. A native window can offer a password and
+ * nothing else — no Google SSO, no Turnstile widget, no session the browser
+ * already holds — so the app hands the whole thing to the real browser and waits
+ * to be told it went well. The reasoning and the defences for that live in
+ * lib/desktop-auth.ts; the routes below are the thin edge of it.
+ *
  * See docs/desktop.md.
  */
 import { randomBytes } from "node:crypto";
@@ -28,12 +34,21 @@ import type { RuntimeConfig } from "@onshell/config";
 import { canOpenSession } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
+import {
+  approveDesktopAuthRequest,
+  createDesktopAuthRequest,
+  denyDesktopAuthRequest,
+  DESKTOP_AUTH_POLL_INTERVAL_SECONDS,
+  pollDesktopAuthRequest,
+  previewDesktopAuthRequest
+} from "../../lib/desktop-auth.js";
 import { decryptSecret } from "../../lib/encryption.js";
 import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
-import { recordAudit } from "../../lib/prisma-mappers.js";
+import { recordAudit, toPublicUser } from "../../lib/prisma-mappers.js";
 import { handleRouteError } from "../../lib/reply.js";
 import { hashToken } from "../../lib/token.js";
+import { issueTokens, recordAuthEvent } from "./auth.js";
 
 const rateLimit = (max: number, timeWindow = "1 minute") => ({ config: { rateLimit: { max, timeWindow } } });
 
@@ -61,6 +76,29 @@ const leaseSchema = z.object({
 
 const deviceParamsSchema = z.object({ deviceId: z.string().min(1).max(64) });
 
+/**
+ * What the app says about itself. All three fields are display-only and every
+ * one of them is attacker-controlled — a request can be started by anybody —
+ * so they are bounded strings rather than a trusted enum. Constraining
+ * `platform` to the three Electron targets would only turn an odd client into a
+ * validation error the person cannot act on, and it would not make the value
+ * any more true.
+ */
+const authRequestSchema = z.object({
+  machineName: z.string().trim().min(1).max(120),
+  platform: z.string().trim().min(1).max(32),
+  appVersion: z.string().max(32).optional()
+});
+
+const authRequestParamsSchema = z.object({ requestId: z.string().min(1).max(64) });
+
+/**
+ * Roomy on length because the person is typing, and a code rejected by a schema
+ * rather than by the comparison would report the wrong error. Normalisation and
+ * the real check happen in `approveDesktopAuthRequest`.
+ */
+const approveSchema = z.object({ userCode: z.string().trim().min(1).max(32) });
+
 type DeviceRow = Awaited<ReturnType<typeof prisma.desktopDevice.findFirstOrThrow>>;
 
 /** The device as the console and the app see it. Never includes the secret. */
@@ -77,6 +115,248 @@ function toDesktopDevice(device: DeviceRow) {
 }
 
 export async function registerDesktopRoutes(app: FastifyInstance, config: RuntimeConfig) {
+  /* --------------------------------------------------- sign in with browser */
+
+  /**
+   * Starts a browser sign-in. Unauthenticated by necessity: the caller is an
+   * app with no session, which is the entire problem being solved.
+   *
+   * Nothing here grants anything. What comes back is a request id, a secret
+   * only this process holds, and a code for the person to carry across to their
+   * browser; a session exists only once a signed-in human has approved it.
+   * Rate-limited low because creating requests is free for the caller and each
+   * one occupies a slot in a bounded map.
+   */
+  app.post("/desktop/auth/requests", rateLimit(10), async (request, reply) => {
+    try {
+      const body = authRequestSchema.parse(request.body);
+      const created = createDesktopAuthRequest({
+        machineName: body.machineName,
+        platform: body.platform,
+        appVersion: body.appVersion,
+        ipAddress: request.ip
+      });
+
+      return reply.code(201).send({
+        requestId: created.requestId,
+        // Handed over exactly once. Only its hash is kept, so a database or heap
+        // read cannot complete somebody else's sign-in.
+        deviceSecret: created.deviceSecret,
+        userCode: created.userCode,
+        // Deliberately without the code in it. See lib/desktop-auth.ts: a URL
+        // that carries the code turns approval into one click on a page that
+        // looks entirely legitimate, which is the attack this flow has to
+        // survive.
+        verificationUrl: `${config.publicBaseUrl}/desktop/authorize?request=${encodeURIComponent(created.requestId)}`,
+        pollIntervalSeconds: created.pollIntervalSeconds,
+        expiresAt: created.expiresAt
+      });
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * The app asking whether the browser has answered.
+   *
+   * POST rather than GET because it is not idempotent: the poll that finds an
+   * approval consumes the request and mints the session, and a URL that hands
+   * out a session pair on GET is one a proxy, a prefetcher, or a browser
+   * history can replay.
+   *
+   * Tokens are minted here rather than at approval so that no usable credential
+   * ever waits in memory to be collected — the pending record holds a decision,
+   * not a session. The auth event is written here too, for the same reason: this
+   * is the moment a sign-in actually happened.
+   *
+   * The limit allows a handful of apps polling from one address at the
+   * server-suggested interval, which is what a NAT looks like.
+   */
+  app.post("/desktop/auth/requests/:requestId/poll", rateLimit(120), async (request, reply) => {
+    try {
+      const { requestId } = authRequestParamsSchema.parse(request.params);
+      const presented = request.headers["x-onshell-device-secret"];
+      if (typeof presented !== "string" || presented.length === 0) {
+        return reply.code(401).send({ error: "device_secret_required" });
+      }
+
+      const result = pollDesktopAuthRequest(requestId, presented);
+      if (result.status === "invalid_device_secret") {
+        return reply.code(401).send({ error: "invalid_device_secret" });
+      }
+      // pending / denied / expired are states of a legitimate request, not
+      // errors, so the app can render them without unwrapping an HTTP failure.
+      if (result.status !== "approved") {
+        return reply.send({
+          status: result.status,
+          ...(result.status === "pending" ? { pollIntervalSeconds: DESKTOP_AUTH_POLL_INTERVAL_SECONDS } : {})
+        });
+      }
+
+      const prismaUser = await prisma.user.findUnique({
+        where: { id: result.userId },
+        include: { memberships: true }
+      });
+      if (!prismaUser || prismaUser.memberships.length === 0) {
+        return reply.code(404).send({ error: "user_not_found" });
+      }
+
+      const user = toPublicUser(prismaUser);
+      await recordAuthEvent(request, {
+        email: user.email,
+        userId: user.id,
+        event: "LOGIN",
+        // The credential that produced this session was the approver's browser
+        // session, not a password or a Google round trip.
+        method: "SESSION",
+        success: true,
+        reason: "desktop_browser_approval"
+      });
+
+      // The same helper /auth/login uses, so a browser sign-in and a password
+      // sign-in produce an identical session — same TTLs, same refresh row, same
+      // revocation path. It also sets cookies, which a native client simply
+      // ignores; issuing a subtly different pair here is how the two drift.
+      const tokens = await issueTokens(reply, config, user, request);
+      return reply.send({ status: "approved", ...tokens });
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * What the approval page shows before anyone clicks anything.
+   *
+   * Authenticated, because only a signed-in person can approve and there is no
+   * reason to describe a pending request to anyone else. Any signed-in user may
+   * read any request they hold the id for: the id is the capability the app
+   * handed to whoever opened the URL, and the contents are only what the client
+   * claimed about itself — which is exactly what the approver needs to see in
+   * order to refuse a machine they do not recognise.
+   *
+   * Never the user code, and never a token.
+   */
+  app.get("/desktop/auth/requests/:requestId/preview", rateLimit(60), async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const { requestId } = authRequestParamsSchema.parse(request.params);
+      const preview = previewDesktopAuthRequest(requestId);
+      if (!preview) return reply.code(404).send({ error: "auth_request_not_found" });
+
+      return reply.send({ request: preview });
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Approval: this account, on that machine.
+   *
+   * The user code is what makes this safe, and it has to come from the person
+   * rather than from the link they clicked. Without it, anyone who can get a
+   * signed-in user to open a URL has a session on their own machine.
+   *
+   * `actor.id` comes from the caller's own access token, so an approval can only
+   * ever hand over the approver's own account — there is no field in this
+   * request that could name somebody else.
+   */
+  app.post("/desktop/auth/requests/:requestId/approve", rateLimit(10), async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const { requestId } = authRequestParamsSchema.parse(request.params);
+      const body = approveSchema.parse(request.body);
+      const result = approveDesktopAuthRequest(requestId, body.userCode, actor.id);
+
+      if (result.status === "invalid_user_code") {
+        return reply.code(401).send({
+          error: "invalid_user_code",
+          message: "That code does not match the one in the app window."
+        });
+      }
+      if (result.status === "expired") {
+        return reply.code(404).send({ error: "auth_request_not_found" });
+      }
+      if (result.status === "already_resolved") {
+        return reply.code(409).send({ error: "auth_request_already_resolved", status: result.resolution });
+      }
+
+      await recordAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "desktop.auth.approve",
+        targetType: "user",
+        targetId: actor.id,
+        ipAddress: request.ip,
+        // Both addresses, because "approved from here for a machine over there"
+        // is the shape of an approval that should not have happened.
+        metadata: {
+          machineName: result.request.machineName,
+          platform: result.request.platform,
+          appVersion: result.request.appVersion,
+          requestIp: result.request.ipAddress
+        }
+      });
+
+      return reply.send({ status: "approved" });
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Refusing. No code needed — see lib/desktop-auth.ts. The denial is written to
+   * the login log as well as the audit trail: somebody tried to obtain a session
+   * for this account and the owner said no, which is exactly what that log is
+   * for.
+   */
+  app.post("/desktop/auth/requests/:requestId/deny", rateLimit(10), async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const { requestId } = authRequestParamsSchema.parse(request.params);
+      const result = denyDesktopAuthRequest(requestId);
+      if (result.status === "expired") {
+        return reply.code(404).send({ error: "auth_request_not_found" });
+      }
+      if (result.status === "already_resolved") {
+        return reply.code(409).send({ error: "auth_request_already_resolved", status: result.resolution });
+      }
+
+      await recordAudit({
+        organizationId: actor.organizationId,
+        actorId: actor.id,
+        action: "desktop.auth.deny",
+        targetType: "user",
+        targetId: actor.id,
+        ipAddress: request.ip,
+        metadata: {
+          machineName: result.request.machineName,
+          platform: result.request.platform,
+          requestIp: result.request.ipAddress
+        }
+      });
+      await recordAuthEvent(request, {
+        email: actor.email,
+        userId: actor.id,
+        event: "LOGIN_FAILED",
+        method: "SESSION",
+        success: false,
+        reason: "desktop_browser_denied"
+      });
+
+      return reply.send({ status: "denied" });
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /* --------------------------------------------------------------- devices */
+
   /**
    * Registers this copy of the app, or re-registers it after a reinstall.
    *

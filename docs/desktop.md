@@ -92,6 +92,84 @@ Fallback is offered, never silent. A session that quietly stopped being end-to-e
 would make the promise above worthless, so the terminal says which path it is on, and
 switching paths is a thing the user does, not a thing that happens to them.
 
+## Signing in
+
+A native window can offer a password and nothing else. It cannot run Google's SSO
+redirect, it cannot render a Turnstile widget, and it knows nothing about the session
+the user's browser is very probably already holding. So for a growing share of accounts
+the password form was not a worse option, it was an impossible one: an account created
+with Google has no `passwordHash`, `POST /auth/login` returns `invalid_credentials` for
+it unconditionally, and no password the person could type would ever have worked.
+
+So the app offers two ways in, and the browser is the one it leads with.
+
+### Sign in with browser
+
+An OAuth-device-authorization-shaped flow: the app asks the server for a pending
+sign-in, opens the user's real browser at it, shows a code, and waits to be told a
+signed-in human approved it.
+
+```mermaid
+sequenceDiagram
+  participant D as Desktop app
+  participant B as The user's browser
+  participant A as API
+
+  D->>A: POST /desktop/auth/requests {machineName, platform, appVersion}
+  A-->>D: {requestId, deviceSecret, userCode, verificationUrl, pollIntervalSeconds, expiresAt}
+  Note over D: shows userCode in the window.<br/>deviceSecret never leaves the main process.
+  D->>B: shell.openExternal(verificationUrl) — request id only, no code
+  B->>A: GET /desktop/auth/requests/:id/preview (browser session)
+  A-->>B: {machineName, platform, requestedAt, expiresAt} — never the code
+  Note over B: person types the code from the app window<br/>and clicks Approve
+  B->>A: POST /desktop/auth/requests/:id/approve {userCode}
+  A->>A: constant-time code check, audit desktop.auth.approve
+  loop every pollIntervalSeconds, until expiry
+    D->>A: POST /desktop/auth/requests/:id/poll<br/>x-onshell-device-secret
+    A-->>D: {status: pending}
+  end
+  A-->>D: {status: approved, user, accessToken, refreshToken} — once
+  Note over D: same persist() path as a password sign-in:<br/>refresh token to the OS keychain, access token in memory
+```
+
+Rules the implementation has to keep:
+
+| Rule | Why |
+| --- | --- |
+| The **user code is typed into the browser**, never carried in the URL | It is the only thing tying the approval to the machine that asked. A pre-filled code makes approval one click on a page that looks entirely legitimate — which is the phishing attack this flow shape invites |
+| The page **never returns the code**, only what the client claimed about itself | Otherwise the id alone would be enough to complete somebody else's sign-in |
+| Both secrets are stored **hashed** and compared in **constant time** | A heap read, a log line, or a timing loop must not be a way in |
+| **One shot**: the poll that collects the tokens consumes the request | A second poll gets `expired`. An approved request that stayed collectable would make the device secret pointless |
+| **Five minutes**, a five-attempt code cap, and a poll cap | Long enough to walk the code across, too short to leave lying around |
+| Approval **mints for the approver's own account** | `userId` comes from the approver's access token; no field in the request can name anyone else |
+| Approval and denial are **audited**, and the sign-in lands in the **login log** | `desktop.auth.approve` / `desktop.auth.deny`, plus an auth event when the session is actually issued |
+| Pending requests live in **memory**, not a table | They are worthless after five minutes. Surviving an API restart would buy nothing and leave a table of half-finished sign-ins to age out |
+
+The state machine and the reasoning behind each of those live in
+[lib/desktop-auth.ts](../apps/api/src/lib/desktop-auth.ts); the routes are the thin
+edge of it in [routes/modules/desktop.ts](../apps/api/src/routes/modules/desktop.ts),
+and the browser side is [/desktop/authorize](../apps/web/src/app/desktop/authorize/page.tsx).
+
+The device secret and the token pair never cross the IPC bridge. The renderer is handed
+the code to display and a promise that resolves to "you are signed in" — same boundary
+as everything else in this app.
+
+### Password sign-in
+
+Still there, as the alternative, and now it explains itself. Every code either auth leg
+can return is mapped to a sentence: a rejected password, a per-account lockout with its
+countdown, a bot-protection challenge this window cannot render (which says to use the
+browser instead), a 404 that means the server address is wrong rather than the password,
+a proxy answering with HTML instead of JSON, and a DNS or connection failure — which
+used to throw inside the IPC handler and leave the button spinning on "Signing in…"
+with no message at all.
+
+A raw `invalid_credentials` is never shown to a person. That failure also carries the
+Google hint, because the API cannot distinguish "wrong password" from "this account has
+no password" without becoming an account-enumeration oracle for anyone with a word
+list — so the app says both possibilities in the one message it already shows, to
+everybody, which reveals nothing about any particular address.
+
 ## Credential leases
 
 Direct mode needs the credential on the user's machine. That is a real widening of
@@ -218,7 +296,7 @@ apps/desktop
 │   └── runtime/
 │       ├── settings.ts     server URL and preferences (never secrets)
 │       ├── vault.ts        safeStorage-backed token store
-│       ├── session.ts      the API client and the sign-in flow
+│       ├── session.ts      the API client, password and browser sign-in
 │       ├── device.ts       this machine's enrolment, secret in the keychain
 │       ├── terminals.ts    local / direct / relay, and which one you got
 │       ├── ssh.ts          direct ssh2 shell, and credential leases

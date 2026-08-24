@@ -11,6 +11,7 @@ import QRCode from "qrcode";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail, isSmtpEnabled } from "../../lib/email.js";
+import { passwordResetEmail, signInCodeEmail, twoFactorChangeCodeEmail } from "../../lib/email-template.js";
 import { encryptSecret, decryptSecret } from "../../lib/encryption.js";
 import { clearLoginFailures, getLoginLock, recordLoginFailure } from "../../lib/login-throttle.js";
 import { prisma } from "../../lib/prisma.js";
@@ -141,7 +142,7 @@ export async function createAudit(input: {
  * organization and an actor, which a failed login against an unknown email has
  * neither of. Errors are swallowed so logging can never block authentication.
  */
-async function recordAuthEvent(
+export async function recordAuthEvent(
   request: FastifyRequest,
   input: {
     email: string;
@@ -301,12 +302,18 @@ async function sendChallengeEmailOtp(
   // Re-set so the TTL is refreshed alongside the mutated fields.
   store.pendingTwoFactorChallenges.set(challengeId, challenge);
 
+  const message = signInCodeEmail({
+    code: otp,
+    expiresInMinutes: EMAIL_OTP_TTL_MS / 60_000,
+    siteUrl: config.siteUrl
+  });
+
   return sendTransactionalEmail({
     masterEncryptionKey: config.masterEncryptionKey,
     recipient,
-    subject: "Your Onshell.cloud sign-in code",
-    text: `Your Onshell.cloud sign-in code is ${otp}. It expires in 10 minutes.`,
-    html: `<p>Your Onshell.cloud sign-in code is <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
     kind: "two_factor_login_code",
     logger: app.log
   });
@@ -339,13 +346,18 @@ async function sendEmailTwoFactorCode(
     expiresAt: new Date(Date.now() + EMAIL_OTP_TTL_MS).toISOString()
   });
 
-  const action = purpose === "enable" ? "enable" : "turn off";
+  const message = twoFactorChangeCodeEmail({
+    code: otp,
+    purpose,
+    expiresInMinutes: EMAIL_OTP_TTL_MS / 60_000,
+    siteUrl: config.siteUrl
+  });
   const sent = await sendTransactionalEmail({
     masterEncryptionKey: config.masterEncryptionKey,
     recipient,
-    subject: "Your Onshell.cloud verification code",
-    text: `Use code ${otp} to ${action} email two-factor authentication on Onshell.cloud. It expires in 10 minutes.`,
-    html: `<p>Use code <strong>${otp}</strong> to ${action} email two-factor authentication on Onshell.cloud. It expires in 10 minutes.</p>`,
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
     kind: `two_factor_${purpose}_code`,
     logger: app.log
   });
@@ -1161,12 +1173,17 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         })
       ]);
 
+      const message = passwordResetEmail({
+        code: otp,
+        expiresInMinutes: PASSWORD_RESET_TTL_MS / 60_000,
+        siteUrl: config.siteUrl
+      });
       const sent = await sendTransactionalEmail({
         masterEncryptionKey: config.masterEncryptionKey,
         recipient: prismaUser.email,
-        subject: "Your Onshell.cloud password reset code",
-        text: `Your Onshell.cloud password reset code is ${otp}. It expires in 15 minutes. If you did not request this, you can ignore this email.`,
-        html: `<p>Your Onshell.cloud password reset code is <strong>${otp}</strong>. It expires in 15 minutes.</p><p>If you did not request this, you can ignore this email.</p>`,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
         kind: "password_reset",
         logger: app.log
       });

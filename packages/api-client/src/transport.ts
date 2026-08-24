@@ -66,8 +66,20 @@ export interface TransportOptions {
  * signing out, and the refresh call itself (retrying which would recurse).
  * Everything else — `/auth/me` included — is worth one silent retry, because the
  * access token expires long before the session does.
+ *
+ * `/invitations` is here for the opposite reason: those two routes authenticate
+ * with the invite token, not a session, so a refresh could only ever swap in an
+ * identity they do not read — and a caller with no session at all (the whole
+ * point of the accept page) has nothing to refresh with.
  */
-const NO_REFRESH_PATHS = ["/auth/login", "/auth/register", "/auth/logout", "/auth/refresh", "/auth/google"];
+const NO_REFRESH_PATHS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/logout",
+  "/auth/refresh",
+  "/auth/google",
+  "/invitations"
+];
 
 export interface Transport {
   readonly baseUrl: string;

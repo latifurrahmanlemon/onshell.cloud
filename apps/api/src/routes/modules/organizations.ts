@@ -10,11 +10,13 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail } from "../../lib/email.js";
+import { organizationInvitationEmail } from "../../lib/email-template.js";
 import {
   hasImplicitHostAccess,
   hostAccessSummaries,
   replaceHostAccess
 } from "../../lib/host-access.js";
+import { maskEmail } from "../../lib/mask-email.js";
 import { prisma } from "../../lib/prisma.js";
 import { revokeRefreshTokens } from "../../lib/refresh-tokens.js";
 import { toPublicUser } from "../../lib/prisma-mappers.js";
@@ -24,6 +26,16 @@ import { hashToken } from "../../lib/token.js";
 import { createAudit, issueTokens } from "./auth.js";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Rate limit for the two invitation routes a stranger can reach without a
+ * session. Both take a 32-byte token, so guessing is hopeless anyway — the limit
+ * is here to stop someone turning them into a free lookup service against a
+ * stolen list of tokens, and to keep bcrypt off the hot path of a flood.
+ */
+const invitationRateLimit = (max: number, timeWindow = "1 minute") => ({
+  config: { rateLimit: { max, timeWindow } }
+});
 
 const roleToPrisma: Record<PublicRole, Role> = {
   owner: Role.OWNER,
@@ -54,6 +66,10 @@ const acceptInvitationSchema = z.object({
   token: z.string().min(16),
   name: z.string().min(2).optional(),
   password: z.string().optional()
+});
+
+const lookupInvitationSchema = z.object({
+  token: z.string().min(16)
 });
 
 const memberParamsSchema = z.object({
@@ -235,12 +251,20 @@ export async function registerOrganizationRoutes(
       const organization = await prisma.organization.findUnique({
         where: { id: actor.organizationId }
       });
+      const message = organizationInvitationEmail({
+        inviterName: actor.name,
+        organizationName: organization?.name ?? "their workspace",
+        role: body.role,
+        acceptUrl,
+        expiresInDays: INVITATION_TTL_MS / 86_400_000,
+        siteUrl: config.siteUrl
+      });
       const emailSent = await sendTransactionalEmail({
         masterEncryptionKey: config.masterEncryptionKey,
         recipient: body.email,
-        subject: `You have been invited to ${organization?.name ?? "Onshell.cloud"}`,
-        text: `${actor.name} invited you to join ${organization?.name ?? "their workspace"} on Onshell.cloud as ${body.role}. Accept the invitation: ${acceptUrl} (link expires in 7 days).`,
-        html: `<p><strong>${actor.name}</strong> invited you to join <strong>${organization?.name ?? "their workspace"}</strong> on Onshell.cloud as <strong>${body.role}</strong>.</p><p><a href="${acceptUrl}">Accept the invitation</a> (link expires in 7 days).</p>`,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
         kind: "organization_invitation",
         logger: app.log
       });
@@ -315,7 +339,63 @@ export async function registerOrganizationRoutes(
     }
   });
 
-  app.post("/invitations/accept", async (request, reply) => {
+  /**
+   * Read-only preview of an invitation, for the /invite page.
+   *
+   * Unauthenticated of necessity: in the case this exists to serve, the
+   * recipient has no account yet, so the token in the emailed link is the only
+   * credential there is. Nothing here is a secret the holder of a live invite
+   * link does not already have — but it is deliberately the *minimum* such a
+   * holder needs to decide whether to accept, which is why the organization's id
+   * and slug, the inviter, and the member list are all absent.
+   */
+  app.get("/invitations/lookup", invitationRateLimit(20), async (request, reply) => {
+    try {
+      const query = lookupInvitationSchema.parse(request.query);
+
+      // The token travels in the query string, so this response must never be
+      // written to a shared cache keyed on that URL.
+      reply.header("cache-control", "no-store");
+
+      const invitation = await prisma.invitation.findFirst({
+        where: { tokenHash: hashToken(query.token) },
+        include: { organization: { select: { name: true } } }
+      });
+
+      // One answer for "never existed", "already used" and "expired", matching
+      // what the accept route below distinguishes: nothing. A lookup that told
+      // the three apart would turn a leaked link into an oracle for whether an
+      // invitation is still live, and for whether an address was ever invited.
+      if (!invitation || invitation.acceptedAt || invitation.expiresAt.getTime() <= Date.now()) {
+        return reply.code(404).send({ error: "invitation_not_found" });
+      }
+
+      const existingUser = await prisma.user.findUnique({
+        where: { email: invitation.email },
+        select: { id: true }
+      });
+
+      return {
+        organizationName: invitation.organization.name,
+        role: roleToPublic[invitation.role],
+        // Masked rather than echoed in full. Invite links get forwarded, pasted
+        // into chats, and left in browser history, and the full address would
+        // hand whoever finds one a confirmed mailbox to phish at a workspace
+        // whose name is right next to it. The first letter and the domain are
+        // enough for the actual recipient to recognise which of their addresses
+        // was invited — the only thing the page needs it for. Elsewhere the API
+        // does return full addresses (GET /organizations/current/invitations),
+        // but only to a signed-in member who can already manage the team.
+        email: maskEmail(invitation.email),
+        existingUser: Boolean(existingUser),
+        expiresAt: invitation.expiresAt.toISOString()
+      };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.post("/invitations/accept", invitationRateLimit(20), async (request, reply) => {
     try {
       const body = acceptInvitationSchema.parse(request.body);
       const invitation = await prisma.invitation.findFirst({

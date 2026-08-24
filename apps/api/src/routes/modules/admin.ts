@@ -771,7 +771,8 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
         result = await sendSmtpTestEmail({
           smtp,
           masterEncryptionKey: config.masterEncryptionKey,
-          recipient: body.recipient
+          recipient: body.recipient,
+          siteUrl: config.siteUrl
         });
       } catch (sendError) {
         // A refused or misconfigured mail server is not an internal error, and
