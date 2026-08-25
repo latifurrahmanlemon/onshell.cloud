@@ -5,6 +5,7 @@ import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import Fastify, { type FastifyError } from "fastify";
 import { loadConfig } from "@onshell/config";
+import { buildRateLimitError, resolveErrorResponse } from "./lib/error-response.js";
 import { registerRoutes } from "./routes/index.js";
 
 const config = loadConfig("api");
@@ -61,20 +62,10 @@ await app.register(rateLimit, {
   timeWindow: "1 minute",
   // Key on the (proxy-aware) client IP and return a machine-readable body.
   keyGenerator: (request) => request.ip,
-  /**
-   * The plugin *throws* whatever this returns, so it lands in the error handler
-   * below instead of being sent as written. Returning a bare object therefore
-   * lost the status along with the body: with no `statusCode` the handler read
-   * every rate-limited request as an unhandled fault and answered
-   * `500 internal_error`, so the 429 and the retry hint that the web and desktop
-   * clients are both written against could never arrive.
-   */
-  errorResponseBuilder: (_request, context) =>
-    Object.assign(new Error(`Too many requests. Try again in ${Math.ceil(context.ttl / 1000)}s.`), {
-      statusCode: context.statusCode,
-      code: "rate_limited",
-      retryAfterSeconds: Math.ceil(context.ttl / 1000)
-    })
+  // The plugin *throws* whatever this returns, so it lands in the error handler
+  // below rather than being sent as written — buildRateLimitError explains why
+  // that has to be an Error carrying the status.
+  errorResponseBuilder: (_request, context) => buildRateLimitError(context)
 });
 
 await app.register(cors, {
@@ -93,26 +84,11 @@ await app.register(sensible);
 // Uncaught route errors must not leak internals (stack traces, SQL, paths) to
 // clients. handleRouteError covers the routes that catch; this covers the rest.
 app.setErrorHandler((error: FastifyError, request, reply) => {
-  if (error.validation) {
-    return reply.code(400).send({ error: "validation_failed" });
-  }
-
-  const status = error.statusCode ?? 500;
-  if (status >= 500) {
+  const { status, body, logAsFault } = resolveErrorResponse(error);
+  if (logAsFault) {
     request.log.error({ err: error }, "Unhandled request error");
-    return reply.code(500).send({ error: "internal_error" });
   }
-
-  // The retry hint is the one field a client cannot work out for itself, so it
-  // has to survive the generic mapping below.
-  const retryAfterSeconds = (error as FastifyError & { retryAfterSeconds?: number }).retryAfterSeconds;
-  if (retryAfterSeconds !== undefined) {
-    return reply
-      .code(status)
-      .send({ error: error.code ?? "rate_limited", message: error.message, retryAfterSeconds });
-  }
-
-  return reply.code(status).send({ error: error.code ?? "request_failed", message: error.message });
+  return reply.code(status).send(body);
 });
 
 app.setNotFoundHandler(async (_request, reply) => reply.code(404).send({ error: "not_found" }));
