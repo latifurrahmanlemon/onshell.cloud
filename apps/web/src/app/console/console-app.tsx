@@ -7,6 +7,8 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Braces,
+  Building2,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -48,7 +50,7 @@ import type { AgentDevice, AuditLog, CredentialSummary, Host, Organization, Remo
 import { canOpenSession, isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, keepSessionAlive, sessionWebsocketUrl } from "./api";
-import type { PendingInvitation, TeamMember } from "./api";
+import type { MembershipSummary, PendingInvitation, TeamMember } from "./api";
 import { FilesView } from "./files";
 import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
 import {
@@ -168,6 +170,14 @@ function sessionErrorMessage(error: unknown): string {
 export function ConsoleApp() {
   const reduceMotion = useReducedMotion();
   const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
+  /**
+   * Every workspace this account belongs to. Almost always one — the switcher
+   * only exists for the person who was invited into somebody else's workspace
+   * while already having their own, and a single-workspace user must not be
+   * shown any of this.
+   */
+  const [organizations, setOrganizations] = useState<MembershipSummary[]>([]);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [view, setView] = useState<ViewKey>("overview");
   const { mode, accent, setMode, setAccent } = useTheme();
@@ -185,8 +195,14 @@ export function ConsoleApp() {
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /**
+   * Bumped to force every account-wide fetch to run again. Switching workspace
+   * is the only thing that does it: plan, usage, and referral figures all belong
+   * to the workspace that was left behind.
+   */
+  const [dataEpoch, setDataEpoch] = useState(0);
   /** Plan, usage, and referral data for the billing panel and upgrade nudge. */
-  const growth = useGrowth();
+  const growth = useGrowth(dataEpoch);
 
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -453,21 +469,48 @@ export function ConsoleApp() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    consoleApi
-      .me()
-      .then(async (payload) => {
-        if (!active) return;
-        const user = (payload as { user?: User }).user ?? (payload as unknown as User);
-        const organization = (payload as { organization?: Organization }).organization;
-        setIdentity({ user, organization });
+  /**
+   * Establishes who is signed in and which workspace they are reading, then
+   * loads that workspace. Run on mount and again after a workspace switch, so
+   * there is one definition of "the console has been populated".
+   *
+   * `applyTheme` is off for a switch: the saved theme is per account, and
+   * re-applying it would undo a light/dark toggle made since the page loaded.
+   */
+  const bootstrap = useCallback(
+    async (options?: { applyTheme?: boolean }) => {
+      const payload = await consoleApi.me();
+      const user = (payload as { user?: User }).user ?? (payload as unknown as User);
+      const organization = (payload as { organization?: Organization }).organization;
+      setIdentity({ user, organization });
+      setOrganizations(payload.organizations ?? []);
+
+      // The server put us somewhere other than where the token asked for: the
+      // membership was revoked while this session was live. Say so — the hosts
+      // list changing under the user with no explanation is the bad outcome.
+      const moved = payload.activeOrganizationChanged;
+      if (moved) {
+        notify(
+          `You were removed from ${moved.previousOrganizationName ?? "that workspace"}. ` +
+            `You are now in ${moved.organizationName ?? "another workspace"}.`,
+          "error"
+        );
+      }
+
+      if (options?.applyTheme !== false) {
         // Account theme wins on login, syncing this device to the saved choice.
         const pref = user.themePreference;
         if (pref?.mode) setMode(pref.mode);
         if (pref?.accent) setAccent(pref.accent);
-        await refreshAll();
-      })
+      }
+      await refreshAll();
+    },
+    [notify, refreshAll, setAccent, setMode]
+  );
+
+  useEffect(() => {
+    let active = true;
+    bootstrap()
       .catch((error: unknown) => {
         if (!active) return;
         if (error instanceof ApiError && error.status === 401) {
@@ -480,7 +523,10 @@ export function ConsoleApp() {
     return () => {
       active = false;
     };
-  }, [refreshAll]);
+    // Mount only: bootstrap is stable, and re-running it would refetch the whole
+    // console on every notify.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* sessions */
   /**
@@ -641,6 +687,99 @@ export function ConsoleApp() {
     []
   );
 
+  /**
+   * Moves the console to another of the account's workspaces.
+   *
+   * The open terminals are the reason this is not just a re-fetch. Every tab is
+   * a live socket to a machine belonging to the workspace being left, and the
+   * new workspace has no claim on any of them — leaving them attached would put
+   * organization A's shells inside organization B's console, which is the worst
+   * possible reading of what a workspace boundary means. So they are closed,
+   * gateway-side as well as locally, and because closing a live shell can throw
+   * away work the user is asked first.
+   *
+   * Everything else the console holds belongs to the old workspace too: hosts,
+   * credentials, sessions, snippets, agents, audit, the team, the plan. All of
+   * it is cleared before the reload rather than left to be overwritten, so a
+   * failed fetch shows an empty panel instead of the previous workspace's data.
+   */
+  const switchOrganization = useCallback(
+    async (target: MembershipSummary) => {
+      if (target.isActive || switchingTo) return;
+
+      const liveTabs = tabs.filter((tab) => tab.status !== "closed" && tab.status !== "error");
+      if (liveTabs.length > 0) {
+        const confirmed = window.confirm(
+          `Switching to ${target.name} will close ${liveTabs.length} open ` +
+            `terminal${liveTabs.length === 1 ? "" : "s"} in ${identity?.organization?.name ?? "this workspace"}. ` +
+            "Anything running in them will be interrupted. Continue?"
+        );
+        if (!confirmed) return;
+      }
+
+      setSwitchingTo(target.id);
+
+      // Closed *before* the switch, not after, because a close is authorised
+      // against the workspace that owns the session: once the session names the
+      // new workspace, `POST /sessions/:id/close` for a host in the old one is
+      // correctly refused, and the shells would be left running on the gateway
+      // with no console attached to them. The cost is that a switch which then
+      // fails has already discarded the terminals — which the user was asked
+      // about, and is told about below.
+      const closing = tabs.filter((tab) => tab.sessionId).map((tab) => tab.sessionId);
+      setTabs([]);
+      setActiveTab(null);
+      setTabSettings({});
+      setInjected(null);
+      setTerminalFullscreen(false);
+      setSnippetsPanelOpen(false);
+      setTabPickerOpen(false);
+      setTerminalSettingsOpen(false);
+      await Promise.allSettled(closing.map((sessionId) => consoleApi.closeSession(sessionId)));
+
+      try {
+        await consoleApi.switchOrganization(target.id);
+      } catch (error) {
+        setSwitchingTo(null);
+        const reason =
+          error instanceof ApiError && error.status === 404
+            ? "You are no longer a member of that workspace."
+            : error instanceof Error
+              ? error.message
+              : "Could not switch workspace.";
+        notify(
+          closing.length > 0 ? `${reason} Your open terminals were closed.` : reason,
+          "error"
+        );
+        return;
+      }
+
+      setHosts([]);
+      setCredentials([]);
+      setSessions([]);
+      setSnippets([]);
+      setAgents([]);
+      setAudit([]);
+      setMembers([]);
+      setInvitations([]);
+      setEditHostId(null);
+      setLoading(true);
+      setView("overview");
+      setDataEpoch((epoch) => epoch + 1);
+
+      try {
+        await bootstrap({ applyTheme: false });
+        notify(`Switched to ${target.name}.`);
+      } catch {
+        setLoadError("Switched workspace, but could not load it. Reload the page.");
+        setLoading(false);
+      } finally {
+        setSwitchingTo(null);
+      }
+    },
+    [bootstrap, identity, notify, switchingTo, tabs]
+  );
+
   // Send a snippet to the active terminal. execute=true appends a newline (runs
   // it); execute=false pastes the text without running so the user can edit it.
   const sendSnippet = useCallback(
@@ -795,6 +934,18 @@ export function ConsoleApp() {
             </span>
           </button>
         </div>
+        {/* Only for accounts that really do have somewhere else to go. Someone
+            with one workspace sees no extra control at all. */}
+        {organizations.length > 1 && (
+          <WorkspaceSwitcher
+            activeName={identity.organization?.name ?? "Workspace"}
+            collapsed={collapsed}
+            onSelect={(target) => void switchOrganization(target)}
+            organizations={organizations}
+            reduceMotion={Boolean(reduceMotion)}
+            switchingTo={switchingTo}
+          />
+        )}
         <nav aria-label="Console" className="nav-list">
           {navItems.map((item) => (
             <button
@@ -1465,6 +1616,105 @@ export function ConsoleApp() {
           >
             {toast.kind === "success" ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
             {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/**
+ * The workspace picker in the sidebar, for accounts that belong to more than one.
+ *
+ * It states the role held in each workspace rather than only the name, because
+ * they differ: the case this exists for is somebody who owns their own workspace
+ * and was invited into a colleague's as a developer, and "what will I be able to
+ * do over there" is the question they are actually asking.
+ */
+function WorkspaceSwitcher({
+  activeName,
+  collapsed,
+  onSelect,
+  organizations,
+  reduceMotion,
+  switchingTo
+}: {
+  activeName: string;
+  collapsed: boolean;
+  onSelect: (target: MembershipSummary) => void;
+  organizations: MembershipSummary[];
+  reduceMotion: boolean;
+  switchingTo: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (anchor.current && !anchor.current.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="workspace-switcher" ref={anchor}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={`Workspace: ${activeName}. Switch workspace`}
+        className={cx("workspace-switch-trigger", open && "is-open")}
+        disabled={switchingTo !== null}
+        onClick={() => setOpen((current) => !current)}
+        title={collapsed ? `Workspace: ${activeName}` : undefined}
+        type="button"
+      >
+        {switchingTo ? <Loader2 className="workspace-switch-spin" size={15} /> : <Building2 size={15} />}
+        <span className="nav-label workspace-switch-name">{activeName}</span>
+        <ChevronDown className="nav-label workspace-switch-chevron" size={14} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="workspace-switch-menu"
+            exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
+            initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+            role="menu"
+            transition={{ duration: 0.14, ease: "easeOut" }}
+          >
+            <p className="workspace-switch-head">Your workspaces</p>
+            {organizations.map((organization) => (
+              <button
+                aria-current={organization.isActive}
+                className={cx("workspace-switch-item", organization.isActive && "is-active")}
+                disabled={switchingTo !== null}
+                key={organization.id}
+                onClick={() => {
+                  setOpen(false);
+                  onSelect(organization);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <span className="workspace-switch-item-copy">
+                  <strong>{organization.name}</strong>
+                  <small>{organization.role}</small>
+                </span>
+                {organization.isActive && <Check size={14} />}
+              </button>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>
