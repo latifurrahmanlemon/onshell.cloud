@@ -31,6 +31,17 @@ export interface RuntimeConfig {
    * who opens the console at least once inside the window stays signed in.
    */
   sessionTtlDays: number;
+  /**
+   * How long the gateway keeps a shell running after the browser watching it
+   * disconnects, in seconds.
+   *
+   * A dropped WebSocket is almost never someone deciding they were finished — it
+   * is a lid closing, a train tunnel, a wifi hand-off, a proxy reload. Within
+   * this window the console reconnects to the very same shell and is replayed
+   * whatever it missed; past it the shell is ended, so a browser that is not
+   * coming back does not hold a login open on somebody's server.
+   */
+  terminalDetachGraceSeconds: number;
   googleClientId: string;
   googleClientSecret: string;
   googleRedirectUri: string;
@@ -188,6 +199,14 @@ export function loadConfig(service: ServiceName): RuntimeConfig {
     // Clamped rather than trusted: a stray "0" would sign everyone out on the
     // next request, and a huge value would keep revoked devices alive for years.
     sessionTtlDays: Math.min(365, Math.max(1, envNumber("SESSION_TTL_DAYS", 30))),
+    // Clamped for the same reason as the session TTL: zero would put back the
+    // behaviour this replaced — every dropped socket killing a shell — and an
+    // unbounded value would leave abandoned logins running on customer servers.
+    // The floor of 30s still covers a page reload; the ceiling is four hours.
+    terminalDetachGraceSeconds: Math.min(
+      4 * 60 * 60,
+      Math.max(30, envNumber("TERMINAL_DETACH_GRACE_SECONDS", 15 * 60))
+    ),
     googleClientId: env("GOOGLE_CLIENT_ID"),
     googleClientSecret: env("GOOGLE_CLIENT_SECRET"),
     googleRedirectUri: env("GOOGLE_REDIRECT_URI", `${apiBaseUrl}/auth/google/callback`),

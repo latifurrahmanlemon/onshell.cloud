@@ -6,7 +6,31 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { DEFAULT_TERMINAL_SETTINGS, themeById, type TerminalSettings } from "./terminal-settings";
 
-export type TerminalStatus = "connecting" | "connected" | "closed" | "error";
+/**
+ * `reconnecting` is not a failure. The shell is still running on the gateway,
+ * which holds it for a grace period after a socket drops, and this terminal is
+ * on its way back to it — so the console must not offer to start a new session,
+ * which is what it does for `closed` and `error`.
+ */
+export type TerminalStatus = "connecting" | "connected" | "reconnecting" | "closed" | "error";
+
+/**
+ * How often the terminal pings the gateway over an open socket.
+ *
+ * Under the 60s an idle nginx proxy allows, and under the mobile-network NAT
+ * timeouts that are shorter still. This is the traffic that keeps a terminal
+ * nobody is typing into from being reaped by something in the middle.
+ */
+const HEARTBEAT_INTERVAL_MS = 20_000;
+
+/** Ceiling on the reconnect backoff — long outages still get a try every 10s. */
+const MAX_RETRY_DELAY_MS = 10_000;
+
+/**
+ * WebSocket close code 1008. The gateway uses it for one thing: this session id
+ * is not one it has. Reconnecting cannot change that answer.
+ */
+const WS_POLICY_VIOLATION = 1008;
 
 interface XtermTerminalProps {
   websocketUrl: string;
@@ -157,69 +181,198 @@ export default function XtermTerminal({
     // then closes.
     let failure: string | undefined;
     let everConnected = false;
-
-    const socket = new WebSocket(websocketUrl);
-    socket.binaryType = "arraybuffer";
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      everConnected = true;
-      update("connected");
-      sendResize();
-      terminal.focus();
-    };
-    socket.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        // The gateway sends JSON control frames (e.g. {"type":"system","data":"..."}); everything else is raw output.
-        if (event.data.startsWith('{"type":')) {
-          try {
-            const frame = JSON.parse(event.data) as { type?: string; data?: string };
-            if (frame.type === "system") {
-              terminal.write(`\x1b[90m${frame.data ?? ""}\x1b[0m\r\n`);
-              return;
-            }
-            if (frame.type === "error") {
-              failure = frame.data ?? undefined;
-              terminal.write(`\r\n\x1b[91m${frame.data ?? "The session could not be started."}\x1b[0m\r\n`);
-              update("error", failure);
-              return;
-            }
-            if (frame.type === "data") {
-              terminal.write(frame.data ?? "");
-              return;
-            }
-          } catch {
-            // fall through and print verbatim
-          }
-        }
-        terminal.write(event.data);
-      } else {
-        terminal.write(new Uint8Array(event.data as ArrayBuffer));
-      }
-    };
-    socket.onerror = () => {
-      // Fires without a reason of its own — a socket that never opened at all
-      // means the gateway itself is unreachable, which is worth saying.
-      update(
-        "error",
-        failure ?? (everConnected ? undefined : "Could not reach the Onshell gateway. Check that it is running.")
-      );
-    };
-    socket.onclose = (event) => {
-      const reason = failure ?? (event.reason && !everConnected ? event.reason : undefined);
-      update(reason ? "error" : "closed", reason);
-      terminal.write(`\r\n\x1b[90m[session closed]\x1b[0m\r\n`);
-    };
-
-    const dataDisposable = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(data);
-    });
+    /** The component is going away; nothing may schedule another attempt. */
+    let disposed = false;
+    /** The session is over for a reason reconnecting could not fix. */
+    let finished = false;
+    /** Consecutive failed attempts, for the backoff below. Reset on connect. */
+    let attempt = 0;
+    /** So the "reconnecting" notice is written once per outage, not per attempt. */
+    let announcedDrop = false;
+    let retryTimer: number | undefined;
+    let heartbeat: number | undefined;
+    let socket: WebSocket | null = null;
 
     function sendResize() {
-      if (socket.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
       }
     }
+
+    function stopHeartbeat() {
+      if (heartbeat === undefined) return;
+      window.clearInterval(heartbeat);
+      heartbeat = undefined;
+    }
+
+    function notice(text: string) {
+      terminal.write(`\r\n\x1b[90m${text}\x1b[0m\r\n`);
+    }
+
+    /**
+     * Backs off, then tries again — for as long as this terminal is on screen.
+     *
+     * The tab still being open is the entire signal. The gateway holds the shell
+     * for a grace period after a socket drops (see apps/gateway/src/terminals.ts),
+     * so a user who is still sitting in front of the console gets the same shell
+     * back, with whatever it printed while they were gone.
+     */
+    function scheduleRetry() {
+      if (disposed || finished || retryTimer !== undefined) return;
+      const delay = Math.min(MAX_RETRY_DELAY_MS, 1000 * 2 ** attempt);
+      attempt += 1;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = undefined;
+        connect();
+      }, delay);
+    }
+
+    /**
+     * Tries again immediately, for the moments that mean "the network is back":
+     * the tab being shown again, or the browser reporting it is online. Waiting
+     * out a ten-second backoff after the user has visibly come back is the kind
+     * of delay that reads as broken.
+     */
+    function retryNow() {
+      if (disposed || finished) return;
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
+      attempt = 0;
+      connect();
+    }
+
+    function connect() {
+      if (disposed || finished) return;
+
+      const ws = new WebSocket(websocketUrl);
+      ws.binaryType = "arraybuffer";
+      socket = ws;
+      socketRef.current = ws;
+      if (everConnected) update("reconnecting");
+
+      ws.onopen = () => {
+        everConnected = true;
+        attempt = 0;
+        announcedDrop = false;
+        update("connected");
+        sendResize();
+        terminal.focus();
+
+        // An application-level heartbeat, because a WebSocket ping is invisible
+        // to page JavaScript: a tab that has been asleep has no other way to
+        // learn whether the socket a proxy is still holding open actually
+        // reaches the gateway. It also keeps traffic on the wire, which is what
+        // stops an idle-connection reaper from closing it in the first place.
+        stopHeartbeat();
+        heartbeat = window.setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
+        }, HEARTBEAT_INTERVAL_MS);
+      };
+
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          // The gateway sends JSON control frames (e.g. {"type":"system","data":"..."}); everything else is raw output.
+          if (event.data.startsWith('{"type":')) {
+            try {
+              const frame = JSON.parse(event.data) as { type?: string; data?: string };
+              if (frame.type === "system") {
+                terminal.write(`\x1b[90m${frame.data ?? ""}\x1b[0m\r\n`);
+                return;
+              }
+              if (frame.type === "error") {
+                failure = frame.data ?? undefined;
+                finished = true;
+                terminal.write(`\r\n\x1b[91m${frame.data ?? "The session could not be started."}\x1b[0m\r\n`);
+                update("error", failure);
+                return;
+              }
+              // The shell itself ended — someone typed `exit`, or the far side
+              // hung up. Distinct from the socket dropping, and the distinction
+              // is the point: reconnecting to a session with nothing behind it
+              // would loop forever.
+              if (frame.type === "exit") {
+                finished = true;
+                if (frame.data) notice(frame.data);
+                return;
+              }
+              if (frame.type === "pong") return;
+              if (frame.type === "data") {
+                terminal.write(frame.data ?? "");
+                return;
+              }
+            } catch {
+              // fall through and print verbatim
+            }
+          }
+          terminal.write(event.data);
+        } else {
+          terminal.write(new Uint8Array(event.data as ArrayBuffer));
+        }
+      };
+
+      ws.onerror = () => {
+        // Fires without a reason of its own, and fires again on every failed
+        // retry. Only the very first one is worth reporting: after that, onclose
+        // decides whether this is recoverable and says so.
+        if (!everConnected) {
+          update("error", failure ?? "Could not reach the Onshell gateway. Check that it is running.");
+        }
+      };
+
+      ws.onclose = (event) => {
+        stopHeartbeat();
+        if (disposed || socket !== ws) return;
+
+        // The gateway refused the session id outright: it never existed, or its
+        // grace period ran out while this browser was away. Nothing to go back to.
+        if (event.code === WS_POLICY_VIOLATION) {
+          finished = true;
+          const reason = event.reason || "This session is no longer open.";
+          update("error", reason);
+          notice(`[${reason}]`);
+          return;
+        }
+
+        if (finished || failure) {
+          update(failure ? "error" : "closed", failure);
+          notice("[session closed]");
+          return;
+        }
+
+        // Never got a byte out of it and the gateway said why — a host that
+        // refused, a machine that is switched off. Retrying just repeats it.
+        if (!everConnected) {
+          const reason = event.reason || undefined;
+          update("error", reason);
+          notice("[session closed]");
+          return;
+        }
+
+        // Everything else is the connection, not the session. Say so, and go
+        // back for the shell the gateway is still holding.
+        update("reconnecting");
+        if (!announcedDrop) {
+          notice("[connection lost — reconnecting…]");
+          announcedDrop = true;
+        }
+        scheduleRetry();
+      };
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") retryNow();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", retryNow);
+
+    connect();
+
+    const dataDisposable = terminal.onData((data) => {
+      if (socket?.readyState === WebSocket.OPEN) socket.send(data);
+    });
 
     const resizeDisposable = terminal.onResize(() => sendResize());
     const observer = new ResizeObserver(() => {
@@ -232,15 +385,22 @@ export default function XtermTerminal({
     observer.observe(containerRef.current);
 
     return () => {
+      disposed = true;
+      stopHeartbeat();
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", retryNow);
       observer.disconnect();
       dataDisposable.dispose();
       resizeDisposable.dispose();
       // Detached before closing: a retry swaps the URL, and the outgoing
       // socket's close event would otherwise report the *new* tab as closed.
-      socket.onclose = null;
-      socket.onerror = null;
-      socket.onmessage = null;
-      socket.close();
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        socket.close();
+      }
       terminal.dispose();
       terminalRef.current = null;
       fitRef.current = null;

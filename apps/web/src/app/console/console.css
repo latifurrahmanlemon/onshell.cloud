@@ -227,6 +227,29 @@
   background: var(--rose);
 }
 
+/* Amber, not red: the shell is still running on the gateway and this tab is on
+   its way back to it. Red here would tell the user they had lost work. */
+.terminal-tab[data-status="reconnecting"] .tab-dot {
+  background: var(--amber);
+  animation: tab-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tab-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-tab[data-status="reconnecting"] .tab-dot {
+    animation: none;
+  }
+}
+
 .terminal-tab .tab-close {
   display: grid;
   place-items: center;

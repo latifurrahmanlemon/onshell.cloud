@@ -1,5 +1,6 @@
 import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from "ssh2";
 import { updateGatewaySession, type GatewaySession } from "../registry.js";
+import type { TerminalStream } from "../terminals.js";
 
 const sshClients = new Map<string, Client>();
 
@@ -197,6 +198,40 @@ export async function openShell(sessionId: string) {
       }
     );
   });
+}
+
+/**
+ * The same shell, in the shape every transport speaks.
+ *
+ * ssh2 hands back a duplex channel with its own event names and a `setWindow`
+ * that takes rows before columns; the local and agent shells do neither. Making
+ * the three agree here is what lets one pump — and one reattach path — serve all
+ * of them, instead of the SSH case quietly diverging as it used to.
+ */
+export async function openShellStream(sessionId: string): Promise<TerminalStream> {
+  const channel = await openShell(sessionId);
+
+  return {
+    onData(listener) {
+      channel.on("data", (data: Buffer) => listener(data.toString("utf8")));
+      // stderr is part of what the user is looking at, not a separate channel to
+      // be reported elsewhere: an interactive shell writes prompts and errors to
+      // it, and dropping it leaves half the session invisible.
+      channel.stderr.on("data", (data: Buffer) => listener(data.toString("utf8")));
+    },
+    onExit(listener) {
+      channel.on("close", listener);
+    },
+    write(data) {
+      channel.write(data);
+    },
+    resize(columns, rows) {
+      channel.setWindow(rows, columns, 0, 0);
+    },
+    end() {
+      channel.end();
+    }
+  };
 }
 
 export async function getSftp(sessionId: string) {

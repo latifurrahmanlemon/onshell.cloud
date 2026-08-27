@@ -45,12 +45,21 @@
  *   server -> client:
  *     - UTF-8 text frames containing raw terminal output (stdout/stderr).
  *     - The first frame is a JSON control frame {"type":"system","data":"..."}.
+ *     - {"type":"error","code":"...","data":"..."}  the session will not start
+ *     - {"type":"exit","data":"..."}                the shell itself ended
+ *     - {"type":"pong"}                             answer to a client ping
  *   client -> server:
  *     - Control frames are JSON text starting with "{" and carrying a known type:
  *         {"type":"resize","cols":<number>,"rows":<number>}  resize the remote pty
  *         {"type":"data","data":"<text>"}                    explicit keyboard input
+ *         {"type":"ping"}                                    liveness probe
  *     - Any other frame (including JSON with an unknown type) is written
  *       verbatim to the shell as keyboard input.
+ *
+ *   The shell outlives this socket. Reconnecting to the same session id picks up
+ *   the same shell and replays the output produced while nothing was attached;
+ *   only "exit" and "error" mean the session is really over. See terminals.ts
+ *   for the grace period and the backlog.
  *
  * WebSocket /ws/rdp/:sessionId:
  *   Opaque bidirectional relay of the Guacamole protocol between the browser
@@ -95,9 +104,18 @@ import {
   type FileTransport
 } from "./protocols/sftp.js";
 import { createGuacdTunnel } from "./protocols/rdp-connections.js";
-import { closeSshClient, openShell, SshConnectionError } from "./protocols/ssh-connections.js";
+import { closeSshClient, openShellStream, SshConnectionError } from "./protocols/ssh-connections.js";
 import { openSshSession } from "./protocols/ssh.js";
 import { getGatewaySession, listGatewaySessions, updateGatewaySession, type GatewaySession } from "./registry.js";
+import {
+  attachSocket,
+  detachSocket,
+  endTerminal,
+  registerTerminal,
+  setDetachGraceMs,
+  type AttachResult,
+  type TerminalStream
+} from "./terminals.js";
 
 /** Local sessions are tagged at creation; everything else dials out over SSH. */
 function isLocalSession(session: GatewaySession) {
@@ -262,18 +280,6 @@ async function withFileTransport(
   }
 }
 
-/**
- * A terminal, whichever transport produced it. Both the local shell and an
- * agent shell satisfy this, which is what lets one message pump serve both.
- */
-interface TerminalStream {
-  onData(listener: (chunk: string) => void): void;
-  onExit(listener: () => void): void;
-  write(data: string): void;
-  resize(columns: number, rows: number): void;
-  end(): void;
-}
-
 /** `ws` hands back whichever of its three shapes was cheapest to produce. */
 function toBuffer(data: RawData): Buffer {
   if (Array.isArray(data)) return Buffer.concat(data);
@@ -357,25 +363,17 @@ function failSession(socket: WebSocket, code: string, message: string) {
 }
 
 /**
- * Pumps a terminal in both directions over the browser WebSocket.
+ * Pumps keyboard input from one browser socket into a session's terminal.
  *
- * Shared by the local and agent transports so the control-frame vocabulary
- * (`resize`, `data`, and raw-input fallback) cannot drift between them — a
- * divergence there would show up as a terminal that mysteriously ignores
- * window resizes on one kind of host.
+ * Output goes the other way without passing through here: terminals.ts wired
+ * that up when the shell was registered, so it keeps flowing — into a backlog —
+ * during the gap between one socket closing and the next one attaching. That
+ * gap is the whole reason a dropped connection no longer costs a session.
+ *
+ * Shared by all three transports so the control-frame vocabulary (`resize`,
+ * `data`, `ping`, and the raw-input fallback) cannot drift between them.
  */
-function attachTerminal(
-  socket: WebSocket,
-  shell: TerminalStream,
-  options: { closedReason: string; onClose: () => void }
-) {
-  shell.onData((chunk) => {
-    if (socket.readyState === socket.OPEN) socket.send(chunk);
-  });
-  shell.onExit(() => {
-    if (socket.readyState === socket.OPEN) socket.close(1000, options.closedReason);
-  });
-
+function pumpSocketInput(socket: WebSocket, sessionId: string, shell: TerminalStream) {
   socket.on("message", (message: Buffer | ArrayBuffer | Buffer[]) => {
     const text = message.toString();
     if (text.startsWith("{")) {
@@ -389,6 +387,15 @@ function attachTerminal(
           shell.write(frame.data);
           return;
         }
+        // The console's own heartbeat, answered rather than ignored: a WebSocket
+        // ping is invisible to page JavaScript, so a tab that has been asleep has
+        // no other way to find out whether the socket a proxy is still holding
+        // open actually reaches us. Intercepted here because the fallback below
+        // would otherwise type the JSON into the user's shell.
+        if (frame.type === "ping") {
+          if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
       } catch {
         // Not a JSON control frame — treat it as raw keyboard input.
       }
@@ -397,10 +404,49 @@ function attachTerminal(
     shell.write(text);
   });
 
-  socket.on("close", options.onClose);
+  // Detach, not close: the shell stays up for its grace period so the browser
+  // can come back to it. See terminals.ts.
+  socket.on("close", () => detachSocket(sessionId, socket));
+}
+
+/**
+ * Hands a reconnecting browser back the terminal it already had.
+ *
+ * The backlog goes out before anything else so the replay reads in the order it
+ * happened, and the notice comes first only when there is something to explain.
+ */
+function resumeTerminal(socket: WebSocket, sessionId: string, resumed: AttachResult) {
+  if (resumed.truncated) {
+    systemMessage(socket, "Reconnected. Some output was dropped while this terminal was disconnected.");
+  } else if (resumed.backlog.length > 0) {
+    systemMessage(socket, "Reconnected — here is what you missed.");
+  } else {
+    systemMessage(socket, "Reconnected.");
+  }
+
+  for (const chunk of resumed.backlog) {
+    if (socket.readyState === socket.OPEN) socket.send(chunk);
+  }
+
+  // The shell ended while nobody was watching. The browser has now been shown
+  // its final output, which is the only reason the entry was kept this long.
+  if (resumed.exited) {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify({ type: "exit", data: "The remote shell ended while you were disconnected." }));
+      socket.close(1000, "Shell closed");
+    }
+    return;
+  }
+
+  pumpSocketInput(socket, sessionId, resumed.stream);
 }
 
 export async function registerGatewayRoutes(app: FastifyInstance, config: RuntimeConfig) {
+  // How long a shell waits for a browser that dropped its connection. Deployment
+  // policy rather than a constant: a self-hosted gateway on a laptop wants a
+  // shorter leash than a shared one serving people on mobile networks.
+  setDetachGraceMs(config.terminalDetachGraceSeconds * 1000);
+
   app.get("/health", async () => ({
     status: "ok",
     service: "gateway",
@@ -554,6 +600,9 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
   app.post("/sessions/:sessionId/close", async (request, reply) => {
     if (!isRestAuthorized(request)) return reply.code(401).send({ error: "unauthorized" });
     const { sessionId } = z.object({ sessionId: z.string() }).parse(request.params);
+    // First, and unconditionally: a terminal being held open for a browser that
+    // might reconnect must not survive somebody deciding the session is over.
+    endTerminal(sessionId);
     closeSshClient(sessionId);
     closeLocalShell(sessionId);
     closeAgentShell(sessionId);
@@ -711,6 +760,27 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
     // up once here rather than three times.
     keepSocketAlive(socket, (message) => request.log.info({ sessionId }, message));
 
+    // Reattaching comes first, and deliberately before any transport is
+    // consulted. A browser whose connection dropped is asking for the shell it
+    // already had; opening a second one would leave the first running with
+    // nobody attached and lose whatever was on screen.
+    const resumed = attachSocket(sessionId, socket);
+    if (resumed) {
+      request.log.info({ sessionId }, "terminal reattached to a live shell");
+      resumeTerminal(socket, sessionId, resumed);
+      return;
+    }
+
+    // Nothing to reattach to and the session is over — the grace period ran out,
+    // or it was closed on purpose. Said plainly, because the alternative is
+    // worse than an error: the local and agent transports would happily spawn a
+    // *fresh* shell here, and hand it to someone who believes they are looking
+    // at the one they left running.
+    if (session.status === "closed" || session.status === "failed") {
+      socket.close(1008, "This session is no longer open. Open it again from the host list.");
+      return;
+    }
+
     if (isAgentSession(session)) {
       try {
         const shell = await openAgentShell(session);
@@ -725,10 +795,8 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
         // the agent transport has something the others do not: news for the
         // user mid-session.
         shell.onNotice((text) => systemMessage(socket, text));
-        attachTerminal(socket, shell, {
-          closedReason: "Agent shell closed",
-          onClose: () => closeAgentShell(sessionId)
-        });
+        registerTerminal(sessionId, shell, () => closeAgentShell(sessionId), socket);
+        pumpSocketInput(socket, sessionId, shell);
       } catch (error) {
         if (error instanceof AgentUnavailableError) {
           request.log.warn({ sessionId, reason: error.code }, "agent shell unavailable");
@@ -755,10 +823,8 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
             : "Onshell.cloud local shell connected (no pty available — job control and resize are disabled)."
         );
 
-        attachTerminal(socket, shell, {
-          closedReason: "Local shell closed",
-          onClose: () => closeLocalShell(sessionId)
-        });
+        registerTerminal(sessionId, shell, () => closeLocalShell(sessionId), socket);
+        pumpSocketInput(socket, sessionId, shell);
       } catch (error) {
         request.log.error(error);
         failSession(
@@ -773,42 +839,10 @@ export async function registerGatewayRoutes(app: FastifyInstance, config: Runtim
     }
 
     try {
-      const shell = await openShell(sessionId);
-      socket.send(JSON.stringify({ type: "system", data: "Onshell.cloud SSH gateway connected." }));
-
-      shell.on("data", (data: Buffer) => {
-        if (socket.readyState === socket.OPEN) socket.send(data.toString("utf8"));
-      });
-      shell.on("close", () => {
-        if (socket.readyState === socket.OPEN) socket.close(1000, "SSH shell closed");
-      });
-      shell.stderr.on("data", (data: Buffer) => {
-        if (socket.readyState === socket.OPEN) socket.send(data.toString("utf8"));
-      });
-
-      socket.on("message", (message: Buffer | ArrayBuffer | Buffer[]) => {
-        const text = message.toString();
-        if (text.startsWith("{")) {
-          try {
-            const frame = JSON.parse(text) as { type?: string; cols?: number; rows?: number; data?: string };
-            if (frame.type === "resize" && typeof frame.cols === "number" && typeof frame.rows === "number") {
-              shell.setWindow(frame.rows, frame.cols, 0, 0);
-              return;
-            }
-            if (frame.type === "data" && typeof frame.data === "string") {
-              shell.write(frame.data);
-              return;
-            }
-          } catch {
-            // Not a JSON control frame — fall through and treat it as raw input.
-          }
-        }
-
-        shell.write(text);
-      });
-      socket.on("close", () => {
-        shell.end();
-      });
+      const shell = await openShellStream(sessionId);
+      systemMessage(socket, "Onshell.cloud SSH gateway connected.");
+      registerTerminal(sessionId, shell, () => closeSshClient(sessionId), socket);
+      pumpSocketInput(socket, sessionId, shell);
     } catch (error) {
       request.log.error({ err: error, sessionId }, "ssh shell failed");
       if (error instanceof SshConnectionError) {

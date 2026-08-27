@@ -81,6 +81,12 @@ import "./console.css";
 
 const SIDEBAR_COLLAPSE_KEY = "onshell-sidebar-collapsed";
 
+/**
+ * How often an open console renews its own session. Well inside the 12-hour
+ * access token, so a background tab is never the reason a terminal dies.
+ */
+const SESSION_KEEPALIVE_INTERVAL_MS = 30 * 60 * 1000;
+
 const XtermTerminal = dynamic(() => import("./terminal"), { ssr: false });
 
 type ViewKey =
@@ -258,12 +264,21 @@ export function ConsoleApp() {
   }, []);
 
   /**
-   * Renew the session whenever the console comes back into view.
+   * Renew the session for as long as this console is open.
    *
    * The access token is deliberately short-lived, and a console left open in a
    * background tab may go a long time without an API call to rotate it on. This
    * keeps the month-long refresh window sliding forward instead of expiring
    * under an open terminal.
+   *
+   * Coming back into view is the cheap trigger, but it is not enough on its own:
+   * a console left open and untouched on a second monitor fires no focus and no
+   * visibility event, ever, and used to be signed out from under a terminal that
+   * was still running. So the timer below renews on its own schedule too — the
+   * browser being open is the promise, and it has to hold without the user
+   * having to prove it by clicking. `keepAlive` is idempotent within its own
+   * minimum age, so the two triggers together still refresh at most once every
+   * six hours.
    */
   useEffect(() => {
     const onVisible = () => {
@@ -271,7 +286,13 @@ export function ConsoleApp() {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    // Not gated on visibility, unlike the listeners: a tab that has been in the
+    // background the whole time is exactly the one whose session would otherwise
+    // have quietly run out. Background timers are throttled to about once a
+    // minute, which is far more often than this needs.
+    const timer = window.setInterval(() => void keepSessionAlive(), SESSION_KEEPALIVE_INTERVAL_MS);
     return () => {
+      window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };

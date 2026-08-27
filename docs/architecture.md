@@ -155,6 +155,27 @@ credential change. The audit log is per-organisation and readable by the workspa
 itself, not only by the operator — a log the subject cannot read is a log they cannot
 check.
 
+### A terminal outlives its WebSocket
+
+The shell does not belong to the socket that is watching it. It is registered in
+[gateway/src/terminals.ts](../apps/gateway/src/terminals.ts) and a browser socket merely
+attaches to it; when the socket goes, the shell stays, its output collects in a bounded
+backlog, and the next socket for that session id is handed the same shell plus
+everything it missed.
+
+This exists because the alternative could not tell the two apart. A WebSocket drops for
+a lid closing, a wifi hand-off, a train tunnel, a proxy reload — and, occasionally,
+because someone is finished. Ending the shell on every one of those meant a lost
+connection cost whatever was running, and the console could only say "session closed"
+and offer to start again.
+
+So a shell is ended by exactly three things: the far end exiting, a deliberate
+`POST /sessions/:id/close`, and `TERMINAL_DETACH_GRACE_SECONDS` (default 15 minutes)
+elapsing with nothing attached. The last of those is what stops a browser that is never
+coming back from leaving a login open on somebody's server. The console reconnects with
+a backoff for as long as its tab is open, and immediately when the tab is shown again or
+the browser reports it is back online.
+
 ## Reaching machines that have no SSH server
 
 Two mechanisms, for two different situations.
@@ -193,6 +214,24 @@ password".
 
 The desktop app uses bearer tokens instead of cookies, with the refresh token in the OS
 keychain via Electron's `safeStorage`.
+
+### Seeing and ending your own sessions
+
+Because refresh tokens rotate on every use, the rows in `RefreshToken` are a chain
+rather than a list of sessions — one browser left open for a fortnight is dozens of
+them. `RefreshToken.familyId` names the chain and is carried across every rotation, so
+`GET /auth/sessions` can answer "which machines are signed in" with one entry per
+sign-in, named from the stored `User-Agent`
+([lib/device-name.ts](../apps/api/src/lib/device-name.ts)). Console → Settings →
+Sessions lists them, and `DELETE /auth/sessions/:id` ends one while
+`DELETE /auth/sessions` ends every one except the caller's own.
+
+Two honest limits. Revocation is bounded below by the access-token lifetime, as above:
+a device signed out here keeps working for up to twelve hours on the token it already
+holds. And sessions that predate the `familyId` column are listed unnamed, one per row,
+because nothing was recorded about them — inventing a device name for them would be a
+guess presented as a fact, on the screen whose whole job is telling someone which
+machines are theirs.
 
 ### Which workspace a session is in
 
