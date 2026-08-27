@@ -1501,7 +1501,16 @@ export function ConsoleApp() {
                     const host = hosts.find((item) => item.id === tab.hostId);
                     return (
                       <div
-                        className={cx("terminal-pane", terminalLayout === "split" && activeTab === tab.key && "is-focused")}
+                        className={cx(
+                          "terminal-pane",
+                          // Nothing inside this pane has a height of its own when
+                          // there is no terminal in it, and the failure notice
+                          // below is positioned against the pane — so without
+                          // this the tab reports its error into a zero-pixel box
+                          // and the user sees a red dot above an empty console.
+                          !tab.websocketUrl && "is-empty",
+                          terminalLayout === "split" && activeTab === tab.key && "is-focused"
+                        )}
                         key={tab.key}
                         onMouseDown={() => setActiveTab(tab.key)}
                         style={{ display: visible ? "block" : "none" }}

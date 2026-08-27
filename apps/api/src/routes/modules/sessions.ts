@@ -4,7 +4,7 @@ import { canEditFiles, canOpenSession } from "@onshell/shared";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
 import { decryptSecret } from "../../lib/encryption.js";
-import { gatewayHeaders } from "../../lib/gateway.js";
+import { gatewayHeaders, reconcileSessions } from "../../lib/gateway.js";
 import { accessibleHostFilter } from "../../lib/host-access.js";
 import { prisma } from "../../lib/prisma.js";
 import { canUseLocalShell } from "../../lib/provisioning.js";
@@ -196,6 +196,9 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
       if (!user) return reply.code(401).send({ error: "unauthorized" });
 
       const query = listSessionsQuerySchema.parse(request.query);
+      // The console renders this list as "what is open right now", so it has to
+      // agree with the gateway rather than with rows nobody ever closed.
+      await reconcileSessions(user.organizationId);
       const accessFilter = await accessibleHostFilter(user.id, user.role, user.organizationId);
       const sessions = await prisma.session.findMany({
         where: { organizationId: user.organizationId, host: accessFilter },
@@ -321,6 +324,11 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
       });
       const maxConcurrentSessions = subscription?.plan.maxConcurrentSessions;
       if (maxConcurrentSessions != null) {
+        // Ask the gateway what is really running before counting. Rows are left
+        // ACTIVE by every browser that closes without pressing the close button,
+        // and counting those would refuse a session on behalf of terminals that
+        // stopped existing days ago — see `reconcileSessions`.
+        await reconcileSessions(actor.organizationId);
         const activeSessions = await prisma.session.count({
           where: {
             organizationId: actor.organizationId,
