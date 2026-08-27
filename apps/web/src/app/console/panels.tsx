@@ -59,6 +59,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  AccountSession,
   AgentDevice,
   AuditLog,
   CredentialSummary,
@@ -4067,7 +4068,7 @@ const settingsTabs = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "security", label: "Two-Factor", icon: ShieldCheck },
   { key: "password", label: "Password", icon: KeyRound },
-  { key: "session", label: "Session", icon: LogOut },
+  { key: "session", label: "Sessions", icon: LogOut },
 ] as const;
 
 type SettingsTab = (typeof settingsTabs)[number]["key"];
@@ -4736,30 +4737,241 @@ export function SettingsView({
         )}
 
         {tab === "session" && (
-          <section className="panel">
-            <div className="panel-header tight">
-              <div>
-                <h2>Session</h2>
-                <p>Sign out of Onshell on this device.</p>
+          <>
+            <section className="panel">
+              <div className="panel-header tight">
+                <div>
+                  <h2>Session</h2>
+                  <p>Sign out of Onshell on this device.</p>
+                </div>
               </div>
-            </div>
-            <div className="settings-block">
-              <p className="settings-account-line">
-                Signed in as <strong>{user.name}</strong> · {user.email} ·{" "}
-                {organizationName}
-              </p>
-              <button
-                className="danger-button"
-                onClick={onLogout}
-                type="button"
-              >
-                <LogOut size={15} />
-                Log out
-              </button>
-            </div>
-          </section>
+              <div className="settings-block">
+                <p className="settings-account-line">
+                  Signed in as <strong>{user.name}</strong> · {user.email} ·{" "}
+                  {organizationName}
+                </p>
+                <button
+                  className="danger-button"
+                  onClick={onLogout}
+                  type="button"
+                >
+                  <LogOut size={15} />
+                  Log out
+                </button>
+              </div>
+            </section>
+            <SignedInDevices notify={notify} />
+          </>
         )}
       </div>
     </div>
+  );
+}
+/**
+ * "Where am I signed in?", and the button that answers "not there any more".
+ *
+ * One row per sign-in rather than per token — the API does that grouping, see
+ * `GET /auth/sessions`. The current session is marked and has no revoke button:
+ * ending it from here would leave this browser holding a valid access token with
+ * a dead session behind it, which reads as the console breaking. Log out, right
+ * above, is the control for that.
+ */
+function SignedInDevices({
+  notify,
+}: {
+  notify: (message: string, kind?: "success" | "error") => void;
+}) {
+  const [sessions, setSessions] = useState<AccountSession[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<AccountSession | null>(null);
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setSessions(await consoleApi.accountSessions());
+      setError(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not load your signed-in devices.",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function revokeOne(session: AccountSession) {
+    setBusy(true);
+    setRevoking(session.id);
+    try {
+      await consoleApi.revokeAccountSession(session.id);
+      notify(`Signed ${session.device} out.`, "success");
+      setConfirming(null);
+      await load();
+    } catch (caught) {
+      notify(
+        caught instanceof Error ? caught.message : "Could not sign that device out.",
+        "error",
+      );
+    } finally {
+      setBusy(false);
+      setRevoking(null);
+    }
+  }
+
+  async function revokeOthers() {
+    setBusy(true);
+    try {
+      const { revoked } = await consoleApi.revokeOtherAccountSessions();
+      notify(
+        revoked === 0
+          ? "There was nothing else signed in."
+          : `Signed out of ${revoked} other session${revoked === 1 ? "" : "s"}.`,
+        "success",
+      );
+      setConfirmingAll(false);
+      await load();
+    } catch (caught) {
+      notify(
+        caught instanceof Error ? caught.message : "Could not sign the other devices out.",
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const others = (sessions ?? []).filter((session) => !session.current);
+
+  return (
+    <section className="panel">
+      <div className="panel-header tight">
+        <div>
+          <h2>Signed-in devices</h2>
+          <p>
+            Every browser and app currently signed in to this account. Sign out
+            anything you do not recognise.
+          </p>
+        </div>
+        <div className="table-tools">
+          <button
+            className="secondary-button"
+            onClick={() => void load()}
+            type="button"
+          >
+            <RefreshCw size={15} />
+            Refresh
+          </button>
+          {others.length > 0 && (
+            <button
+              className="danger-button"
+              onClick={() => setConfirmingAll(true)}
+              type="button"
+            >
+              <LogOut size={15} />
+              Sign out everywhere else
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && <p className="settings-block data-muted">{error}</p>}
+
+      {!error && sessions === null && (
+        <div className="settings-block">
+          <p className="data-muted">
+            <Loader2 className="spin" size={15} /> Loading…
+          </p>
+        </div>
+      )}
+
+      {!error && sessions?.length === 0 && (
+        <EmptyState
+          hint="Sign in from another browser and it will appear here."
+          icon={<MonitorSmartphone size={22} />}
+          title="No other devices"
+        />
+      )}
+
+      {!error && sessions && sessions.length > 0 && (
+        <ul className="device-session-list">
+          {sessions.map((session) => (
+            <li className="device-session" key={session.id}>
+              <span className="device-session-icon">
+                <Laptop size={18} />
+              </span>
+              <div className="device-session-body">
+                <p className="device-session-name">
+                  {session.device}
+                  {session.current && (
+                    <span className="device-session-badge">This device</span>
+                  )}
+                </p>
+                <p className="device-session-meta">
+                  {session.ipAddress ? `${session.ipAddress} · ` : ""}
+                  Last active {relativeTime(session.lastActiveAt)} · Signed in{" "}
+                  {relativeTime(session.startedAt)}
+                </p>
+              </div>
+              {!session.current && (
+                <button
+                  className="danger-button"
+                  disabled={busy && revoking === session.id}
+                  onClick={() => setConfirming(session)}
+                  type="button"
+                >
+                  {busy && revoking === session.id ? (
+                    <Loader2 className="spin" size={15} />
+                  ) : (
+                    <LogOut size={15} />
+                  )}
+                  Sign out
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <ConfirmModal
+        busy={busy}
+        confirmLabel="Sign out"
+        message={
+          confirming ? (
+            <>
+              Sign <strong>{confirming.device}</strong> out of this account?
+              Anything open on it — including running terminals — stops working
+              within a few hours, and it will have to sign in again.
+            </>
+          ) : (
+            ""
+          )
+        }
+        onClose={() => setConfirming(null)}
+        onConfirm={() => confirming && void revokeOne(confirming)}
+        open={Boolean(confirming)}
+        title="Sign out device"
+      />
+
+      <ConfirmModal
+        busy={busy}
+        confirmLabel="Sign out everywhere else"
+        message={
+          <>
+            Sign out of {others.length} other session
+            {others.length === 1 ? "" : "s"}? This device stays signed in.
+          </>
+        }
+        onClose={() => setConfirmingAll(false)}
+        onConfirm={() => void revokeOthers()}
+        open={confirmingAll}
+        title="Sign out everywhere else"
+      />
+    </section>
   );
 }

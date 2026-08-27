@@ -7,6 +7,7 @@
  * `@onshell/shared` and are re-exported here so a client needs one import.
  */
 import type {
+  AccountSession,
   AgentDevice,
   AuditLog,
   CredentialSummary,
@@ -20,6 +21,7 @@ import type {
 } from "@onshell/shared";
 
 export type {
+  AccountSession,
   AgentDevice,
   AuditLog,
   CredentialSummary,

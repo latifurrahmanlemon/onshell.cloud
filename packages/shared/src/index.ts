@@ -72,6 +72,28 @@ export interface Organization {
   createdAt: string;
 }
 
+/**
+ * One machine that is signed in to an account, as shown in account settings.
+ *
+ * A *session*, not a token: refresh tokens rotate on every use, so a browser
+ * left open for a fortnight is dozens of database rows and exactly one of these.
+ * `id` is what the revoke call takes.
+ */
+export interface AccountSession {
+  id: string;
+  /** "Chrome on Windows", or "Unknown device" when the client said nothing useful. */
+  device: string;
+  browser?: string;
+  os?: string;
+  /** As seen at the last refresh, so a session that moved shows where it is now. */
+  ipAddress?: string;
+  startedAt: string;
+  lastActiveAt: string;
+  expiresAt: string;
+  /** The session making the request. It cannot be revoked from the list — see the route. */
+  current: boolean;
+}
+
 export interface Host {
   id: string;
   organizationId: string;

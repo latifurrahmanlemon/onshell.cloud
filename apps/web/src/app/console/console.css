@@ -1107,6 +1107,80 @@
   font-size: 14px;
 }
 
+/* ---- Signed-in devices ---- */
+.device-session-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device-session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.device-session + .device-session {
+  border-top: 1px solid var(--border);
+}
+
+.device-session-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+/* Takes the slack so a long user-agent label truncates rather than pushing the
+   sign-out button off the row. */
+.device-session-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-session-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.device-session-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.device-session-meta {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .device-session {
+    flex-wrap: wrap;
+  }
+
+  .device-session .danger-button {
+    margin-left: 46px;
+  }
+}
+
 .settings-block > p {
   margin: 0 0 10px;
   color: var(--muted);

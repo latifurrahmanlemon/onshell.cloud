@@ -22,6 +22,9 @@ The API currently exposes development route contracts backed by in-memory data. 
 * `GET /auth/2fa/status`
 * `GET /auth/organizations`
 * `POST /auth/organizations/:organizationId/switch`
+* `GET /auth/sessions`
+* `DELETE /auth/sessions/:sessionId`
+* `DELETE /auth/sessions`
 * `GET /auth/google/start`
 * `GET /auth/google`
 * `GET /auth/google/callback`
@@ -69,6 +72,30 @@ that visits inside the window stays signed in without re-entering a password. A 
 still accepted for 60 seconds afterwards, so several console tabs refreshing at once do not sign
 each other out. Sign-out, a password change, and admin or owner revocation expire the token
 outright, which that grace window cannot revive.
+
+### Your signed-in devices
+
+`GET /auth/sessions` answers "where am I signed in?" with one entry per *sign-in*:
+`{ sessions: [{ id, device, browser?, os?, ipAddress?, startedAt, lastActiveAt, expiresAt,
+current }] }`, most recently used first. Not one entry per token — tokens rotate on every
+refresh, so a browser open for a fortnight is dozens of rows and exactly one session.
+`RefreshToken.familyId` is what identifies the chain, and `id` is that family.
+
+`device` is derived from the stored `User-Agent` ("Chrome on Windows"), or `"Unknown
+device"` when nothing recognisable was sent — never a guess, because this is the screen
+someone uses to decide whether a session is theirs.
+
+`DELETE /auth/sessions/:sessionId` revokes one, scoped to the caller's own user id so a
+family id from elsewhere cannot be revoked by guessing it. Revoking the *current* session
+returns **400 `cannot_revoke_current_session`**: it would leave that browser holding a
+valid access token behind a dead refresh token, which presents as the console breaking.
+`POST /auth/logout` is the way to end this one, and it clears the cookies too.
+
+`DELETE /auth/sessions` revokes every session except the caller's own, and answers
+`{ ok: true, revoked }`.
+
+As everywhere else, revocation is bounded below by the access-token lifetime: a device
+signed out here keeps working for up to 12 hours on the token it already holds.
 
 Production requirements:
 

@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import { generateSecret, generateURI, verify } from "otplib";
 import QRCode from "qrcode";
 import { z } from "zod";
+import { legacyRowId, toAccountSessions } from "../../lib/account-sessions.js";
 import { resolveActiveMembership } from "../../lib/active-organization.js";
 import { getAuthenticatedSession, getAuthenticatedUser } from "../../lib/current-user.js";
 import { sendTransactionalEmail, isSmtpEnabled } from "../../lib/email.js";
@@ -121,6 +122,11 @@ const switchOrganizationParamsSchema = z.object({
   organizationId: z.string().min(1).max(64)
 });
 
+/** A session family id, or `token:<rowId>` for a session minted before families. */
+const revokeSessionParamsSchema = z.object({
+  sessionId: z.string().min(1).max(80)
+});
+
 type GoogleProfile = {
   sub: string;
   email: string;
@@ -195,6 +201,50 @@ async function uniqueOrganizationSlug(name: string) {
 }
 
 /**
+ * The sign-in a new token pair is continuing, rather than replacing.
+ *
+ * Refresh tokens rotate on every use, so the rows are a chain: one browser left
+ * open for a fortnight is dozens of them. Passing this keeps the chain
+ * identified as a single session, which is what "your signed-in devices" lists
+ * and what its revoke button ends. Omitting it says, correctly, "somebody is
+ * signing in", and starts a new one.
+ */
+export interface ContinuingSession {
+  familyId: string;
+  startedAt: Date;
+}
+
+/**
+ * The refresh token on a request, from wherever that client keeps it.
+ *
+ * The cookie wins when both are present, for the same reason `/auth/refresh`
+ * prefers it: a page script must not be able to swap a browser's session by
+ * putting a token in a request body.
+ */
+function refreshTokenFrom(request: FastifyRequest) {
+  const body = request.body as { refreshToken?: unknown } | undefined;
+  return request.cookies?.refresh_token ?? (typeof body?.refreshToken === "string" ? body.refreshToken : undefined);
+}
+
+/**
+ * Finds the session a request is already part of, so a re-issue can stay inside
+ * it. Undefined when the caller holds no session, or holds one minted before
+ * families existed — for which a new family is the honest answer.
+ */
+async function currentSession(request: FastifyRequest): Promise<ContinuingSession | undefined> {
+  const refreshToken = refreshTokenFrom(request);
+  if (!refreshToken) return undefined;
+
+  const row = await prisma.refreshToken.findFirst({
+    where: { tokenHash: hashToken(refreshToken) },
+    select: { familyId: true, startedAt: true, createdAt: true }
+  });
+  if (!row?.familyId) return undefined;
+
+  return { familyId: row.familyId, startedAt: row.startedAt ?? row.createdAt };
+}
+
+/**
  * Mints a session for `user`, in the workspace `user.organizationId` names.
  *
  * There is no separate organization parameter because there must not be one:
@@ -213,7 +263,8 @@ export async function issueTokens(
   reply: FastifyReply,
   config: RuntimeConfig,
   user: PublicUser,
-  request?: FastifyRequest
+  request?: FastifyRequest,
+  continuing?: ContinuingSession
 ) {
   const accessToken = signAccessToken(
     {
@@ -227,11 +278,19 @@ export async function issueTokens(
   );
   const refreshToken = createRefreshToken();
   const sessionTtlSeconds = config.sessionTtlDays * 24 * 60 * 60;
-  const expiresAt = new Date(Date.now() + sessionTtlSeconds * 1000);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + sessionTtlSeconds * 1000);
 
   // Empty for an account with no membership at all, which the column models as
   // null rather than as a foreign key to nothing.
   const organizationId = user.organizationId || null;
+
+  // A rotation stays the same session; anything else is a new sign-in and gets a
+  // family of its own. Getting this wrong is visible on the settings page: a
+  // refresh that minted a new family would add a "device" every few hours, and a
+  // sign-in that reused one would hide a second machine behind the first.
+  const familyId = continuing?.familyId ?? randomUUID();
+  const startedAt = continuing?.startedAt ?? now;
 
   await prisma.$transaction([
     prisma.refreshToken.create({
@@ -239,6 +298,13 @@ export async function issueTokens(
         userId: user.id,
         tokenHash: hashToken(refreshToken),
         organizationId,
+        familyId,
+        startedAt,
+        lastUsedAt: now,
+        // Truncated because it is attacker-controlled and is only ever read to
+        // name a device; nothing recognisable lives past 500 characters.
+        userAgent: request?.headers["user-agent"]?.slice(0, 500) ?? null,
+        ipAddress: request?.ip ?? null,
         expiresAt
       }
     }),
@@ -1308,7 +1374,10 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       if (!prismaUser) return reply.code(401).send({ error: "unauthorized" });
 
       const user = await addAuthMethods(toPublicUser(prismaUser, membership.organizationId), prismaUser);
-      const tokens = await issueTokens(reply, config, user, request);
+      // The same browser looking at a different workspace, not a second sign-in:
+      // it stays one entry in "your signed-in devices" rather than appearing to
+      // be a new machine every time somebody switches.
+      const tokens = await issueTokens(reply, config, user, request, await currentSession(request));
 
       await createAudit({
         organizationId: membership.organizationId,
@@ -1341,12 +1410,8 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
     try {
       // The cookie is the browser's session. A native client has no cookie jar
       // worth relying on and no origin to be first-party to, so the desktop app
-      // sends the same token in the body instead. The cookie is preferred when
-      // both are present: a browser must not be able to have its session
-      // swapped by a body a page script chose.
-      const body = request.body as { refreshToken?: unknown } | undefined;
-      const refreshToken =
-        request.cookies?.refresh_token ?? (typeof body?.refreshToken === "string" ? body.refreshToken : undefined);
+      // sends the same token in the body instead — see `refreshTokenFrom`.
+      const refreshToken = refreshTokenFrom(request);
       if (!refreshToken) return reply.code(401).send({ error: "missing_refresh_token" });
 
       const tokenRow = await prisma.refreshToken.findFirst({
@@ -1386,7 +1451,18 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
         toPublicUser(tokenRow.user, active.membership?.organizationId ?? null),
         tokenRow.user
       );
-      const tokens = await issueTokens(reply, config, user, request);
+      // A rotation, not a sign-in. The family carries across so the console's
+      // device list keeps showing one row per browser, dated from when that
+      // browser actually signed in rather than from this refresh.
+      const tokens = await issueTokens(
+        reply,
+        config,
+        user,
+        request,
+        tokenRow.familyId
+          ? { familyId: tokenRow.familyId, startedAt: tokenRow.startedAt ?? tokenRow.createdAt }
+          : undefined
+      );
       if (!active.fellBack) return tokens;
 
       return {
@@ -1567,6 +1643,137 @@ export async function registerAuthRoutes(app: FastifyInstance, config: RuntimeCo
       });
 
       return issueTokens(reply, config, user, request);
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Every machine currently signed in to this account.
+   *
+   * One row per *sign-in*, not per token: tokens rotate constantly, so the
+   * database holds a chain of them per browser and listing rows directly would
+   * show a dozen "devices" that are all the same laptop. The family is the
+   * session; the newest live row in each family is what it currently looks like.
+   *
+   * Rows minted before families existed have no family id and are listed one
+   * apiece under their own row id. They are unnamed, because nothing was
+   * recorded about them, and they can still be revoked — which is the part that
+   * matters to someone who came here worried.
+   */
+  app.get("/auth/sessions", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const activeFamily = (await currentSession(request))?.familyId;
+      const rows = await prisma.refreshToken.findMany({
+        where: { userId: actor.id, revokedAt: null, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          familyId: true,
+          startedAt: true,
+          lastUsedAt: true,
+          createdAt: true,
+          expiresAt: true,
+          userAgent: true,
+          ipAddress: true
+        }
+      });
+
+      return { sessions: toAccountSessions(rows, activeFamily) };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Signs one other machine out, now.
+   *
+   * Scoped to the caller's own user id as well as the session id, so a family id
+   * belonging to another account cannot be revoked by guessing it. Refusing to
+   * revoke the *current* session is deliberate: it would leave this browser
+   * holding a valid access token for up to twelve hours with a dead refresh
+   * token behind it — a half-signed-out state with nothing on screen to explain
+   * it. Signing out of this one is what the Log out button is for, and it clears
+   * the cookies as well.
+   */
+  app.delete("/auth/sessions/:sessionId", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const params = revokeSessionParamsSchema.parse(request.params);
+      const active = await currentSession(request);
+      if (active && params.sessionId === active.familyId) {
+        return reply.code(400).send({
+          error: "cannot_revoke_current_session",
+          message: "This is the session you are using. Use Log out to end it."
+        });
+      }
+
+      // Scoped to the caller's own user id either way, so a session id from
+      // another account cannot be revoked by anyone who happens to learn it.
+      const legacyRow = legacyRowId(params.sessionId);
+      const where = legacyRow
+        ? { userId: actor.id, id: legacyRow }
+        : { userId: actor.id, familyId: params.sessionId };
+
+      const { count } = await revokeRefreshTokens(where);
+      if (count === 0) return reply.code(404).send({ error: "session_not_found" });
+
+      await recordAuthEvent(request, {
+        email: actor.email,
+        userId: actor.id,
+        event: "LOGOUT",
+        method: "SESSION",
+        success: true,
+        reason: "revoked_from_settings"
+      });
+
+      return { ok: true, revoked: count };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  /**
+   * Signs out everywhere except here — the one-click answer to "I do not
+   * recognise some of these", and to a shared computer somebody walked away
+   * from. The current session is excluded by family so the person doing it is
+   * not signed out mid-click.
+   */
+  app.delete("/auth/sessions", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+
+      const active = await currentSession(request);
+      // Spelled as an explicit OR rather than `NOT: { familyId }`, because in SQL
+      // `familyId != 'x'` is NULL — not true — for the family-less rows minted
+      // before this feature existed. Those are precisely the oldest sessions on
+      // the account, and leaving them behind would make "sign out everywhere
+      // else" quietly untrue.
+      const { count } = await revokeRefreshTokens(
+        active
+          ? {
+              userId: actor.id,
+              OR: [{ familyId: null }, { familyId: { not: active.familyId } }]
+            }
+          : { userId: actor.id }
+      );
+
+      await recordAuthEvent(request, {
+        email: actor.email,
+        userId: actor.id,
+        event: "LOGOUT",
+        method: "SESSION",
+        success: true,
+        reason: "revoked_all_other_sessions"
+      });
+
+      return { ok: true, revoked: count };
     } catch (error) {
       return handleRouteError(reply, error);
     }

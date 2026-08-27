@@ -598,6 +598,29 @@ model RefreshToken {
   /// Nullable: sessions issued before this column existed have no answer, and
   /// neither does a user with no membership at all.
   organizationId String?
+  /// The sign-in this row belongs to, unchanged across every rotation.
+  ///
+  /// A refresh token is replaced on every use, so the rows are a chain, not a
+  /// session — twenty of them can be one browser that has been open a fortnight.
+  /// "Your signed-in devices" and the revoke button both mean the chain, and
+  /// this is what names it.
+  ///
+  /// Nullable only for rows issued before the column existed; those are shown as
+  /// one unnamed device each, which is the truthful answer for a session nobody
+  /// recorded the origin of.
+  familyId  String?
+  /// When this sign-in happened — carried forward, unlike `createdAt`, which is
+  /// only ever "when the token was last rotated" and would show every session as
+  /// having started minutes ago.
+  startedAt DateTime?
+  /// Last time this session was used, i.e. its most recent rotation.
+  lastUsedAt DateTime?
+  /// The `User-Agent` at the last refresh, for naming the device in the console.
+  /// Kept raw: parsing is presentation, and a stored guess cannot be re-read.
+  userAgent String?   @db.Text
+  /// Client IP at the last refresh. Shown so someone can recognise a session
+  /// that is not theirs.
+  ipAddress String?
   revokedAt DateTime?
   expiresAt DateTime
   createdAt DateTime  @default(now())
@@ -606,6 +629,7 @@ model RefreshToken {
 
   @@index([userId, revokedAt])
   @@index([organizationId])
+  @@index([userId, familyId])
 }
 
 model TwoFactorSecret {

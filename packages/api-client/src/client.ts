@@ -15,6 +15,7 @@ import type { Transport, TransportOptions } from "./transport.js";
 import { createTransport } from "./transport.js";
 import type {
   AcceptInvitationResult,
+  AccountSession,
   AgentDevice,
   AiSendResult,
   AiStatus,
@@ -106,6 +107,20 @@ export function createApiClient(options: ApiClientOptions) {
       request<{ user: User }>("/profile", { method: "PATCH", body: JSON.stringify(body) }),
     changePassword: (body: { currentPassword: string; newPassword: string }) =>
       request<{ ok?: boolean }>("/auth/password/change", { method: "POST", body: JSON.stringify(body) }),
+
+    /** Every machine signed in to this account — one entry per sign-in, not per token. */
+    accountSessions: async () => (await request<{ sessions: AccountSession[] }>("/auth/sessions")).sessions,
+    /**
+     * Ends one other session. The API refuses the caller's own — signing this
+     * one out is what `logout` is for, and it clears the local credentials too.
+     */
+    revokeAccountSession: (sessionId: string) =>
+      request<{ ok: boolean; revoked: number }>(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE"
+      }),
+    /** Ends every session except the caller's own. */
+    revokeOtherAccountSessions: () =>
+      request<{ ok: boolean; revoked: number }>("/auth/sessions", { method: "DELETE" }),
 
     hosts: async () => unwrapList<Host>(await request("/hosts"), "hosts"),
     createHost: (body: Record<string, unknown>) =>
