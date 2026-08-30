@@ -7,7 +7,6 @@ import { ThemeToggle } from "../app/theme";
 import { apiBaseUrl, site } from "../lib/site";
 import { PublicSessionBadge } from "./public-session";
 import { TurnstileWidget, useTurnstile } from "./turnstile";
-import { VisitTracker } from "./visit-tracker";
 
 const navLinks = [
   { href: "/#features", label: "Features" },
@@ -215,7 +214,6 @@ export function PublicFooter() {
 export function PublicShell({ children }: { children: ReactNode }) {
   return (
     <main className="lp-page">
-      <VisitTracker />
       <PublicNav />
       {children}
       <PublicFooter />

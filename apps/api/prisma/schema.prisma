@@ -111,19 +111,19 @@ enum EmailLogStatus {
 }
 
 model User {
-  id                  String               @id @default(cuid())
-  email               String               @unique
-  name                String
-  passwordHash        String?
-  avatarUrl           String?              @db.MediumText
-  themePreference     Json?
-  isPlatformAdmin     Boolean              @default(false)
-  emailVerifiedAt     DateTime?
-  twoFactorEnabled    Boolean              @default(false)
+  id                       String               @id @default(cuid())
+  email                    String               @unique
+  name                     String
+  passwordHash             String?
+  avatarUrl                String?              @db.MediumText
+  themePreference          Json?
+  isPlatformAdmin          Boolean              @default(false)
+  emailVerifiedAt          DateTime?
+  twoFactorEnabled         Boolean              @default(false)
   /// Shareable referral code used by the growth/referral programme.
-  referralCode        String?              @unique
+  referralCode             String?              @unique
   /// The user whose referral link produced this signup, when any.
-  referredById        String?
+  referredById             String?
   /// The workspace this account was last looking at.
   ///
   /// A preference, never an authorization: every request re-reads the
@@ -132,65 +132,65 @@ model User {
   /// whichever membership happens to be oldest — which for anyone who accepted
   /// an invitation to a second workspace is the wrong one.
   lastActiveOrganizationId String?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  memberships         OrganizationMember[]
-  sessions            Session[]
-  snippets            Snippet[]
-  refreshTokens       RefreshToken[]
-  twoFactorSecret     TwoFactorSecret?
-  passwordResetToken  PasswordResetToken[]
-  auditLogs           AuditLog[]           @relation("AuditActor")
-  updatedSettings     AppSetting[]         @relation("SettingUpdatedBy")
-  updatedSmtpSettings SmtpSetting[]        @relation("SmtpUpdatedBy")
-  oauthAccounts       OAuthAccount[]
-  referredBy          User?                @relation("UserReferral", fields: [referredById], references: [id], onDelete: SetNull)
-  referrals           User[]               @relation("UserReferral")
-  lastActiveOrganization Organization?     @relation("UserLastActiveOrganization", fields: [lastActiveOrganizationId], references: [id], onDelete: SetNull)
-  aiThreads           AiThread[]
-  handledContacts     ContactMessage[]     @relation("ContactHandledBy")
-  visitorLogs         VisitorLog[]
-  authEvents          AuthEventLog[]
-  hostAccessGrants    HostAccessGrant[]    @relation("HostAccessSubject")
-  grantedHostAccess   HostAccessGrant[]    @relation("HostAccessGrantedBy")
-  hostWorkspaces      HostWorkspace[]      @relation("HostWorkspaceCreatedBy")
-  favoriteHosts       HostFavorite[]
-  enrolledAgents      AgentDevice[]        @relation("AgentEnrolledBy")
-  agentPairingCodes   AgentPairingCode[]   @relation("AgentPairingCreatedBy")
-  desktopDevices      DesktopDevice[]
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  memberships              OrganizationMember[]
+  sessions                 Session[]
+  snippets                 Snippet[]
+  refreshTokens            RefreshToken[]
+  twoFactorSecret          TwoFactorSecret?
+  passwordResetToken       PasswordResetToken[]
+  auditLogs                AuditLog[]           @relation("AuditActor")
+  updatedSettings          AppSetting[]         @relation("SettingUpdatedBy")
+  updatedSmtpSettings      SmtpSetting[]        @relation("SmtpUpdatedBy")
+  oauthAccounts            OAuthAccount[]
+  referredBy               User?                @relation("UserReferral", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals                User[]               @relation("UserReferral")
+  lastActiveOrganization   Organization?        @relation("UserLastActiveOrganization", fields: [lastActiveOrganizationId], references: [id], onDelete: SetNull)
+  aiThreads                AiThread[]
+  handledContacts          ContactMessage[]     @relation("ContactHandledBy")
+  visitorLogs              VisitorLog[]
+  authEvents               AuthEventLog[]
+  hostAccessGrants         HostAccessGrant[]    @relation("HostAccessSubject")
+  grantedHostAccess        HostAccessGrant[]    @relation("HostAccessGrantedBy")
+  hostWorkspaces           HostWorkspace[]      @relation("HostWorkspaceCreatedBy")
+  favoriteHosts            HostFavorite[]
+  enrolledAgents           AgentDevice[]        @relation("AgentEnrolledBy")
+  agentPairingCodes        AgentPairingCode[]   @relation("AgentPairingCreatedBy")
+  desktopDevices           DesktopDevice[]
 
   @@index([referredById])
   @@index([lastActiveOrganizationId])
 }
 
 model Organization {
-  id            String               @id @default(cuid())
-  name          String
-  slug          String               @unique
+  id                 String               @id @default(cuid())
+  name               String
+  slug               String               @unique
   /// Whether members may open sessions straight from the desktop app instead of
   /// through the gateway. On by default because it is the more private path —
   /// the bytes never touch our servers — but some teams need every byte through
   /// a relay they can inspect, and that decision belongs to the workspace.
-  allowDirectConnect Boolean          @default(true)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  members       OrganizationMember[]
-  invitations   Invitation[]
-  hosts         Host[]
-  credentials   Credential[]
-  sessions      Session[]
-  auditLogs     AuditLog[]
-  snippets      Snippet[]
-  subscriptions Subscription[]
-  usageRecords  UsageRecord[]
-  aiThreads     AiThread[]
-  hostAccessGrants HostAccessGrant[]
-  hostWorkspaces   HostWorkspace[]
-  agentDevices     AgentDevice[]
-  agentPairingCodes AgentPairingCode[]
-  desktopDevices   DesktopDevice[]
-  refreshTokens    RefreshToken[]
-  lastActiveForUsers User[]           @relation("UserLastActiveOrganization")
+  allowDirectConnect Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  members            OrganizationMember[]
+  invitations        Invitation[]
+  hosts              Host[]
+  credentials        Credential[]
+  sessions           Session[]
+  auditLogs          AuditLog[]
+  snippets           Snippet[]
+  subscriptions      Subscription[]
+  usageRecords       UsageRecord[]
+  aiThreads          AiThread[]
+  hostAccessGrants   HostAccessGrant[]
+  hostWorkspaces     HostWorkspace[]
+  agentDevices       AgentDevice[]
+  agentPairingCodes  AgentPairingCode[]
+  desktopDevices     DesktopDevice[]
+  refreshTokens      RefreshToken[]
+  lastActiveForUsers User[]               @relation("UserLastActiveOrganization")
 }
 
 model OrganizationMember {
@@ -218,7 +218,7 @@ model Invitation {
 }
 
 model Host {
-  id             String          @id @default(cuid())
+  id             String              @id @default(cuid())
   organizationId String
   groupId        String?
   name           String
@@ -227,21 +227,21 @@ model Host {
   port           Int
   username       String?
   environment    Environment
-  notes          String?         @db.Text
-  health         String          @default("unknown")
+  notes          String?             @db.Text
+  health         String              @default("unknown")
   /// The machine the gateway itself runs on. Sessions to it need no credential
   /// and never open a network connection — see lib/provisioning.ts. One row per
   /// organization, created on signup.
-  isLocal        Boolean         @default(false)
+  isLocal        Boolean             @default(false)
   /// Backed by an enrolled machine running the Onshell Agent. Sessions to it
   /// need no credential and open no outbound connection — the machine is
   /// already connected to us. One row per device.
-  isAgent        Boolean         @default(false)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  isAgent        Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
   agentDevice    AgentDevice?
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  group          HostGroup?      @relation(fields: [groupId], references: [id])
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group          HostGroup?          @relation(fields: [groupId], references: [id])
   tags           HostTag[]
   credentials    Credential[]
   sessions       Session[]
@@ -378,39 +378,39 @@ model HostWorkspaceHost {
 /// `HostAccessGrant`, workspaces, tags, snippets and audit all keep working
 /// without knowing an agent exists. See docs/agent.md.
 model AgentDevice {
-  id             String       @id @default(cuid())
-  organizationId String
-  hostId         String       @unique
-  name           String
+  id              String       @id @default(cuid())
+  organizationId  String
+  hostId          String       @unique
+  name            String
   /// Stable machine identifier, used to recognise a device re-enrolling after a
   /// reinstall so the host list does not accumulate duplicates. Spoofable by
   /// design and never trusted for authentication.
-  fingerprint    String
-  platform       String
-  arch           String
-  osVersion      String?
-  agentVersion   String?
-  hostname       String?
+  fingerprint     String
+  platform        String
+  arch            String
+  osVersion       String?
+  agentVersion    String?
+  hostname        String?
   /// SHA-256 of the long-lived device token. The token itself is shown once, at
   /// enrolment, and is exchanged for a short-lived connection JWT after that.
-  tokenHash      String       @unique
-  lastSeenAt     DateTime?
+  tokenHash       String       @unique
+  lastSeenAt      DateTime?
   /// Who paired it. Nulled rather than blocking if that person is deleted — the
   /// machine is still there and still legitimate; only the provenance is lost.
-  enrolledById   String?
+  enrolledById    String?
   /// Set when access is withdrawn. Revoked devices keep their row so the audit
   /// trail still names the machine that was reachable.
-  revokedAt      DateTime?
+  revokedAt       DateTime?
   /// Policy, enforced by the agent on the machine itself.
-  allowShell     Boolean      @default(true)
-  allowFiles     Boolean      @default(true)
+  allowShell      Boolean      @default(true)
+  allowFiles      Boolean      @default(true)
   /// Whether the person at the machine must approve a session before it starts.
-  requireApproval Boolean     @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  host           Host         @relation(fields: [hostId], references: [id], onDelete: Cascade)
-  enrolledBy     User?        @relation("AgentEnrolledBy", fields: [enrolledById], references: [id], onDelete: SetNull)
+  requireApproval Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host            Host         @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  enrolledBy      User?        @relation("AgentEnrolledBy", fields: [enrolledById], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, fingerprint])
   @@index([organizationId])
@@ -584,9 +584,9 @@ model TunnelRule {
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String    @unique
+  id             String        @id @default(cuid())
+  userId         String
+  tokenHash      String        @unique
   /// Which of the user's workspaces this session is looking at.
   ///
   /// It lives on the session row rather than only in the access JWT because the
@@ -608,24 +608,24 @@ model RefreshToken {
   /// Nullable only for rows issued before the column existed; those are shown as
   /// one unnamed device each, which is the truthful answer for a session nobody
   /// recorded the origin of.
-  familyId  String?
+  familyId       String?
   /// When this sign-in happened — carried forward, unlike `createdAt`, which is
   /// only ever "when the token was last rotated" and would show every session as
   /// having started minutes ago.
-  startedAt DateTime?
+  startedAt      DateTime?
   /// Last time this session was used, i.e. its most recent rotation.
-  lastUsedAt DateTime?
+  lastUsedAt     DateTime?
   /// The `User-Agent` at the last refresh, for naming the device in the console.
   /// Kept raw: parsing is presentation, and a stored guess cannot be re-read.
-  userAgent String?   @db.Text
+  userAgent      String?       @db.Text
   /// Client IP at the last refresh. Shown so someone can recognise a session
   /// that is not theirs.
-  ipAddress String?
-  revokedAt DateTime?
-  expiresAt DateTime
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  ipAddress      String?
+  revokedAt      DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime      @default(now())
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([userId, revokedAt])
   @@index([organizationId])
@@ -797,42 +797,42 @@ model PaymentSetting {
 /// Cloudflare Turnstile credentials for the public forms. The site key is public
 /// and served to the browser; the secret key is encrypted with the master key.
 model TurnstileSetting {
-  id                    String   @id @default("global")
-  siteKey               String?
-  encryptedSecretKey    String?  @db.Text
-  secretKeyNonce        String?
-  secretKeyAuthTag      String?
-  enabled               Boolean  @default(false)
+  id                   String   @id @default("global")
+  siteKey              String?
+  encryptedSecretKey   String?  @db.Text
+  secretKeyNonce       String?
+  secretKeyAuthTag     String?
+  enabled              Boolean  @default(false)
   /// Per-form toggles so admins can protect signup but leave, say, login open.
-  protectSignup         Boolean  @default(true)
-  protectLogin          Boolean  @default(true)
-  protectPasswordReset  Boolean  @default(true)
-  protectContact        Boolean  @default(true)
-  protectCheckout       Boolean  @default(true)
-  protectNewsletter     Boolean  @default(true)
-  updatedById           String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  protectSignup        Boolean  @default(true)
+  protectLogin         Boolean  @default(true)
+  protectPasswordReset Boolean  @default(true)
+  protectContact       Boolean  @default(true)
+  protectCheckout      Boolean  @default(true)
+  protectNewsletter    Boolean  @default(true)
+  updatedById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 /// OpenAI credentials and behaviour for the in-product AI assistant.
 model AiSetting {
-  id                 String   @id @default("global")
-  provider           String   @default("openai")
-  model              String   @default("gpt-4o-mini")
-  encryptedApiKey    String?  @db.Text
-  apiKeyNonce        String?
-  apiKeyAuthTag      String?
-  baseUrl            String?
-  systemPrompt       String   @db.Text
-  temperature        Int      @default(20)
-  maxOutputTokens    Int      @default(900)
+  id                String   @id @default("global")
+  provider          String   @default("openai")
+  model             String   @default("gpt-4o-mini")
+  encryptedApiKey   String?  @db.Text
+  apiKeyNonce       String?
+  apiKeyAuthTag     String?
+  baseUrl           String?
+  systemPrompt      String   @db.Text
+  temperature       Int      @default(20)
+  maxOutputTokens   Int      @default(900)
   /// Fallback monthly per-user message cap when the plan does not set one.
-  monthlyMessageCap  Int      @default(100)
-  enabled            Boolean  @default(false)
-  updatedById        String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  monthlyMessageCap Int      @default(100)
+  enabled           Boolean  @default(false)
+  updatedById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 /// One AI assistant conversation. Threads are scoped to an organization so
@@ -871,24 +871,24 @@ model AiMessage {
 
 /// A "Contact us" submission from the public site, reviewable in the admin panel.
 model ContactMessage {
-  id           String        @id @default(cuid())
-  name         String
-  email        String
-  company      String?
-  topic        String        @default("general")
-  message      String        @db.Text
-  status       ContactStatus @default(NEW)
+  id            String        @id @default(cuid())
+  name          String
+  email         String
+  company       String?
+  topic         String        @default("general")
+  message       String        @db.Text
+  status        ContactStatus @default(NEW)
   /// Internal-only notes; never returned to the submitter.
-  adminNotes   String?       @db.Text
-  ipAddress    String?
-  userAgent    String?       @db.Text
+  adminNotes    String?       @db.Text
+  ipAddress     String?
+  userAgent     String?       @db.Text
   /// Set when a user was signed in at submit time, for support context.
   submittedById String?
-  handledById  String?
-  handledAt    DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  handledBy    User?         @relation("ContactHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
+  handledById   String?
+  handledAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  handledBy     User?         @relation("ContactHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([email])
@@ -911,25 +911,51 @@ model NewsletterSubscriber {
 /// Deliberately not an AuditLog: audit rows are organization-scoped and require
 /// an actor, while most visits are anonymous and belong to no tenant.
 model VisitorLog {
-  id        String   @id @default(cuid())
+  id           String   @id @default(cuid())
   /// Pathname only — query strings are dropped so the column stays indexable
   /// and cannot accumulate tokens passed in URLs.
-  path      String
-  referrer  String?  @db.Text
+  path         String
+  referrer     String?  @db.Text
   /// Set when a session cookie accompanied the beacon. Kept on user deletion
   /// as null so traffic history stays intact.
-  userId    String?
-  ipAddress String?
-  userAgent String?  @db.Text
+  userId       String?
+  ipAddress    String?
+  userAgent    String?  @db.Text
   /// ISO 3166-1 alpha-2, when the edge/proxy supplies a geo header.
-  country   String?
-  createdAt DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  country      String?
+  region       String?
+  city         String?
+  /// First-party pseudonymous identifiers generated in the browser. They are
+  /// random values, not fingerprints, and contain no account data.
+  visitorId    String?
+  sessionId    String?
+  title        String?
+  durationMs   Int      @default(0)
+  engaged      Boolean  @default(false)
+  screenWidth  Int?
+  screenHeight Int?
+  language     String?
+  timezone     String?
+  browser      String?
+  os           String?
+  deviceType   String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmContent   String?
+  utmTerm      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([path, createdAt])
   @@index([userId, createdAt])
   @@index([country, createdAt])
+  @@index([visitorId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([browser, createdAt])
+  @@index([deviceType, createdAt])
 }
 
 /// Sign-in lifecycle events. Records the attempted email even when no account

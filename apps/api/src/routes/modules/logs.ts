@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { canManagePlatform } from "@onshell/shared";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
+import { describeDevice } from "../../lib/device-name.js";
 import { prisma } from "../../lib/prisma.js";
 import { handleRouteError } from "../../lib/reply.js";
 
@@ -82,17 +83,45 @@ const emailListSchema = z.object({
 const logIdSchema = z.object({ logId: z.string().min(1).max(60) });
 
 const visitSchema = z.object({
+  id: z.string().uuid(),
   path: z.string().trim().min(1).max(400),
-  referrer: z.string().trim().max(1_000).optional()
+  referrer: z.string().trim().max(1_000).optional(),
+  visitorId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  title: z.string().trim().max(190).optional(),
+  screenWidth: z.number().int().min(0).max(20_000).optional(),
+  screenHeight: z.number().int().min(0).max(20_000).optional(),
+  language: z.string().trim().max(40).optional(),
+  timezone: z.string().trim().max(80).optional(),
+  utm: z.object({
+    source: z.string().trim().max(190).optional(),
+    medium: z.string().trim().max(190).optional(),
+    campaign: z.string().trim().max(190).optional(),
+    content: z.string().trim().max(190).optional(),
+    term: z.string().trim().max(190).optional()
+  }).optional()
 });
 
-/** Routes the tracker must never record, even if a beacon reaches us anyway. */
-const UNTRACKED_PREFIXES = ["/console", "/admin", "/api"];
+const engagementSchema = z.object({
+  id: z.string().uuid(),
+  durationMs: z.number().int().min(0).max(24 * 60 * 60 * 1_000),
+  engaged: z.boolean()
+});
+
+const analyticsQuerySchema = z.object({
+  range: z.enum(["7d", "30d", "90d"]).default("30d")
+});
 
 const visitorSummary = {
   id: true,
   path: true,
   country: true,
+  city: true,
+  visitorId: true,
+  sessionId: true,
+  durationMs: true,
+  deviceType: true,
+  browser: true,
   createdAt: true,
   user: { select: { id: true, name: true, email: true } }
 } satisfies Prisma.VisitorLogSelect;
@@ -158,6 +187,29 @@ function readCountry(request: FastifyRequest) {
   return value.slice(0, 8).toUpperCase();
 }
 
+function readHeader(request: FastifyRequest, names: string[]) {
+  for (const name of names) {
+    const header = request.headers[name];
+    const value = Array.isArray(header) ? header[0] : header;
+    if (value) {
+      try {
+        return decodeURIComponent(value).slice(0, 190);
+      } catch {
+        return value.slice(0, 190);
+      }
+    }
+  }
+  return null;
+}
+
+function deviceType(userAgent: string | undefined) {
+  if (!userAgent) return "unknown";
+  if (/bot|crawler|spider|slurp|bingpreview/i.test(userAgent)) return "bot";
+  if (/ipad|tablet|kindle|silk/i.test(userAgent)) return "tablet";
+  if (/mobile|iphone|ipod|android/i.test(userAgent)) return "mobile";
+  return "desktop";
+}
+
 function createdAtRange(from?: Date, to?: Date) {
   if (!from && !to) return {};
   return { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } };
@@ -175,21 +227,41 @@ export async function registerLogRoutes(app: FastifyInstance, config: RuntimeCon
       try {
         const body = visitSchema.parse(request.body);
         const path = normalizePath(body.path);
-        if (UNTRACKED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
-          return reply.code(202).send({ ok: true, recorded: false });
-        }
-
         // Never required — an anonymous visit is still worth recording.
         const visitor = await getAuthenticatedUser(request, config).catch(() => null);
+        const userAgent = request.headers["user-agent"]?.slice(0, 500);
+        const device = describeDevice(userAgent);
+        const resolvedDeviceType = deviceType(userAgent);
+        // Match mainstream analytics products: known crawlers do not count as
+        // people or inflate engagement metrics.
+        if (resolvedDeviceType === "bot") return reply.code(202).send({ ok: true, recorded: false });
 
         await prisma.visitorLog.create({
           data: {
+            id: body.id,
             path,
             referrer: normalizeReferrer(body.referrer),
             userId: visitor?.id ?? null,
             ipAddress: request.ip,
-            userAgent: request.headers["user-agent"]?.slice(0, 500) ?? null,
-            country: readCountry(request)
+            userAgent: userAgent ?? null,
+            country: readCountry(request),
+            region: readHeader(request, ["cf-region", "x-vercel-ip-country-region", "x-geo-region"]),
+            city: readHeader(request, ["cf-ipcity", "x-vercel-ip-city", "x-geo-city"]),
+            visitorId: body.visitorId,
+            sessionId: body.sessionId,
+            title: body.title,
+            screenWidth: body.screenWidth,
+            screenHeight: body.screenHeight,
+            language: body.language,
+            timezone: body.timezone,
+            browser: device.browser ?? "Unknown",
+            os: device.os ?? "Unknown",
+            deviceType: resolvedDeviceType,
+            utmSource: body.utm?.source,
+            utmMedium: body.utm?.medium,
+            utmCampaign: body.utm?.campaign,
+            utmContent: body.utm?.content,
+            utmTerm: body.utm?.term
           },
           select: { id: true }
         });
@@ -200,6 +272,93 @@ export async function registerLogRoutes(app: FastifyInstance, config: RuntimeCon
       }
     }
   );
+
+  /** Updates active time for a page view. The random view id is the capability;
+   * no identity or cookie is needed, so pagehide beacons remain reliable. */
+  app.post(
+    "/public/visit/engagement",
+    { config: { rateLimit: { max: 240, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      try {
+        const body = engagementSchema.parse(request.body);
+        await prisma.visitorLog.updateMany({
+          where: { id: body.id },
+          data: { durationMs: body.durationMs, engaged: body.engaged }
+        });
+        return reply.code(202).send({ ok: true });
+      } catch (error) {
+        return handleRouteError(reply, error);
+      }
+    }
+  );
+
+  app.get("/admin/analytics/overview", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+      const { range } = analyticsQuerySchema.parse(request.query);
+      const days = Number(range.slice(0, -1));
+      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const where = { createdAt: { gte: from } } satisfies Prisma.VisitorLogWhereInput;
+
+      const [views, aggregate, distinct, trend, pages, countries, browsers, devices, sources, recent] = await Promise.all([
+        prisma.visitorLog.count({ where }),
+        prisma.visitorLog.aggregate({ where, _avg: { durationMs: true }, _sum: { durationMs: true } }),
+        prisma.$queryRaw<Array<{ visitors: bigint; sessions: bigint }>>(Prisma.sql`
+          SELECT COUNT(DISTINCT visitorId) visitors, COUNT(DISTINCT sessionId) sessions
+          FROM VisitorLog WHERE createdAt >= ${from}
+        `),
+        prisma.$queryRaw<Array<{ day: Date | string; views: bigint; visitors: bigint; sessions: bigint }>>(Prisma.sql`
+          SELECT DATE(createdAt) day, COUNT(*) views,
+                 COUNT(DISTINCT visitorId) visitors, COUNT(DISTINCT sessionId) sessions
+          FROM VisitorLog WHERE createdAt >= ${from}
+          GROUP BY DATE(createdAt) ORDER BY day ASC
+        `),
+        prisma.visitorLog.groupBy({ by: ["path"], where, _count: { _all: true }, _avg: { durationMs: true }, orderBy: { _count: { path: "desc" } }, take: 12 }),
+        prisma.visitorLog.groupBy({ by: ["country"], where, _count: { _all: true }, orderBy: { _count: { country: "desc" } }, take: 10 }),
+        prisma.visitorLog.groupBy({ by: ["browser"], where, _count: { _all: true }, orderBy: { _count: { browser: "desc" } }, take: 8 }),
+        prisma.visitorLog.groupBy({ by: ["deviceType"], where, _count: { _all: true }, orderBy: { _count: { deviceType: "desc" } } }),
+        prisma.$queryRaw<Array<{ name: string; views: bigint }>>(Prisma.sql`
+          SELECT COALESCE(utmSource, referrer, 'Direct') name, COUNT(*) views
+          FROM VisitorLog WHERE createdAt >= ${from}
+          GROUP BY COALESCE(utmSource, referrer, 'Direct')
+          ORDER BY views DESC LIMIT 10
+        `),
+        prisma.visitorLog.findMany({ where, orderBy: { createdAt: "desc" }, take: 20, select: visitorSummary })
+      ]);
+
+      const visitorCount = Number(distinct[0]?.visitors ?? 0);
+      const sessionCount = Number(distinct[0]?.sessions ?? 0);
+      const bounced = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT COUNT(*) count FROM (
+          SELECT sessionId FROM VisitorLog
+          WHERE createdAt >= ${from} AND sessionId IS NOT NULL
+          GROUP BY sessionId HAVING COUNT(*) = 1 AND MAX(durationMs) < 10000
+        ) single_page_sessions
+      `);
+
+      return {
+        range,
+        totals: {
+          views,
+          visitors: visitorCount,
+          sessions: sessionCount,
+          averageDurationMs: Math.round(aggregate._avg.durationMs ?? 0),
+          totalDurationMs: aggregate._sum.durationMs ?? 0,
+          bounceRate: sessionCount ? Math.round((Number(bounced[0]?.count ?? 0) / sessionCount) * 1000) / 10 : 0
+        },
+        trend: trend.map((row) => ({ day: new Date(row.day).toISOString().slice(0, 10), views: Number(row.views), visitors: Number(row.visitors), sessions: Number(row.sessions) })),
+        pages: pages.map((row) => ({ path: row.path, views: row._count._all, averageDurationMs: Math.round(row._avg.durationMs ?? 0) })),
+        countries: countries.map((row) => ({ name: row.country ?? "Unknown", views: row._count._all })),
+        browsers: browsers.map((row) => ({ name: row.browser ?? "Unknown", views: row._count._all })),
+        devices: devices.map((row) => ({ name: row.deviceType ?? "Unknown", views: row._count._all })),
+        sources: sources.map((row) => ({ name: row.name, views: Number(row.views) })),
+        recent
+      };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
 
   app.get("/admin/logs/visitors", async (request, reply) => {
     try {

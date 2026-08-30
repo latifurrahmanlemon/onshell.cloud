@@ -2549,6 +2549,53 @@
 
 /* ------------------------------------------------------------------- logs */
 
+/* -------------------------------------------------------------- analytics */
+
+.analytics-dashboard { display: flex; flex-direction: column; gap: 16px; }
+.analytics-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.analytics-ranges { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.analytics-range { min-height: 36px; padding: 6px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: .8rem; cursor: pointer; }
+.analytics-range:hover { color: var(--text); }
+.analytics-range.is-active { background: var(--surface); color: var(--accent-text); box-shadow: var(--shadow-sm); }
+.analytics-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.analytics-metric { display: flex; gap: 12px; min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.analytics-metric-icon { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px; background: var(--accent-weak); color: var(--accent-text); }
+.analytics-metric > div { display: flex; flex-direction: column; min-width: 0; }
+.analytics-metric span { color: var(--muted); font-size: .74rem; }
+.analytics-metric strong { margin: 2px 0; font-family: var(--font-display); font-size: 1.35rem; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.analytics-metric small { overflow: hidden; color: var(--soft); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.analytics-chart-wrap { min-width: 0; }
+.analytics-chart { display: block; width: 100%; height: clamp(180px, 25vw, 260px); overflow: visible; }
+.analytics-gridline { stroke: var(--border); stroke-width: 1; }
+.analytics-area { fill: var(--accent-weak); }
+.analytics-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.analytics-dot { fill: var(--surface); stroke: var(--accent); stroke-width: 3; }
+.analytics-chart-axis { display: flex; justify-content: space-between; padding: 0 28px; color: var(--soft); font-size: .7rem; }
+.analytics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.analytics-pages { grid-column: 1 / -1; }
+.analytics-bars { display: flex; flex-direction: column; gap: 11px; }
+.analytics-bar-row > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; font-size: .78rem; }
+.analytics-bar-row span { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.analytics-bar-row strong { font-variant-numeric: tabular-nums; }
+.analytics-bar-track { height: 7px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
+.analytics-bar-track span { display: block; height: 100%; border-radius: inherit; background: var(--brand-gradient); }
+.analytics-path { max-width: 340px; overflow: hidden; font-family: var(--font-mono); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.analytics-recent { min-width: 980px; }
+.analytics-recent th > span { display: flex; flex-direction: column; gap: 2px; }
+.analytics-recent th small { color: var(--soft); font-size: .68rem; font-weight: 400; }
+.analytics-loading { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.analytics-loading span { height: 96px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: analytics-shimmer 1.4s infinite; }
+@keyframes analytics-shimmer { to { background-position: -200% 0; } }
+
+@media (max-width: 1180px) { .analytics-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .analytics-toolbar { align-items: stretch; flex-direction: column; }
+  .analytics-ranges { align-self: flex-start; }
+  .analytics-metrics, .analytics-grid, .analytics-loading { grid-template-columns: minmax(0, 1fr); }
+  .analytics-pages { grid-column: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .analytics-loading span { animation: none; } }
+
 .logs-toolbar {
   display: flex;
   flex-wrap: wrap;

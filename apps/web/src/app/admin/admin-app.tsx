@@ -53,6 +53,7 @@ import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import AdminGate from "./gate";
 import { AiSettingsPanel, AiThreadsSection } from "./ai-admin";
+import { AnalyticsSection } from "./analytics";
 import { BotProtectionPanel } from "./bot-protection";
 import { GrowthSection } from "./growth-admin";
 import { InboxSection } from "./inbox";
@@ -238,7 +239,7 @@ interface NewSettingForm {
   isSecret: boolean;
 }
 
-type SectionId = "overview" | "users" | "inbox" | "ai" | "growth" | "logs" | "settings";
+type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "logs" | "settings";
 type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "general";
 
 type UserSortKey = "name" | "email" | "role" | "created";
@@ -278,6 +279,7 @@ const NEW_USER_DEFAULTS: NewUserForm = {
 
 const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "analytics", label: "Analytics", icon: PieChart },
   { id: "users", label: "Users", icon: Users },
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "ai", label: "AI Conversations", icon: Bot },
@@ -297,6 +299,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> 
 
 const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   overview: { title: "Overview", description: "Live platform totals and delivery status across the deployment." },
+  analytics: { title: "Analytics", description: "First-party traffic, engagement, acquisition, devices, and visitor journeys." },
   users: { title: "Users", description: "All accounts across organizations, with roles and security posture." },
   inbox: { title: "Inbox", description: "Enquiries submitted through the public contact form." },
   ai: { title: "AI Conversations", description: "Assistant threads across all workspaces, for support and abuse review." },
@@ -1134,6 +1137,7 @@ function AdminPanel() {
 
   const sectionLoading: Record<SectionId, boolean> = {
     overview: overviewRes.loading,
+    analytics: false,
     users: usersRes.loading,
     // These sections manage their own loading state and expose their own reload
     // control, so the shell's refresh button is a no-op for them.
@@ -1158,7 +1162,7 @@ function AdminPanel() {
       return;
     }
     // Inbox, AI, and Growth each render their own reload button.
-    if (section === "inbox" || section === "ai" || section === "growth") return;
+    if (section === "analytics" || section === "inbox" || section === "ai" || section === "growth") return;
     if (section === "users") {
       void usersRes.reload();
       void subscriptionsRes.reload();
@@ -2702,6 +2706,7 @@ function AdminPanel() {
 
   const sectionRenderers: Record<SectionId, () => ReactNode> = {
     overview: renderOverview,
+    analytics: () => <AnalyticsSection />,
     users: renderUsers,
     // These sections own their own data fetching, so they need no wiring here.
     inbox: () => <InboxSection onUnreadChange={setInboxUnread} />,
