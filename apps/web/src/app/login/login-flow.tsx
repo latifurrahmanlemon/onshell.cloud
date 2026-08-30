@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
 import { Check, Circle, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck } from "lucide-react";
 import { passwordPolicy, validatePassword } from "@onshell/shared";
 import { TurnstileWidget, useTurnstile } from "../../components/turnstile";
@@ -163,7 +162,6 @@ function readReturnTo(consume: boolean) {
 }
 
 export function LoginFlow() {
-  const reduceMotion = useReducedMotion();
   // Separate challenges: sign-in and password-reset are independently
   // toggleable in the admin panel, and each token is single-use.
   const loginTurnstile = useTurnstile("login");
@@ -445,14 +443,6 @@ export function LoginFlow() {
     }
   }
 
-  const cardMotion = reduceMotion
-    ? {}
-    : {
-        initial: { opacity: 0, y: 14 },
-        animate: { opacity: 1, y: 0 },
-        transition: { duration: 0.35, ease: "easeOut" as const }
-      };
-
   const headings: Record<Mode, { title: string; subtitle: string }> = {
     login: {
       title: "Sign in to Onshell",
@@ -489,7 +479,7 @@ export function LoginFlow() {
       </div>
 
       <div className="auth-main">
-        <motion.section className="auth-card" aria-labelledby="auth-title" {...cardMotion}>
+        <section className="auth-card" aria-labelledby="auth-title">
           <div className="auth-heading">
             <h1 id="auth-title">{headings[mode].title}</h1>
             <p>{headings[mode].subtitle}</p>
@@ -748,7 +738,7 @@ export function LoginFlow() {
               </button>
             </form>
           )}
-        </motion.section>
+        </section>
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Bot, History, MessageCircle, RotateCcw, Send, Trash2, TriangleAlert, X } from "lucide-react";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, type AiThreadSummary } from "../app/console/api";
@@ -110,8 +111,13 @@ function readGuestTurns(): ChatTurn[] {
  * Renders nothing at all until an admin has enabled the assistant.
  */
 export function AiChatWidget() {
+  const pathname = usePathname();
+  // Auth screens must stay self-contained. Probing /auth/me here creates a
+  // guaranteed 401 + refresh attempt for signed-out visitors and can race the
+  // login page while it is hydrating.
+  const isAuthScreen = pathname === "/login" || pathname === "/signup";
   const config = useSiteConfig();
-  const session = usePublicSession();
+  const session = usePublicSession(!isAuthScreen);
   const signedIn = session.status === "signed-in";
 
   const [open, setOpen] = useState(false);
@@ -336,9 +342,10 @@ export function AiChatWidget() {
     }
   }
 
-  // No bubble at all until an admin has switched the assistant on — an inert
+  // No bubble at all on auth screens, or until an admin has switched the
+  // assistant on — an inert
   // chat button is worse than no chat button.
-  if (!config?.ai.enabled) return null;
+  if (isAuthScreen || !config?.ai.enabled) return null;
 
   const starters = signedIn ? MEMBER_STARTERS : GUEST_STARTERS;
 

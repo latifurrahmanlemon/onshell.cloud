@@ -60,10 +60,17 @@ async function loadSession(): Promise<SessionState> {
   return sessionRequest;
 }
 
-export function usePublicSession() {
-  const [session, setSession] = useState<SessionState>(cachedSession ?? { status: "loading" });
+export function usePublicSession(enabled = true) {
+  const [session, setSession] = useState<SessionState>(
+    enabled ? (cachedSession ?? { status: "loading" }) : { status: "anonymous" }
+  );
 
   useEffect(() => {
+    if (!enabled) {
+      setSession({ status: "anonymous" });
+      return;
+    }
+
     let active = true;
     void loadSession().then((state) => {
       if (active) setSession(state);
@@ -71,7 +78,7 @@ export function usePublicSession() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
 
   return session;
 }

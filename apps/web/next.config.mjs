@@ -88,12 +88,12 @@ const nextConfig = {
             value: [
               "default-src 'self'",
               // Next.js injects inline bootstrap scripts; Turnstile is loaded from Cloudflare.
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://static.cloudflareinsights.com",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' data: https://fonts.gstatic.com",
               // Avatars are stored as data: URLs; blob: is used by xterm canvas.
               "img-src 'self' data: blob: https:",
-              `connect-src 'self' ${apiOrigin} ${gatewayOrigin} ${gatewaySocket} https://challenges.cloudflare.com`.trim(),
+              `connect-src 'self' ${apiOrigin} ${gatewayOrigin} ${gatewaySocket} https://challenges.cloudflare.com https://cloudflareinsights.com`.trim(),
               "frame-src https://challenges.cloudflare.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",
