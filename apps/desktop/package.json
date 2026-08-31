@@ -1,6 +1,6 @@
 {
   "name": "@onshell/desktop",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
+    "@electron/osx-sign": "^1.3.1",
     "@onshell/agent": "workspace:*",
     "@onshell/api-client": "workspace:*",
     "@onshell/shared": "workspace:*",

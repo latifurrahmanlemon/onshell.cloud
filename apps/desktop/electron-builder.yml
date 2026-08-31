@@ -1,17 +1,18 @@
 # electron-builder configuration for Onshell Desktop.
 #
-# Signing is driven entirely by environment variables, so this file is committed
-# unsigned-by-default and needs no edit when the certificates arrive. Set the
-# variables in CI secrets and the same build turns out signed:
+# Developer ID signing is driven entirely by environment variables, so this file
+# needs no edit when the certificates arrive. Without them the custom hook uses
+# an ad-hoc integrity signature; set the variables in CI secrets and the same
+# build turns out Developer ID signed:
 #
 #   macOS       CSC_LINK, CSC_KEY_PASSWORD           (Developer ID Application .p12, base64 or path)
 #               APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   (notarization)
 #   Windows     CSC_LINK, CSC_KEY_PASSWORD           (Authenticode .pfx)
 #
-# With none of them set, electron-builder produces unsigned installers. Tagged
-# releases publish those builds with checksums and clear Gatekeeper instructions
-# until Apple Developer access is available; supplying all secrets upgrades the
-# same pipeline to signed and notarized output automatically.
+# With none of them set, electron-builder produces ad-hoc-signed installers.
+# Tagged releases publish those builds with checksums and clear Gatekeeper
+# instructions until Apple Developer access is available; supplying all secrets
+# upgrades the same pipeline to Developer ID signed and notarized output.
 #
 # An auto-updater is a remote code execution channel by construction, which is
 # why the workflow that produces these artifacts lives in this repository where
@@ -49,6 +50,10 @@ npmRebuild: true
 
 mac:
   category: public.app-category.developer-tools
+  # electron-builder v25 otherwise skips signing completely when no Developer
+  # ID exists. The custom hook applies an ad-hoc signature in that case and the
+  # real identity when one is present, before DMG/ZIP creation.
+  sign: scripts/sign-mac.cjs
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -59,7 +64,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   # Notarization runs from scripts/notarize.cjs (afterSign) only when the Apple
-  # credentials are present, so an unsigned local build does not try to notarize.
+  # credentials are present, so an ad-hoc local build does not try to notarize.
 
 dmg:
   writeUpdateInfo: false

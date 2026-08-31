@@ -338,8 +338,8 @@ and in the app's own "Onshell Desktop x.y.z", so bump it first and let the tag
 match:
 
 ```bash
-git tag desktop-v0.3.2
-git push origin desktop-v0.3.2
+git tag desktop-v0.3.3
+git push origin desktop-v0.3.3
 ```
 
 That runs [.github/workflows/desktop.yml](../.github/workflows/desktop.yml) on
@@ -349,13 +349,15 @@ links to. `DOWNLOADS_TOKEN` has to be set for that; without it the job fails
 loudly rather than finishing green having published nothing.
 
 A tagged release does not require Apple credentials. While Apple Developer
-access is unavailable, it publishes deliberately unsigned macOS installers and
-a platform-specific SHA-256 manifest; users follow the documented Gatekeeper
-one-time approval flow. If `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
+access is unavailable, it publishes ad-hoc-signed macOS installers and a
+platform-specific SHA-256 manifest; users follow the documented Gatekeeper
+one-time approval flow. The ad-hoc signature seals the full Electron bundle but
+does not establish publisher trust or replace notarization. If `MAC_CSC_LINK`,
+`MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are all present, the same
 job signs and notarizes the app and verifies both x64 and arm64 bundles with
-`codesign` and `spctl`. A partial secret set falls back to unsigned output rather
-than producing a misleading half-signed release.
+`codesign` and `spctl`. A partial secret set falls back to ad-hoc-signed output
+rather than producing a misleading half-signed release.
 
 Numbering starts at 0.2.0 rather than 0.1.0: `desktop-v0.1.x` tags already exist
 from the old agent-only tray app, and reusing a version for different software

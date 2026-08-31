@@ -9,8 +9,8 @@ name: Desktop app
 # you want me to run as myself" is a build recipe anyone can read.
 #
 # Signing is driven by secrets, never by a file edit. Until an Apple Developer
-# account is available, tagged releases deliberately include unsigned macOS
-# artifacts and explain Gatekeeper's one-time approval flow. As soon as all Mac
+# account is available, tagged releases include ad-hoc-signed macOS artifacts
+# and explain Gatekeeper's one-time approval flow. As soon as all Mac
 # secrets exist, the same job signs, notarizes, and verifies both architectures.
 
 on:
@@ -118,7 +118,7 @@ jobs:
                 signed_mac=true
               else
                 unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-                echo "::notice::Apple signing credentials are incomplete — publishing an unsigned macOS build."
+                echo "::notice::Apple signing credentials are incomplete — publishing an ad-hoc-signed macOS build."
               fi
               ;;
             win)
@@ -137,26 +137,35 @@ jobs:
           esac
 
           if [ -z "${CSC_LINK:-}" ]; then
-            # No certificate: keep electron-builder from signing with whatever
-            # Developer ID happens to sit in the runner's keychain, so an
-            # unsigned build is a deliberate, reproducible outcome.
+            # Do not pick up an unrelated runner identity. sign-mac.cjs uses
+            # Apple's ad-hoc identity instead, producing a coherent app bundle
+            # without claiming Developer ID trust or notarization.
             export CSC_IDENTITY_AUTO_DISCOVERY=false
-            echo "No signing certificate supplied — building unsigned."
+            echo "No signing certificate supplied — building with an ad-hoc macOS signature."
           else
             echo "Signing certificate present — building signed."
           fi
 
           yarn electron-builder --${{ matrix.platform }} --publish never
 
-          if [ "${{ matrix.platform }}" = mac ] && [ "$signed_mac" = true ]; then
+          if [ "${{ matrix.platform }}" = mac ]; then
             verified=0
             while IFS= read -r -d '' app_path; do
               codesign --verify --deep --strict --verbose=2 "$app_path"
-              spctl --assess --type execute --verbose=2 "$app_path"
+              if [ "$signed_mac" = true ]; then
+                spctl --assess --type execute --verbose=2 "$app_path"
+              else
+                signature_details="$(codesign --display --verbose=4 "$app_path" 2>&1)"
+                printf '%s\n' "$signature_details"
+                if ! grep -q '^Signature=adhoc$' <<<"$signature_details"; then
+                  echo "::error::Expected an ad-hoc signature on $app_path."
+                  exit 1
+                fi
+              fi
               verified=$((verified + 1))
             done < <(find release -type d -name 'Onshell.app' -print0)
             if [ "$verified" -lt 2 ]; then
-              echo "::error::Expected signed arm64 and x64 Onshell.app bundles, found $verified."
+              echo "::error::Expected sealed arm64 and x64 Onshell.app bundles, found $verified."
               exit 1
             fi
           fi
@@ -239,7 +248,7 @@ jobs:
           printf '%s\n' \
             'Onshell Desktop — your own machine'"'"'s terminal, direct SSH to your servers, and the Onshell console in one app.' \
             '' \
-            'The current macOS builds are unsigned because an Apple Developer account is not available yet. Download only from this release and verify SHA256SUMS-mac.txt before using the one-time Gatekeeper approval.' \
+            'The current macOS builds carry an ad-hoc integrity signature because an Apple Developer account is not available yet. They are not Apple-notarized. Download only from this release and verify SHA256SUMS-mac.txt before using the one-time Gatekeeper approval.' \
             '' \
             '- **macOS:** drag Onshell to Applications and try to open it once. Then open System Settings → Privacy & Security, scroll to Security, choose Open Anyway, authenticate, and confirm Open. The exception is only for this app.' \
             '- **Windows:** install per-user. An unsigned development build may still show SmartScreen; public releases should use the signed setup.' \

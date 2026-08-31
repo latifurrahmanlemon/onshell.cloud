@@ -6,7 +6,7 @@ Started: 2026-08-30
 
 Scope: `apps/desktop` and the desktop release pipeline. The existing web application stays unchanged.
 
-Release target for this work: `desktop-v0.3.2`. Do not replace earlier binaries in place; a new version keeps update checks, checksums, and incident history honest.
+Release target for this work: `desktop-v0.3.3`. Do not replace earlier binaries in place; a new version keeps update checks, checksums, and incident history honest.
 
 ## Product direction
 
@@ -50,7 +50,7 @@ The permanent activity rail contains Hosts, Files, Snippets, Port Forwarding, Va
 
 ### Phase 1 — trustworthy install and professional shell
 
-Deliver the new activity rail, resource sidebar, consistent vector icons, compact tabs, polished empty states, keyboard search/new-terminal shortcuts, focus states, reduced-motion support, and responsive desktop density. Keep all current terminal/file/settings behavior working. Until Apple Developer access is available, public macOS tags publish unsigned builds with checksums and a documented Gatekeeper approval flow; when credentials are present, CI signs, notarizes, and verifies both architectures.
+Deliver the new activity rail, resource sidebar, consistent vector icons, compact tabs, polished empty states, keyboard search/new-terminal shortcuts, focus states, reduced-motion support, and responsive desktop density. Keep all current terminal/file/settings behavior working. Until Apple Developer access is available, public macOS tags publish ad-hoc-signed builds with checksums and a documented Gatekeeper approval flow; when credentials are present, CI signs, notarizes, and verifies both architectures.
 
 Exit criteria: typecheck/build pass; Windows 10/11 at 100% and 150% scaling; macOS Intel and Apple Silicon artifacts publish with checksums and open through the documented one-time Gatekeeper exception; keyboard-only smoke test; light/dark contrast review.
 
@@ -82,7 +82,7 @@ Exit criteria: security review, threat-model update, SBOM and checksums, signed 
 
 - Pull request: renderer/main typecheck, unit tests, production build, and IPC contract tests.
 - Visual: snapshot the signed-out flow, empty workspace, active terminal, files, settings, light mode, dark mode, 100%/150% scaling, and reduced motion.
-- macOS tag: publish unsigned artifacts plus SHA-256 manifests while Apple access is unavailable. When the Developer ID certificate and notarization credentials exist, enable hardened-runtime signing, notarization, and `codesign`/`spctl` verification for x64 and arm64 automatically.
+- macOS tag: publish ad-hoc-signed artifacts plus SHA-256 manifests while Apple access is unavailable. When the Developer ID certificate and notarization credentials exist, enable hardened-runtime signing, notarization, and `codesign`/`spctl` verification for x64 and arm64 automatically.
 - Windows tag: Authenticode-sign the installer and executable; test clean Windows 10/11 VMs and SmartScreen reputation over time.
 - Update channel: stable/beta channels, signed metadata, staged rollout, rollback, and no arbitrary remote renderer code.
 - Performance budgets: window usable in under 2s on a reference machine, input feedback under 100ms, terminal resize at 60fps, no unbounded renderer list or scrollback growth.
@@ -94,7 +94,7 @@ Exit criteria: security review, threat-model update, SBOM and checksums, signed 
 - Added searchable resource hierarchy, counts, connection state, keyboard focus shortcut, and new-local-terminal shortcut.
 - Reworked tabs and the first-run terminal workspace state for clearer hierarchy and faster scanning.
 - Added semantic theme tokens, keyboard focus, light/dark parity, and reduced-motion handling.
-- Changed the release workflow so missing Apple secrets no longer block Windows, Linux, or macOS publishing; unsigned Mac releases include checksums and user-facing Gatekeeper instructions.
+- Changed the release workflow so missing Apple secrets no longer block Windows, Linux, or macOS publishing; ad-hoc-signed Mac releases include checksums and user-facing Gatekeeper instructions.
 
 ## Phase 2 implementation record
 

@@ -9,7 +9,7 @@ import {
   MonitorSmartphone,
   Play,
   ShieldCheck,
-  Terminal
+  Terminal,
 } from "lucide-react";
 import { PageHero, PublicShell } from "../../components/public-shell";
 import { type AgentBuild, formatBytes } from "../../lib/agent-manifest";
@@ -21,7 +21,7 @@ import "./download.css";
 
 const title = "Download Onshell Desktop and Agent";
 const description =
-  "Download Onshell Desktop for Windows, macOS, or Linux, or install the command-line agent on a headless machine. Includes current macOS unsigned-install instructions.";
+  "Download Onshell Desktop for Windows, macOS, or Linux, or install the command-line agent on a headless machine. Includes current macOS unnotarized-install instructions.";
 
 export const metadata: Metadata = {
   title,
@@ -31,9 +31,13 @@ export const metadata: Metadata = {
     type: "website",
     url: absoluteUrl("/download"),
     title: `${title} · ${site.name}`,
-    description
+    description,
   },
-  twitter: { card: "summary_large_image", title: `${title} · ${site.name}`, description }
+  twitter: {
+    card: "summary_large_image",
+    title: `${title} · ${site.name}`,
+    description,
+  },
 };
 
 // The manifest changes when a release commit lands, not when the app is built,
@@ -49,30 +53,40 @@ export const dynamic = "force-dynamic";
 // public. Release assets inherit their repository's visibility, so while the
 // source repo is private its release links answer 404 to everyone who is not a
 // collaborator — visitors would land on a "page not found", not a download.
-const desktopReleaseUrl = "https://github.com/latifurrahmanlemon/onshell-downloads/releases/latest";
+const desktopReleaseUrl =
+  "https://github.com/latifurrahmanlemon/onshell-downloads/releases/latest";
 
 const steps = [
   {
     icon: MonitorSmartphone,
     title: "Download and extract",
-    body: "Pick the build for your computer above and unpack it anywhere you like — your home folder is fine. Nothing is installed system-wide and nothing runs as administrator."
+    body: "Pick the build for your computer above and unpack it anywhere you like — your home folder is fine. Nothing is installed system-wide and nothing runs as administrator.",
   },
   {
     icon: KeyRound,
     title: "Pair it with your account",
-    body: "In the console open My computers → Connect a computer. You get an eight-character code, good for ten minutes and usable once."
+    body: "In the console open My computers → Connect a computer. You get an eight-character code, good for ten minutes and usable once.",
   },
   {
     icon: Play,
     title: "Start it",
-    body: "The machine appears in your host list while the agent runs. Stop it and the access stops with it."
-  }
+    body: "The machine appears in your host list while the agent runs. Stop it and the access stops with it.",
+  },
 ];
 
 const requirements = [
-  { icon: Cpu, label: "Node.js 22 or newer on the machine you are installing on" },
-  { icon: Terminal, label: "Windows 10 1809+, macOS 12+, or a Linux with systemd" },
-  { icon: ShieldCheck, label: "Outbound HTTPS. No inbound port, no router change, no public IP" }
+  {
+    icon: Cpu,
+    label: "Node.js 22 or newer on the machine you are installing on",
+  },
+  {
+    icon: Terminal,
+    label: "Windows 10 1809+, macOS 12+, or a Linux with systemd",
+  },
+  {
+    icon: ShieldCheck,
+    label: "Outbound HTTPS. No inbound port, no router change, no public IP",
+  },
 ];
 
 function BuildRow({ build }: { build: AgentBuild }) {
@@ -109,21 +123,25 @@ export default async function DownloadPage() {
         softwareVersion: manifest.version,
         downloadUrl: absoluteUrl("/download"),
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-        publisher: { "@type": "Organization", name: site.name, url: site.url }
+        publisher: { "@type": "Organization", name: site.name, url: site.url },
       }
     : null;
 
   return (
     <PublicShell>
       {structuredData && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
       )}
 
       <PageHero
         eyebrow="Onshell Agent"
         title={
           <>
-            Reach <span className="lp-grad-text">your own computer</span> from any browser
+            Reach <span className="lp-grad-text">your own computer</span> from
+            any browser
           </>
         }
         lead="A browser cannot open a terminal on the machine it is running on, and it cannot speak SSH — those are the sandbox the whole web rests on. Onshell Desktop is the program that can do both: your own machine's shell in the same window as your servers, and connections that go straight from your computer to your host instead of through ours. For a machine with no desktop at all, the command-line agent shares that machine with your workspace instead."
@@ -141,7 +159,10 @@ export default async function DownloadPage() {
           <div className="lp-heading">
             <span className="lp-section-eyebrow">Two ways to install</span>
             <h2>Pick the one that fits the machine</h2>
-            <p>Both pair the same way and give you the same terminal. They differ only in what the machine has to have already.</p>
+            <p>
+              Both pair the same way and give you the same terminal. They differ
+              only in what the machine has to have already.
+            </p>
           </div>
 
           <div className="dl-ways">
@@ -155,8 +176,9 @@ export default async function DownloadPage() {
                 Desktop app
               </h3>
               <p className="dl-way-lead-text">
-                The whole console as a native app. It brings its own runtime, so there is nothing to install first
-                and nothing to type — and it can do the two things a browser tab cannot.
+                The whole console as a native app. It brings its own runtime, so
+                there is nothing to install first and nothing to type — and it
+                can do the two things a browser tab cannot.
               </p>
               <ul className="dl-way-points">
                 <li>
@@ -169,21 +191,27 @@ export default async function DownloadPage() {
                 </li>
                 <li>
                   <Check aria-hidden="true" size={15} />
-                  Optionally shares this machine, so a browser elsewhere can reach it
+                  Optionally shares this machine, so a browser elsewhere can
+                  reach it
                 </li>
                 <li>
                   <Check aria-hidden="true" size={15} />
                   Windows, macOS and Linux — Intel and ARM
                 </li>
               </ul>
-              <a className="primary-button large dl-way-btn" href={desktopReleaseUrl} rel="noreferrer" target="_blank">
+              <a
+                className="primary-button large dl-way-btn"
+                href={desktopReleaseUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
                 <Download aria-hidden="true" size={18} />
                 Get Onshell Desktop
                 <ArrowUpRight aria-hidden="true" size={16} />
               </a>
               <p className="dl-way-note">
-                <span className="dl-way-beta">Beta</span> Unsigned for now.{" "}
-                <a href="#mac-install">See the macOS install steps</a>.
+                <span className="dl-way-beta">Beta</span> Not Apple-notarized
+                yet. <a href="#mac-install">See the macOS install steps</a>.
               </p>
             </article>
 
@@ -193,8 +221,9 @@ export default async function DownloadPage() {
                 Command-line agent
               </h3>
               <p className="dl-way-lead-text">
-                One file you run from a shell. This is the build for a machine with no desktop — a VPS, a headless
-                box, anything you reach over SSH — and the one to script into a provisioning step.
+                One file you run from a shell. This is the build for a machine
+                with no desktop — a VPS, a headless box, anything you reach over
+                SSH — and the one to script into a provisioning step.
               </p>
               <ul className="dl-way-points">
                 <li>
@@ -213,25 +242,34 @@ export default async function DownloadPage() {
               <a className="secondary-button large dl-way-btn" href="#cli">
                 Get the command-line build
               </a>
-              <p className="dl-way-note">Six platform builds, listed further down with checksums.</p>
+              <p className="dl-way-note">
+                Six platform builds, listed further down with checksums.
+              </p>
             </article>
           </div>
         </div>
       </section>
 
-      <section className="lp-section dl-mac-guide-section" id="mac-install" aria-labelledby="mac-install-title">
+      <section
+        className="lp-section dl-mac-guide-section"
+        id="mac-install"
+        aria-labelledby="mac-install-title"
+      >
         <div className="lp-container">
           <div className="dl-mac-guide">
             <div className="dl-mac-guide-intro">
               <span className="dl-mac-guide-kicker">
                 <AlertTriangle aria-hidden="true" size={15} />
-                Temporary unsigned release
+                Temporary unnotarized release
               </span>
               <h2 id="mac-install-title">Install Onshell Desktop on macOS</h2>
               <p>
-                An Apple Developer account is not available yet, so the current Mac build is neither signed nor
-                notarized. Gatekeeper will warn you—even when the download is intact. Only continue if you downloaded
-                Onshell from our official GitHub release and verified the included <code>SHA256SUMS-mac.txt</code>.
+                An Apple Developer account is not available yet, so the current
+                Mac build uses an ad-hoc integrity signature instead of a
+                trusted Developer ID and is not notarized. Gatekeeper will still
+                warn you. Only continue if you downloaded Onshell from our
+                official GitHub release and verified the included{" "}
+                <code>SHA256SUMS-mac.txt</code>.
               </p>
             </div>
 
@@ -240,14 +278,20 @@ export default async function DownloadPage() {
                 <span aria-hidden="true">1</span>
                 <div>
                   <h3>Download the right build</h3>
-                  <p>Choose arm64 for Apple silicon (M1 or newer), or x64 for an Intel Mac.</p>
+                  <p>
+                    Choose arm64 for Apple silicon (M1 or newer), or x64 for an
+                    Intel Mac.
+                  </p>
                 </div>
               </li>
               <li>
                 <span aria-hidden="true">2</span>
                 <div>
                   <h3>Move Onshell to Applications</h3>
-                  <p>Open the DMG, drag Onshell into Applications, then try to open it once and dismiss the warning.</p>
+                  <p>
+                    Open the DMG, drag Onshell into Applications, then try to
+                    open it once and dismiss the warning.
+                  </p>
                 </div>
               </li>
               <li>
@@ -255,8 +299,9 @@ export default async function DownloadPage() {
                 <div>
                   <h3>Approve this app once</h3>
                   <p>
-                    Open System Settings → Privacy &amp; Security, scroll to Security, then choose Open Anyway. Enter
-                    your Mac login password if asked.
+                    Open System Settings → Privacy &amp; Security, scroll to
+                    Security, then choose Open Anyway. Enter your Mac login
+                    password if asked.
                   </p>
                 </div>
               </li>
@@ -264,13 +309,21 @@ export default async function DownloadPage() {
                 <span aria-hidden="true">4</span>
                 <div>
                   <h3>Confirm Open</h3>
-                  <p>The warning appears again. Choose Open; macOS remembers this exception for Onshell.</p>
+                  <p>
+                    The warning appears again. Choose Open; macOS remembers this
+                    exception for Onshell.
+                  </p>
                 </div>
               </li>
             </ol>
 
             <div className="dl-mac-guide-actions">
-              <a className="primary-button" href={desktopReleaseUrl} rel="noreferrer" target="_blank">
+              <a
+                className="primary-button"
+                href={desktopReleaseUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
                 <Download aria-hidden="true" size={17} />
                 Download official release
                 <ArrowUpRight aria-hidden="true" size={15} />
@@ -287,9 +340,11 @@ export default async function DownloadPage() {
             </div>
 
             <p className="dl-mac-guide-note">
-              “Open Anyway” appears for about one hour after the blocked open attempt. If your Mac is managed by an
-              organization, its administrator may prevent this exception. Signing and notarization will turn on
-              automatically once Apple Developer access is available.
+              “Open Anyway” appears for about one hour after the blocked open
+              attempt. If your Mac is managed by an organization, its
+              administrator may prevent this exception. Signing and notarization
+              will turn on automatically once Apple Developer access is
+              available.
             </p>
           </div>
         </div>
@@ -311,13 +366,16 @@ export default async function DownloadPage() {
 
           {manifest ? (
             <>
-              <DownloadPicker builds={manifest.builds} version={manifest.version} />
+              <DownloadPicker
+                builds={manifest.builds}
+                version={manifest.version}
+              />
               <p className="dl-released">
                 Version {manifest.version} · released{" "}
                 {new Date(manifest.releasedAt).toLocaleDateString("en-GB", {
                   day: "numeric",
                   month: "long",
-                  year: "numeric"
+                  year: "numeric",
                 })}
               </p>
             </>
@@ -325,11 +383,11 @@ export default async function DownloadPage() {
             <div className="dl-hero-card dl-hero-card-idle">
               <p className="dl-hero-idle">
                 No build has been published yet. Email{" "}
-                <a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a> and we will send you one.
+                <a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a>{" "}
+                and we will send you one.
               </p>
             </div>
           )}
-
         </div>
       </section>
 
@@ -339,8 +397,9 @@ export default async function DownloadPage() {
             <span className="lp-section-eyebrow">Getting started</span>
             <h2>Three steps, about two minutes</h2>
             <p>
-              These are the real commands for the command-line build, not a simplified version of them. The desktop
-              app needs none of this: install it and paste the code into the window.
+              These are the real commands for the command-line build, not a
+              simplified version of them. The desktop app needs none of this:
+              install it and paste the code into the window.
             </p>
           </div>
 
@@ -365,12 +424,20 @@ export default async function DownloadPage() {
             <p className="dl-commands-label">In the extracted folder:</p>
             <pre>
               <code>
-                {"node onshell-agent.cjs pair K7QP-2M4X   # the code from the console\n"}
+                {
+                  "node onshell-agent.cjs pair K7QP-2M4X   # the code from the console\n"
+                }
                 {"node onshell-agent.cjs run              # start it\n"}
                 {"\n"}
-                {"node onshell-agent.cjs log              # everything it has done, on your disk\n"}
-                {"node onshell-agent.cjs approval ask     # who may connect without asking\n"}
-                {"node onshell-agent.cjs service          # how to start it at login\n"}
+                {
+                  "node onshell-agent.cjs log              # everything it has done, on your disk\n"
+                }
+                {
+                  "node onshell-agent.cjs approval ask     # who may connect without asking\n"
+                }
+                {
+                  "node onshell-agent.cjs service          # how to start it at login\n"
+                }
               </code>
             </pre>
           </div>
@@ -395,20 +462,26 @@ export default async function DownloadPage() {
             </h2>
             <p>
               These builds are not code-signed yet. Windows SmartScreen may show{" "}
-              <em>&ldquo;Windows protected your PC&rdquo;</em>, while macOS uses Gatekeeper. These warnings are correct
-              to show: an unsigned program that opens a shell on your machine is, to a scanner, indistinguishable from
-              malware.
+              <em>&ldquo;Windows protected your PC&rdquo;</em>, while macOS uses
+              Gatekeeper. These warnings are correct to show: an unsigned
+              program that opens a shell on your machine is, to a scanner,
+              indistinguishable from malware.
             </p>
             <p>
               For Onshell Desktop on a Mac, use the supported{" "}
-              <a href="#mac-install">Privacy &amp; Security approval steps above</a>. Do not run a command that disables
-              Gatekeeper globally. For the command-line agent, compare the downloaded archive with its published
-              checksum before extracting it:
+              <a href="#mac-install">
+                Privacy &amp; Security approval steps above
+              </a>
+              . Do not run a command that disables Gatekeeper globally. For the
+              command-line agent, compare the downloaded archive with its
+              published checksum before extracting it:
             </p>
             <div className="dl-verify">
               <pre>
                 <code>
-                  {"# macOS / Linux\nshasum -a 256 onshell-agent-*.tar.gz\n\n# Windows PowerShell\nGet-FileHash onshell-agent-*.zip -Algorithm SHA256\n"}
+                  {
+                    "# macOS / Linux\nshasum -a 256 onshell-agent-*.tar.gz\n\n# Windows PowerShell\nGet-FileHash onshell-agent-*.zip -Algorithm SHA256\n"
+                  }
                 </code>
               </pre>
             </div>
@@ -423,8 +496,14 @@ export default async function DownloadPage() {
               <span className="lp-section-eyebrow">All platforms</span>
               <h2>Every build in {manifest.version}</h2>
               <p>
-                Compare the SHA-256 against the file you downloaded. The full list is also at{" "}
-                <a href={`/downloads/agent/v${manifest.version}/SHA256SUMS.txt`}>SHA256SUMS.txt</a>.
+                Compare the SHA-256 against the file you downloaded. The full
+                list is also at{" "}
+                <a
+                  href={`/downloads/agent/v${manifest.version}/SHA256SUMS.txt`}
+                >
+                  SHA256SUMS.txt
+                </a>
+                .
               </p>
             </div>
 
@@ -457,7 +536,9 @@ export default async function DownloadPage() {
                   .map((version, index) => (
                     <span key={version}>
                       {index > 0 && ", "}
-                      <a href={`/downloads/agent/v${version}/manifest.json`}>{version}</a>
+                      <a href={`/downloads/agent/v${version}/manifest.json`}>
+                        {version}
+                      </a>
                     </span>
                   ))}
               </p>

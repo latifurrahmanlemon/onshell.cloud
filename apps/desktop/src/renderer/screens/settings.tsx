@@ -239,9 +239,9 @@ export function Settings({ state, onClose }: Props) {
               Open the release page
             </button>
             <br />
-            Nothing downloads or installs itself. Public macOS releases must pass signing and notarization checks before
-            publication; automated updates stay disabled until signed update metadata and rollback protection are
-            implemented as well.
+            Nothing downloads or installs itself. Current macOS releases use a verified ad-hoc integrity signature and
+            publish SHA-256 checksums; automated updates stay disabled until Developer ID notarization, signed update
+            metadata, and rollback protection are implemented.
           </p>
         ) : (
           <button className="button" onClick={() => void bridge.updates.check(true).then(setUpdate)}>
