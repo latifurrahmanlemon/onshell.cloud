@@ -19,9 +19,9 @@ import { DownloadPicker } from "./download-picker";
 import "../home.css";
 import "./download.css";
 
-const title = "Download the Onshell Agent";
+const title = "Download Onshell Desktop and Agent";
 const description =
-  "Install the Onshell Agent on your Windows, macOS, or Linux machine and open its terminal and files from any browser. Free, no inbound port, and the machine's owner decides who may connect.";
+  "Download Onshell Desktop for Windows, macOS, or Linux, or install the command-line agent on a headless machine. Includes current macOS unsigned-install instructions.";
 
 export const metadata: Metadata = {
   title,
@@ -182,7 +182,8 @@ export default async function DownloadPage() {
                 <ArrowUpRight aria-hidden="true" size={16} />
               </a>
               <p className="dl-way-note">
-                <span className="dl-way-beta">Beta</span> Unsigned for now, so your OS will ask you to confirm.
+                <span className="dl-way-beta">Beta</span> Unsigned for now.{" "}
+                <a href="#mac-install">See the macOS install steps</a>.
               </p>
             </article>
 
@@ -214,6 +215,82 @@ export default async function DownloadPage() {
               </a>
               <p className="dl-way-note">Six platform builds, listed further down with checksums.</p>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-section dl-mac-guide-section" id="mac-install" aria-labelledby="mac-install-title">
+        <div className="lp-container">
+          <div className="dl-mac-guide">
+            <div className="dl-mac-guide-intro">
+              <span className="dl-mac-guide-kicker">
+                <AlertTriangle aria-hidden="true" size={15} />
+                Temporary unsigned release
+              </span>
+              <h2 id="mac-install-title">Install Onshell Desktop on macOS</h2>
+              <p>
+                An Apple Developer account is not available yet, so the current Mac build is neither signed nor
+                notarized. Gatekeeper will warn you—even when the download is intact. Only continue if you downloaded
+                Onshell from our official GitHub release and verified the included <code>SHA256SUMS-mac.txt</code>.
+              </p>
+            </div>
+
+            <ol className="dl-mac-steps">
+              <li>
+                <span aria-hidden="true">1</span>
+                <div>
+                  <h3>Download the right build</h3>
+                  <p>Choose arm64 for Apple silicon (M1 or newer), or x64 for an Intel Mac.</p>
+                </div>
+              </li>
+              <li>
+                <span aria-hidden="true">2</span>
+                <div>
+                  <h3>Move Onshell to Applications</h3>
+                  <p>Open the DMG, drag Onshell into Applications, then try to open it once and dismiss the warning.</p>
+                </div>
+              </li>
+              <li>
+                <span aria-hidden="true">3</span>
+                <div>
+                  <h3>Approve this app once</h3>
+                  <p>
+                    Open System Settings → Privacy &amp; Security, scroll to Security, then choose Open Anyway. Enter
+                    your Mac login password if asked.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <span aria-hidden="true">4</span>
+                <div>
+                  <h3>Confirm Open</h3>
+                  <p>The warning appears again. Choose Open; macOS remembers this exception for Onshell.</p>
+                </div>
+              </li>
+            </ol>
+
+            <div className="dl-mac-guide-actions">
+              <a className="primary-button" href={desktopReleaseUrl} rel="noreferrer" target="_blank">
+                <Download aria-hidden="true" size={17} />
+                Download official release
+                <ArrowUpRight aria-hidden="true" size={15} />
+              </a>
+              <a
+                className="secondary-button"
+                href="https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Read Apple&apos;s instructions
+                <ArrowUpRight aria-hidden="true" size={15} />
+              </a>
+            </div>
+
+            <p className="dl-mac-guide-note">
+              “Open Anyway” appears for about one hour after the blocked open attempt. If your Mac is managed by an
+              organization, its administrator may prevent this exception. Signing and notarization will turn on
+              automatically once Apple Developer access is available.
+            </p>
           </div>
         </div>
       </section>
@@ -317,30 +394,16 @@ export default async function DownloadPage() {
               Your computer will warn you about this download
             </h2>
             <p>
-              These builds are not code-signed yet. Windows SmartScreen will show{" "}
-              <em>&ldquo;Windows protected your PC&rdquo;</em>, and macOS will say it{" "}
-              <em>&ldquo;could not verify this app is free of malware&rdquo;</em>. Both warnings are correct to show: an
-              unsigned program that opens a shell on your machine is, to a scanner, indistinguishable from malware.
+              These builds are not code-signed yet. Windows SmartScreen may show{" "}
+              <em>&ldquo;Windows protected your PC&rdquo;</em>, while macOS uses Gatekeeper. These warnings are correct
+              to show: an unsigned program that opens a shell on your machine is, to a scanner, indistinguishable from
+              malware.
             </p>
             <p>
-              On macOS 15 Sequoia the only button that dialog offers is <strong>Move to Trash</strong>, and there is no
-              longer a right-click&nbsp;→&nbsp;Open shortcut around it. If it has already gone to the Trash, put it back
-              first — then use either of these:
-            </p>
-            <div className="dl-verify">
-              <pre>
-                <code>
-                  {"# 1. Settings route: open the app once, dismiss the dialog, then go to\n"}
-                  {"#    System Settings → Privacy & Security → scroll down → Open Anyway\n\n"}
-                  {"# 2. Or strip the download flag yourself, then open it normally:\n"}
-                  {'xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"\n'}
-                </code>
-              </pre>
-            </div>
-            <p>
-              This stops the day a Developer ID certificate is in place: the build pipeline already signs and notarizes
-              when one is supplied, so the same release turns out clean without a code change. Until then, verify what
-              you downloaded — that is what the checksum below is for.
+              For Onshell Desktop on a Mac, use the supported{" "}
+              <a href="#mac-install">Privacy &amp; Security approval steps above</a>. Do not run a command that disables
+              Gatekeeper globally. For the command-line agent, compare the downloaded archive with its published
+              checksum before extracting it:
             </p>
             <div className="dl-verify">
               <pre>

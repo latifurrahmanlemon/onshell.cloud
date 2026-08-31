@@ -8,9 +8,10 @@
 #               APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   (notarization)
 #   Windows     CSC_LINK, CSC_KEY_PASSWORD           (Authenticode .pfx)
 #
-# With none of them set, electron-builder can still produce unsigned installers
-# for internal testing. The release workflow deliberately refuses to publish an
-# unsigned macOS tag because current Gatekeeper sends it to Trash.
+# With none of them set, electron-builder produces unsigned installers. Tagged
+# releases publish those builds with checksums and clear Gatekeeper instructions
+# until Apple Developer access is available; supplying all secrets upgrades the
+# same pipeline to signed and notarized output automatically.
 #
 # An auto-updater is a remote code execution channel by construction, which is
 # why the workflow that produces these artifacts lives in this repository where

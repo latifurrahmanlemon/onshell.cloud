@@ -422,14 +422,13 @@ What is deliberately not there yet:
   SmartScreen and Gatekeeper will both block it. This is the gap between "builds" and
   "shippable", and it needs credentials rather than code.
 
-  On macOS 15 (Sequoia) this is worse than a warning: the dialog reads "could not verify
-  this app is free of malware" and its only button is **Move to Trash**. The
-  right-click → Open escape hatch that worked through macOS 14 was removed. The routes
-  that still work are System Settings → Privacy & Security → **Open Anyway**, or
-  `xattr -dr com.apple.quarantine "/Applications/Onshell Agent.app"`. Both ask a user to
-  override a malware warning to install remote-access software, which is exactly the
-  habit this product should not be teaching — so treat notarization as a launch blocker,
-  not a nicety. The pipeline is already wired for it: supply `CSC_LINK`,
+  On current macOS versions, first attempt to open the app, then use System Settings →
+  Privacy & Security → **Open Anyway**, authenticate, and confirm **Open**. Apple says
+  this option remains visible for about an hour after the blocked attempt and saves an
+  exception for that app. Do not instruct users to disable Gatekeeper globally or strip
+  quarantine metadata. Until notarization is available, distribute only from the
+  official release with a SHA-256 manifest and explain the risk clearly. The pipeline is
+  already wired for signing: supply `CSC_LINK`,
   `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` and
   the same workflow signs and notarizes with no code change.
 * **No auto-update**, and no MSI/pkg/deb installer — `yarn agent:build` produces a

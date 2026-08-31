@@ -8,10 +8,10 @@ name: Desktop app
 # code execution channel, and the only honest answer to "what is in the binary
 # you want me to run as myself" is a build recipe anyone can read.
 #
-# Signing is driven by secrets, never by a file edit. Manual runs may produce
-# unsigned artifacts for internal testing. A tagged macOS release is required
-# to be Developer ID signed and notarized; publishing a build that Gatekeeper
-# sends to Trash is worse than failing the release loudly.
+# Signing is driven by secrets, never by a file edit. Until an Apple Developer
+# account is available, tagged releases deliberately include unsigned macOS
+# artifacts and explain Gatekeeper's one-time approval flow. As soon as all Mac
+# secrets exist, the same job signs, notarizes, and verifies both architectures.
 
 on:
   push:
@@ -31,35 +31,7 @@ permissions:
   contents: read
 
 jobs:
-  release-preflight:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require macOS signing and notarization for tags
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          LEGACY_CSC_LINK: ${{ secrets.CSC_LINK }}
-          LEGACY_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          export CSC_LINK="${MAC_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
-          export CSC_KEY_PASSWORD="${MAC_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
-          missing=()
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Release blocked before any platform publishes. Missing macOS release secrets: ${missing[*]}"
-            exit 1
-          fi
-
   build:
-    needs: release-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -133,31 +105,36 @@ jobs:
             if [ -z "${!name:-}" ]; then unset "$name"; fi
           done
 
+          signed_mac=false
           case "${{ matrix.platform }}" in
             mac)
-              export CSC_LINK="${MAC_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
-              export CSC_KEY_PASSWORD="${MAC_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+              selected_link="${MAC_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
+              selected_password="${MAC_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+              if [ -n "$selected_link" ] && [ -n "$selected_password" ] \
+                && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] \
+                && [ -n "${APPLE_TEAM_ID:-}" ]; then
+                export CSC_LINK="$selected_link"
+                export CSC_KEY_PASSWORD="$selected_password"
+                signed_mac=true
+              else
+                unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+                echo "::notice::Apple signing credentials are incomplete — publishing an unsigned macOS build."
+              fi
               ;;
             win)
-              export CSC_LINK="${WIN_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
-              export CSC_KEY_PASSWORD="${WIN_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+              selected_link="${WIN_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
+              selected_password="${WIN_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+              if [ -n "$selected_link" ] && [ -n "$selected_password" ]; then
+                export CSC_LINK="$selected_link"
+                export CSC_KEY_PASSWORD="$selected_password"
+              else
+                unset CSC_LINK CSC_KEY_PASSWORD
+              fi
               ;;
             *)
               unset CSC_LINK CSC_KEY_PASSWORD
               ;;
           esac
-
-          if [ "${{ matrix.platform }}" = mac ] && [ "${GITHUB_REF_TYPE:-}" = tag ]; then
-            missing=()
-            for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-              if [ -z "${!name:-}" ]; then missing+=("$name"); fi
-            done
-            if [ ${#missing[@]} -gt 0 ]; then
-              echo "::error::Refusing to publish an unsigned macOS app. Missing: ${missing[*]}"
-              echo "Add a Developer ID Application certificate plus Apple notarization credentials to repository secrets."
-              exit 1
-            fi
-          fi
 
           if [ -z "${CSC_LINK:-}" ]; then
             # No certificate: keep electron-builder from signing with whatever
@@ -171,7 +148,7 @@ jobs:
 
           yarn electron-builder --${{ matrix.platform }} --publish never
 
-          if [ "${{ matrix.platform }}" = mac ] && [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+          if [ "${{ matrix.platform }}" = mac ] && [ "$signed_mac" = true ]; then
             verified=0
             while IFS= read -r -d '' app_path; do
               codesign --verify --deep --strict --verbose=2 "$app_path"
@@ -183,6 +160,24 @@ jobs:
               exit 1
             fi
           fi
+
+          # Publish a digest next to every installer. This is particularly
+          # important while the Mac build cannot carry Apple's notarization.
+          PLATFORM="${{ matrix.platform }}" node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readdir, readFile, writeFile } from "node:fs/promises";
+
+          const extensions = [".dmg", ".zip", ".exe", ".AppImage", ".deb"];
+          const files = (await readdir("release"))
+            .filter((name) => extensions.some((extension) => name.endsWith(extension)))
+            .sort();
+          const lines = [];
+          for (const file of files) {
+            const digest = createHash("sha256").update(await readFile(`release/${file}`)).digest("hex");
+            lines.push(`${digest}  ${file}`);
+          }
+          await writeFile(`release/SHA256SUMS-${process.env.PLATFORM}.txt`, `${lines.join("\n")}\n`);
+          NODE
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -206,6 +201,7 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
+            apps/desktop/release/SHA256SUMS-*.txt
           if-no-files-found: warn
 
       # On a tag, attach this leg's installers to a GitHub Release — installers
@@ -243,9 +239,9 @@ jobs:
           printf '%s\n' \
             'Onshell Desktop — your own machine'"'"'s terminal, direct SSH to your servers, and the Onshell console in one app.' \
             '' \
-            'The macOS builds are Developer ID signed and notarized for Gatekeeper. The Windows installer is Authenticode signed when the Windows certificate is configured.' \
+            'The current macOS builds are unsigned because an Apple Developer account is not available yet. Download only from this release and verify SHA256SUMS-mac.txt before using the one-time Gatekeeper approval.' \
             '' \
-            '- **macOS:** drag Onshell to Applications and open it normally. If Gatekeeper rejects the app, do not bypass it; report the release version and macOS version.' \
+            '- **macOS:** drag Onshell to Applications and try to open it once. Then open System Settings → Privacy & Security, scroll to Security, choose Open Anyway, authenticate, and confirm Open. The exception is only for this app.' \
             '- **Windows:** install per-user. An unsigned development build may still show SmartScreen; public releases should use the signed setup.' \
             '' \
             'On first launch it asks which Onshell server to use — the hosted one, or your own deployment.' \
@@ -258,7 +254,7 @@ jobs:
             || true
 
           shopt -s nullglob
-          files=(*.dmg *.zip *.exe *.AppImage *.deb)
+          files=(*.dmg *.zip *.exe *.AppImage *.deb SHA256SUMS-*.txt)
           if [ ${#files[@]} -eq 0 ]; then
             echo "No installers produced on this leg."
             exit 0

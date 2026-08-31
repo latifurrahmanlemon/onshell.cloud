@@ -105,6 +105,12 @@
   font-size: 0.82rem;
 }
 
+.dl-way-note a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .dl-way-beta {
   padding: 1px 7px;
   border-radius: 999px;
@@ -119,6 +125,136 @@
 @media (max-width: 820px) {
   .dl-ways {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ==========================================================================
+   macOS unsigned-install guide
+   ========================================================================== */
+
+.dl-mac-guide-section {
+  padding-block: 0 clamp(48px, 6vw, 76px);
+  scroll-margin-top: 84px;
+}
+
+.dl-mac-guide {
+  padding: clamp(24px, 4vw, 42px);
+  border: 1px solid color-mix(in srgb, var(--amber) 72%, var(--border));
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--amber) 9%, transparent), transparent 52%),
+    var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.dl-mac-guide-intro {
+  max-width: 76ch;
+}
+
+.dl-mac-guide-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  color: var(--amber);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dl-mac-guide h2 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 3vw, 2.15rem);
+  letter-spacing: -0.025em;
+}
+
+.dl-mac-guide-intro p,
+.dl-mac-guide-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.dl-mac-guide code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+.dl-mac-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 26px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dl-mac-steps li {
+  display: flex;
+  gap: 13px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+}
+
+.dl-mac-steps li > span {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.dl-mac-steps h3 {
+  margin: 2px 0 6px;
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.dl-mac-steps p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.89rem;
+  line-height: 1.55;
+}
+
+.dl-mac-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.dl-mac-guide-actions a {
+  min-height: 44px;
+}
+
+.dl-mac-guide-note {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.86rem;
+}
+
+@media (max-width: 700px) {
+  .dl-mac-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .dl-mac-guide-actions a {
+    width: 100%;
+    justify-content: center;
   }
 }
 
@@ -357,6 +493,12 @@
   color: var(--muted);
   font-size: 0.97rem;
   line-height: 1.7;
+}
+
+.dl-warning p a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .dl-verify {
