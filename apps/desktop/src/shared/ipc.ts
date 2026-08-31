@@ -65,9 +65,7 @@ export interface TwoFactorChallenge {
 }
 
 export type SignInResult =
-  | { ok: true; user: User }
-  | { ok: false; challenge: TwoFactorChallenge }
-  | { ok: false; error: string };
+  { ok: true; user: User } | { ok: false; challenge: TwoFactorChallenge } | { ok: false; error: string };
 
 /**
  * A browser sign-in the main process has started and is now polling for.
@@ -123,6 +121,12 @@ export interface TerminalOpened {
   title: string;
   /** Set for relay and direct sessions; absent for local ones. */
   sessionId?: string;
+}
+
+/** A restorable layout stores connection targets only — never terminal output or credentials. */
+export interface SavedWorkspace {
+  targets: TerminalTarget[];
+  updatedAt?: string;
 }
 
 /**
@@ -305,17 +309,19 @@ export interface OnshellBridge {
     onEvent(handler: (event: TerminalEvent) => void): () => void;
   };
 
+  workspace: {
+    load(): Promise<SavedWorkspace>;
+    save(targets: TerminalTarget[]): Promise<SavedWorkspace>;
+  };
+
   settings: {
-    update(patch: {
-      connectionMode?: "direct" | "relay";
-      appearance?: Partial<AppearanceSettings>;
-    }): Promise<AppState>;
+    update(patch: { connectionMode?: "direct" | "relay"; appearance?: Partial<AppearanceSettings> }): Promise<AppState>;
   };
 
   /**
    * Whether a newer release exists. Checking only — nothing downloads or
-   * installs itself, because these builds are not signed yet and an updater
-   * that cannot verify its payload is a delivery mechanism, not a feature.
+   * installs itself. Installer signing alone is not enough: an updater also
+   * needs signed metadata, payload verification, staging, and rollback safety.
    */
   updates: {
     check(force?: boolean): Promise<UpdateStatus>;
@@ -373,6 +379,9 @@ export const CHANNELS = {
   terminalResize: "terminal:resize",
   terminalClose: "terminal:close",
   terminalEvent: "terminal:event",
+
+  workspaceLoad: "workspace:load",
+  workspaceSave: "workspace:save",
 
   updatesCheck: "updates:check",
 

@@ -8,13 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { bridge } from "../bridge.js";
-import type {
-  AppState,
-  ApprovalMode,
-  DesktopDeviceSummary,
-  SharingState,
-  UpdateStatus
-} from "../../shared/ipc.js";
+import type { AppState, ApprovalMode, DesktopDeviceSummary, SharingState, UpdateStatus } from "../../shared/ipc.js";
 
 const APPROVAL_LABELS: Record<ApprovalMode, string> = {
   trusted: "Anyone in the workspace",
@@ -82,9 +76,9 @@ export function Settings({ state, onClose }: Props) {
       <section className="settings__section">
         <h2>Connections</h2>
         <p className="hint">
-          Direct connections go from this computer straight to your host — Onshell authorises and records
-          them but is not on the wire. Through the gateway is what the browser console does, and it is what
-          reaches hosts this machine has no route to.
+          Direct connections go from this computer straight to your host — Onshell authorises and records them but is
+          not on the wire. Through the gateway is what the browser console does, and it is what reaches hosts this
+          machine has no route to.
         </p>
         <div className="settings__choices">
           {(["direct", "relay"] as const).map((mode) => (
@@ -136,10 +130,10 @@ export function Settings({ state, onClose }: Props) {
       <section className="settings__section">
         <h2>Share this computer</h2>
         <p className="hint">
-          Lets someone in your workspace open a terminal <em>on this machine</em> from a browser — the
-          opposite direction from everything else here. It is off until you switch it on, the tray icon
-          stays visible while it is on, quitting Onshell stops every session, and every one of them is
-          written to a log on this machine that only you can read.
+          Lets someone in your workspace open a terminal <em>on this machine</em> from a browser — the opposite
+          direction from everything else here. It is off until you switch it on, the tray icon stays visible while it is
+          on, quitting Onshell stops every session, and every one of them is written to a log on this machine that only
+          you can read.
         </p>
 
         {sharing && (
@@ -187,8 +181,8 @@ export function Settings({ state, onClose }: Props) {
                   ))}
                 </div>
                 <p className="hint">
-                  This setting lives on this machine, not on the server. A consent rule your workspace admin
-                  could change remotely would not be consent.
+                  This setting lives on this machine, not on the server. A consent rule your workspace admin could
+                  change remotely would not be consent.
                 </p>
                 <button className="button" onClick={() => void bridge.sharing.openLog()}>
                   Open activity log
@@ -202,9 +196,9 @@ export function Settings({ state, onClose }: Props) {
       <section className="settings__section">
         <h2>Your machines</h2>
         <p className="hint">
-          Machines you have signed in on that can be handed credential material for direct connections.
-          Revoking one stops it getting any more; it does not end sessions it already opened, because those
-          connections belong to that machine and not to us.
+          Machines you have signed in on that can be handed credential material for direct connections. Revoking one
+          stops it getting any more; it does not end sessions it already opened, because those connections belong to
+          that machine and not to us.
         </p>
         {error && <p className="error">{error}</p>}
         {devices.length === 0 && <p className="hint">No machines enrolled yet.</p>}
@@ -241,15 +235,13 @@ export function Settings({ state, onClose }: Props) {
         {update?.available ? (
           <p className="hint">
             Version {update.latest} is available.{" "}
-            <button
-              className="button button--ghost"
-              onClick={() => update.url && void bridge.openExternal(update.url)}
-            >
+            <button className="button button--ghost" onClick={() => update.url && void bridge.openExternal(update.url)}>
               Open the release page
             </button>
             <br />
-            Nothing downloads or installs itself. These builds are not code-signed yet, and an updater that
-            cannot verify what it fetched is a delivery mechanism rather than a feature.
+            Nothing downloads or installs itself. Public macOS releases must pass signing and notarization checks before
+            publication; automated updates stay disabled until signed update metadata and rollback protection are
+            implemented as well.
           </p>
         ) : (
           <button className="button" onClick={() => void bridge.updates.check(true).then(setUpdate)}>

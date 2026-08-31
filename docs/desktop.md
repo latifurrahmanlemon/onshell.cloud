@@ -324,6 +324,13 @@ yarn workspace @onshell/desktop dev     # Vite + Electron, against a local serve
 yarn workspace @onshell/desktop dist    # installers for this OS
 ```
 
+`node-pty` and `cpu-features` are native modules. A local Windows package build
+therefore needs Visual Studio 2022 Build Tools with the **Desktop development
+with C++** workload. The release workflow uses the pinned `windows-2022` runner,
+which already has that toolchain; do not disable Electron's native rebuild to
+work around a missing compiler, because the resulting installer can package a
+module for the wrong ABI and fail only when a terminal opens.
+
 ## Cutting a release
 
 The version in `apps/desktop/package.json` is what ends up in the installer names
@@ -331,8 +338,8 @@ and in the app's own "Onshell Desktop x.y.z", so bump it first and let the tag
 match:
 
 ```bash
-git tag desktop-v0.2.0
-git push origin desktop-v0.2.0
+git tag desktop-v0.3.1
+git push origin desktop-v0.3.1
 ```
 
 That runs [.github/workflows/desktop.yml](../.github/workflows/desktop.yml) on
@@ -340,6 +347,14 @@ macOS, Windows, and Linux runners, and publishes the six installers as a GitHub
 Release on `onshell-downloads` — the public repository the download page already
 links to. `DOWNLOADS_TOKEN` has to be set for that; without it the job fails
 loudly rather than finishing green having published nothing.
+
+A tagged release also requires `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`,
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. The first two
+identify a Developer ID Application certificate; the remaining values submit
+the signed app for Apple notarization. The preflight job checks them before any
+platform publishes, and the macOS leg verifies both x64 and arm64 app bundles
+with `codesign` and `spctl`. Manual workflow runs may still build unsigned
+artifacts for internal testing, but they never publish a release.
 
 Numbering starts at 0.2.0 rather than 0.1.0: `desktop-v0.1.x` tags already exist
 from the old agent-only tray app, and reusing a version for different software

@@ -87,6 +87,11 @@ const bridge: OnshellBridge = {
     onEvent: (handler) => subscribe(CHANNELS.terminalEvent, handler)
   },
 
+  workspace: {
+    load: () => ipcRenderer.invoke(CHANNELS.workspaceLoad),
+    save: (targets) => ipcRenderer.invoke(CHANNELS.workspaceSave, targets)
+  },
+
   updates: {
     check: (force) => ipcRenderer.invoke(CHANNELS.updatesCheck, force)
   },

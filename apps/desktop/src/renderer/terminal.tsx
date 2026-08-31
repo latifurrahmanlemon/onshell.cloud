@@ -19,26 +19,27 @@ interface Props {
   terminalId: string;
   appearance: AppearanceSettings;
   visible: boolean;
+  position?: "primary" | "secondary";
 }
 
 /** Terminal colours, kept in step with the tokens in app.css. */
 const THEME = {
-  background: "#0b0f14",
-  foreground: "#dce6f1",
-  cursor: "#3fb950",
+  background: "#0c1017",
+  foreground: "#edf2f7",
+  cursor: "#58d68d",
   selectionBackground: "#1e3a5f",
-  black: "#0b0f14",
-  red: "#f0616d",
-  green: "#3fb950",
-  yellow: "#d9a441",
+  black: "#0c1017",
+  red: "#ff6b78",
+  green: "#58d68d",
+  yellow: "#f0b95a",
   blue: "#5aa9e6",
   magenta: "#b980f0",
   cyan: "#4fd1c5",
-  white: "#dce6f1",
-  brightBlack: "#4a5b6d"
+  white: "#edf2f7",
+  brightBlack: "#637083"
 } as const;
 
-export function TerminalPane({ terminalId, appearance, visible }: Props) {
+export function TerminalPane({ terminalId, appearance, visible, position = "primary" }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal>(null);
   const fitRef = useRef<FitAddon>(null);
@@ -122,7 +123,7 @@ export function TerminalPane({ terminalId, appearance, visible }: Props) {
       term.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [visible, terminalId]);
+  }, [visible, terminalId, position]);
 
-  return <div className="terminal-pane" hidden={!visible} ref={hostRef} />;
+  return <div className={`terminal-pane terminal-pane--${position}`} hidden={!visible} ref={hostRef} />;
 }

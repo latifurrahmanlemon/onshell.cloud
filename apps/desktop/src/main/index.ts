@@ -54,6 +54,7 @@ import {
   resizeTerminal,
   writeTerminal
 } from "./runtime/terminals.js";
+import { safeWorkspaceTargets } from "./runtime/workspace.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,7 +70,11 @@ async function buildState(): Promise<AppState> {
   return {
     version: app.getVersion(),
     platform: process.platform,
-    server: server && { apiBaseUrl: server.apiBaseUrl, gatewayBaseUrl: server.gatewayBaseUrl, label: server.label },
+    server: server && {
+      apiBaseUrl: server.apiBaseUrl,
+      gatewayBaseUrl: server.gatewayBaseUrl,
+      label: server.label
+    },
     user: currentUser(),
     keychainAvailable: keychainAvailable(),
     connectionMode: settings.connectionMode,
@@ -182,7 +187,10 @@ async function refreshTray() {
       },
       { type: "separator" },
       sharing.running
-        ? { label: "Stop sharing", click: () => void stopSharing().then(refreshTray) }
+        ? {
+            label: "Stop sharing",
+            click: () => void stopSharing().then(refreshTray)
+          }
         : {
             label: sharing.paired ? "Start sharing" : "Share this computer…",
             click: () => {
@@ -192,7 +200,11 @@ async function refreshTray() {
               else showWindow();
             }
           },
-      { label: "Open activity log", enabled: sharing.paired, click: () => void shell.openPath(sharing.logPath) },
+      {
+        label: "Open activity log",
+        enabled: sharing.paired,
+        click: () => void shell.openPath(sharing.logPath)
+      },
       { type: "separator" },
       { label: "Open Onshell", click: showWindow },
       { label: "Quit — ends every session", click: () => app.quit() }
@@ -338,6 +350,27 @@ function registerHandlers() {
     await requireApi().setHostFavorite(hostId, favorite);
   });
 
+  ipcMain.handle(CHANNELS.workspaceLoad, async () => {
+    const owner = currentUser();
+    const saved = (await loadSettings()).workspace;
+    if (!owner || !saved || saved.ownerId !== owner.id) return { targets: [] };
+    return {
+      targets: safeWorkspaceTargets(saved.targets),
+      updatedAt: saved.updatedAt
+    };
+  });
+
+  ipcMain.handle(CHANNELS.workspaceSave, async (_event, input: unknown) => {
+    const owner = currentUser();
+    if (!owner) return { targets: [] };
+    const targets = safeWorkspaceTargets(input);
+    const updatedAt = new Date().toISOString();
+    await saveSettings({
+      workspace: { ownerId: owner.id, targets, updatedAt }
+    });
+    return { targets, updatedAt };
+  });
+
   ipcMain.handle(CHANNELS.sharingState, () => sharingState());
   ipcMain.handle(CHANNELS.sharingStart, async (_event, name?: string) => {
     const state = await startSharingThisComputer(name);
@@ -364,9 +397,9 @@ function registerHandlers() {
   });
 
   ipcMain.handle(CHANNELS.devicesList, async () => {
-    const payload = await requireApi().transport.request<{ devices: DesktopDeviceSummary[] }>(
-      "/desktop/devices"
-    );
+    const payload = await requireApi().transport.request<{
+      devices: DesktopDeviceSummary[];
+    }>("/desktop/devices");
     return payload.devices;
   });
 
@@ -383,24 +416,18 @@ function registerHandlers() {
     files.write(id, target, content)
   );
   ipcMain.handle(CHANNELS.filesMkdir, (_event, id: string, target: string) => files.mkdir(id, target));
-  ipcMain.handle(CHANNELS.filesMove, (_event, id: string, from: string, to: string) =>
-    files.move(id, from, to)
-  );
+  ipcMain.handle(CHANNELS.filesMove, (_event, id: string, from: string, to: string) => files.move(id, from, to));
   ipcMain.handle(CHANNELS.filesRemove, (_event, id: string, target: string, recursive: boolean) =>
     files.remove(id, target, recursive)
   );
-  ipcMain.handle(
-    CHANNELS.filesTransfer,
-    (_event, fromId: string, fromPath: string, toId: string, toPath: string) =>
-      files.transfer(fromId, fromPath, toId, toPath)
+  ipcMain.handle(CHANNELS.filesTransfer, (_event, fromId: string, fromPath: string, toId: string, toPath: string) =>
+    files.transfer(fromId, fromPath, toId, toPath)
   );
   ipcMain.handle(CHANNELS.filesClose, (_event, id: string) => files.close(id));
 
   ipcMain.handle(CHANNELS.localShells, () => localShells());
 
-  ipcMain.handle(CHANNELS.terminalOpen, (_event, target: TerminalTarget) =>
-    openTerminal(target, emitTerminalEvent)
-  );
+  ipcMain.handle(CHANNELS.terminalOpen, (_event, target: TerminalTarget) => openTerminal(target, emitTerminalEvent));
 
   ipcMain.on(CHANNELS.terminalWrite, (_event, terminalId: string, data: string) => {
     if (typeof terminalId === "string" && typeof data === "string") writeTerminal(terminalId, data);

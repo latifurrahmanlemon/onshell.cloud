@@ -8,9 +8,10 @@ name: Desktop app
 # code execution channel, and the only honest answer to "what is in the binary
 # you want me to run as myself" is a build recipe anyone can read.
 #
-# Signing is driven by secrets, never by a file edit. Set them and the same run
-# turns out signed and (on macOS) notarized; leave them unset and it produces
-# working unsigned installers for internal testing. See electron-builder.yml.
+# Signing is driven by secrets, never by a file edit. Manual runs may produce
+# unsigned artifacts for internal testing. A tagged macOS release is required
+# to be Developer ID signed and notarized; publishing a build that Gatekeeper
+# sends to Trash is worse than failing the release loudly.
 
 on:
   push:
@@ -30,7 +31,35 @@ permissions:
   contents: read
 
 jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require macOS signing and notarization for tags
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          LEGACY_CSC_LINK: ${{ secrets.CSC_LINK }}
+          LEGACY_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          export CSC_LINK="${MAC_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
+          export CSC_KEY_PASSWORD="${MAC_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Release blocked before any platform publishes. Missing macOS release secrets: ${missing[*]}"
+            exit 1
+          fi
+
   build:
+    needs: release-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +133,32 @@ jobs:
             if [ -z "${!name:-}" ]; then unset "$name"; fi
           done
 
+          case "${{ matrix.platform }}" in
+            mac)
+              export CSC_LINK="${MAC_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
+              export CSC_KEY_PASSWORD="${MAC_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+              ;;
+            win)
+              export CSC_LINK="${WIN_CSC_LINK:-${LEGACY_CSC_LINK:-}}"
+              export CSC_KEY_PASSWORD="${WIN_CSC_KEY_PASSWORD:-${LEGACY_CSC_KEY_PASSWORD:-}}"
+              ;;
+            *)
+              unset CSC_LINK CSC_KEY_PASSWORD
+              ;;
+          esac
+
+          if [ "${{ matrix.platform }}" = mac ] && [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            missing=()
+            for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+              if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+            done
+            if [ ${#missing[@]} -gt 0 ]; then
+              echo "::error::Refusing to publish an unsigned macOS app. Missing: ${missing[*]}"
+              echo "Add a Developer ID Application certificate plus Apple notarization credentials to repository secrets."
+              exit 1
+            fi
+          fi
+
           if [ -z "${CSC_LINK:-}" ]; then
             # No certificate: keep electron-builder from signing with whatever
             # Developer ID happens to sit in the runner's keychain, so an
@@ -115,9 +170,26 @@ jobs:
           fi
 
           yarn electron-builder --${{ matrix.platform }} --publish never
+
+          if [ "${{ matrix.platform }}" = mac ] && [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            verified=0
+            while IFS= read -r -d '' app_path; do
+              codesign --verify --deep --strict --verbose=2 "$app_path"
+              spctl --assess --type execute --verbose=2 "$app_path"
+              verified=$((verified + 1))
+            done < <(find release -type d -name 'Onshell.app' -print0)
+            if [ "$verified" -lt 2 ]; then
+              echo "::error::Expected signed arm64 and x64 Onshell.app bundles, found $verified."
+              exit 1
+            fi
+          fi
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          LEGACY_CSC_LINK: ${{ secrets.CSC_LINK }}
+          LEGACY_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -171,11 +243,10 @@ jobs:
           printf '%s\n' \
             'Onshell Desktop — your own machine'"'"'s terminal, direct SSH to your servers, and the Onshell console in one app.' \
             '' \
-            'These builds are **unsigned** while code-signing certificates are being set up, so your computer will refuse to open them at first:' \
+            'The macOS builds are Developer ID signed and notarized for Gatekeeper. The Windows installer is Authenticode signed when the Windows certificate is configured.' \
             '' \
-            '- **macOS 15 (Sequoia):** the dialog only offers *Move to Trash*, and right-click → Open no longer works. Put the app back if it was trashed, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run `xattr -dr com.apple.quarantine "/Applications/Onshell.app"` and open it normally.' \
-            '- **macOS 14 and earlier:** right-click the app and choose Open.' \
-            '- **Windows:** click More info, then Run anyway.' \
+            '- **macOS:** drag Onshell to Applications and open it normally. If Gatekeeper rejects the app, do not bypass it; report the release version and macOS version.' \
+            '- **Windows:** install per-user. An unsigned development build may still show SmartScreen; public releases should use the signed setup.' \
             '' \
             'On first launch it asks which Onshell server to use — the hosted one, or your own deployment.' \
             > release-notes.md

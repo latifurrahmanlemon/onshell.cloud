@@ -4,13 +4,13 @@
 # unsigned-by-default and needs no edit when the certificates arrive. Set the
 # variables in CI secrets and the same build turns out signed:
 #
-#   macOS       CSC_LINK, CSC_KEY_PASSWORD           (Developer ID .p12, base64 or path)
+#   macOS       CSC_LINK, CSC_KEY_PASSWORD           (Developer ID Application .p12, base64 or path)
 #               APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   (notarization)
 #   Windows     CSC_LINK, CSC_KEY_PASSWORD           (Authenticode .pfx)
 #
-# With none of them set, electron-builder produces working *unsigned* installers
-# — fine for internal testing, and the interim right-click-Open / "Open Anyway"
-# path documented in the release notes still applies until the certificates land.
+# With none of them set, electron-builder can still produce unsigned installers
+# for internal testing. The release workflow deliberately refuses to publish an
+# unsigned macOS tag because current Gatekeeper sends it to Trash.
 #
 # An auto-updater is a remote code execution channel by construction, which is
 # why the workflow that produces these artifacts lives in this repository where

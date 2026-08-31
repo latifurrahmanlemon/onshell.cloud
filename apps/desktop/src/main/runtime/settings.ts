@@ -13,6 +13,7 @@
 import { app } from "electron";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import type { TerminalTarget } from "../../shared/ipc.js";
 
 export interface ServerConfig {
   /** API origin, no trailing slash — e.g. `https://onshell.cloud/api`. */
@@ -41,6 +42,8 @@ export interface DesktopSettings {
   };
   /** "Share this computer" — the agent tunnel. Off until switched on. */
   sharing: { enabled: boolean };
+  /** Targets only. Bound to the account that saved them; never secrets or output. */
+  workspace?: { ownerId: string; targets: TerminalTarget[]; updatedAt: string };
 }
 
 const DEFAULTS: DesktopSettings = {
@@ -74,7 +77,8 @@ export async function loadSettings(): Promise<DesktopSettings> {
       deviceFingerprint: parsed.deviceFingerprint,
       connectionMode: parsed.connectionMode ?? DEFAULTS.connectionMode,
       appearance: { ...DEFAULTS.appearance, ...parsed.appearance },
-      sharing: { ...DEFAULTS.sharing, ...parsed.sharing }
+      sharing: { ...DEFAULTS.sharing, ...parsed.sharing },
+      workspace: parsed.workspace
     };
   } catch {
     // No file yet, or an unreadable one. Either way the app has to start.
