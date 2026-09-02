@@ -11,7 +11,7 @@ export interface CheckoutInput {
   organizationName: string;
 }
 
-function decryptPaymentSecret(setting: PaymentSetting, config: RuntimeConfig) {
+export function decryptPaymentSecret(setting: PaymentSetting, config: RuntimeConfig) {
   if (!setting.encryptedSecretKey || !setting.secretKeyNonce || !setting.secretKeyAuthTag) return undefined;
 
   return decryptSecret(
@@ -19,6 +19,19 @@ function decryptPaymentSecret(setting: PaymentSetting, config: RuntimeConfig) {
       encryptedPayload: setting.encryptedSecretKey,
       nonce: setting.secretKeyNonce,
       authTag: setting.secretKeyAuthTag
+    },
+    config.masterEncryptionKey
+  );
+}
+
+export function decryptWebhookSecret(setting: PaymentSetting, config: RuntimeConfig) {
+  if (!setting.encryptedWebhookSecret || !setting.webhookSecretNonce || !setting.webhookSecretAuthTag) return undefined;
+
+  return decryptSecret(
+    {
+      encryptedPayload: setting.encryptedWebhookSecret,
+      nonce: setting.webhookSecretNonce,
+      authTag: setting.webhookSecretAuthTag
     },
     config.masterEncryptionKey
   );
@@ -93,4 +106,3 @@ export async function createCheckoutSession(input: CheckoutInput, setting: Payme
     provider: setting.provider.toLowerCase()
   };
 }
-

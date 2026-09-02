@@ -613,3 +613,10 @@
     width: 100%;
   }
 }
+
+.dl-support-section { padding-block: 0 clamp(58px, 7vw, 92px); }
+.dl-support-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; padding: clamp(22px, 4vw, 32px); border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.dl-support-card > span { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 13px; background: var(--accent-weak); color: var(--accent-text); }
+.dl-support-card h2 { margin: 5px 0 5px; font: 700 1.3rem/1.2 var(--font-display); }
+.dl-support-card p { margin: 0; color: var(--muted); font-size: .92rem; }
+@media (max-width: 680px) { .dl-support-card { grid-template-columns: auto 1fr; } .dl-support-card > a { grid-column: 1 / -1; justify-content: center; } }

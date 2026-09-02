@@ -14,6 +14,7 @@ const routes: Array<{
   { path: "/browser-ssh-client", priority: 0.9, changeFrequency: "monthly" },
   { path: "/desktop", priority: 0.9, changeFrequency: "monthly" },
   { path: "/download", priority: 0.8, changeFrequency: "weekly" },
+  { path: "/donate", priority: 0.7, changeFrequency: "monthly" },
   { path: "/security", priority: 0.7, changeFrequency: "monthly" },
   { path: "/contact", priority: 0.6, changeFrequency: "yearly" }
 ];

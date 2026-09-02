@@ -101,6 +101,13 @@ const aiThreadListSchema = z.object({
   skip: z.coerce.number().int().min(0).default(0)
 });
 
+const donationListSchema = z.object({
+  status: z.enum(["PENDING", "PAID", "FAILED", "REFUNDED"]).optional(),
+  search: z.string().trim().max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).default(20),
+  skip: z.coerce.number().int().min(0).default(0)
+});
+
 const smtpSchema = z.object({
   host: z.string().min(2),
   port: z.number().int().min(1).max(65535),
@@ -667,6 +674,48 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     });
   });
 
+  app.get("/admin/donations", async (request, reply) => {
+    try {
+      const actor = await requirePlatformAdmin(request, config);
+      if (!actor) return reply.code(403).send({ error: "forbidden" });
+
+      const query = donationListSchema.parse(request.query);
+      const where: Prisma.DonationWhereInput = {
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.search
+          ? {
+              OR: [
+                { donorName: { contains: query.search } },
+                { donorEmail: { contains: query.search } },
+                { message: { contains: query.search } },
+                { providerSessionId: { contains: query.search } }
+              ]
+            }
+          : {})
+      };
+
+      const [total, donations, paidSummary] = await Promise.all([
+        prisma.donation.count({ where }),
+        prisma.donation.findMany({ where, orderBy: { createdAt: "desc" }, take: query.take, skip: query.skip }),
+        prisma.donation.aggregate({
+          where: { status: "PAID" },
+          _count: { _all: true },
+          _sum: { amountCents: true }
+        })
+      ]);
+
+      return {
+        total,
+        take: query.take,
+        skip: query.skip,
+        summary: { paidCount: paidSummary._count._all, raisedCents: paidSummary._sum.amountCents ?? 0, currency: "USD" },
+        donations
+      };
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
   app.get("/admin/smtp", async (request, reply) => {
     const actor = await requirePlatformAdmin(request, config);
     if (!actor) return reply.code(403).send({ error: "forbidden" });
@@ -906,10 +955,18 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const body = paymentSettingSchema.parse(request.body);
       const encryptedSecretKey = body.secretKey ? encryptSecret(body.secretKey, config.masterEncryptionKey) : undefined;
       const encryptedWebhookSecret = body.webhookSecret ? encryptSecret(body.webhookSecret, config.masterEncryptionKey) : undefined;
+      const provider = toPrismaPaymentProvider(body.provider);
+      const existing = await prisma.paymentSetting.findUnique({ where: { provider_mode: { provider, mode: body.mode } } });
+      if (body.enabled && body.provider === "stripe" && (!(encryptedSecretKey ?? existing?.encryptedSecretKey) || !(encryptedWebhookSecret ?? existing?.encryptedWebhookSecret))) {
+        return reply.code(400).send({
+          error: "stripe_configuration_incomplete",
+          message: "Add both the Stripe secret key and webhook signing secret before enabling Stripe."
+        });
+      }
       const setting = await prisma.paymentSetting.upsert({
         where: {
           provider_mode: {
-            provider: toPrismaPaymentProvider(body.provider),
+            provider,
             mode: body.mode
           }
         },
@@ -932,7 +989,7 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
             : {})
         },
         create: {
-          provider: toPrismaPaymentProvider(body.provider),
+          provider,
           mode: body.mode,
           publicKey: body.publicKey,
           enabled: body.enabled,

@@ -71,6 +71,13 @@ enum PaymentProvider {
   MANUAL
 }
 
+enum DonationStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
 enum AuthProvider {
   GOOGLE
 }
@@ -835,6 +842,29 @@ model PaymentSetting {
   updatedAt              DateTime        @updatedAt
 
   @@unique([provider, mode])
+}
+
+/// One-time support payments. Donors may be guests, so these rows deliberately
+/// do not depend on a User or Organization surviving in the product database.
+model Donation {
+  id                    String         @id @default(cuid())
+  amountCents           Int
+  currency              String         @default("USD")
+  donorName             String?
+  donorEmail            String?
+  message               String?        @db.Text
+  source                String         @default("website")
+  status                DonationStatus @default(PENDING)
+  provider              PaymentProvider @default(STRIPE)
+  providerSessionId     String?        @unique
+  providerPaymentId     String?        @unique
+  failureReason         String?
+  paidAt                DateTime?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([status, createdAt])
+  @@index([donorEmail])
 }
 
 /// Cloudflare Turnstile credentials for the public forms. The site key is public

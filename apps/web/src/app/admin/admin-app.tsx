@@ -25,6 +25,7 @@ import {
   Edit3,
   Eye,
   EyeOff,
+  HeartHandshake,
   Inbox,
   KeyRound,
   LayoutDashboard,
@@ -57,6 +58,7 @@ import { AiSettingsPanel, AiThreadsSection } from "./ai-admin";
 import { AnalyticsSection } from "./analytics";
 import { BotProtectionPanel } from "./bot-protection";
 import { GrowthSection } from "./growth-admin";
+import { DonationsSection } from "./donations";
 import { InboxSection } from "./inbox";
 import { LogsSection } from "./logs";
 import { OnshellMark } from "../brand";
@@ -240,7 +242,7 @@ interface NewSettingForm {
   isSecret: boolean;
 }
 
-type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "logs" | "settings";
+type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "donations" | "logs" | "settings";
 type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "notifications" | "general";
 
 type UserSortKey = "name" | "email" | "role" | "created";
@@ -285,6 +287,7 @@ const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "ai", label: "AI Conversations", icon: Bot },
   { id: "growth", label: "Growth", icon: TrendingUp },
+  { id: "donations", label: "Donations", icon: HeartHandshake },
   { id: "logs", label: "Logs", icon: Activity },
   { id: "settings", label: "Settings", icon: Settings2 }
 ];
@@ -306,6 +309,7 @@ const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   inbox: { title: "Inbox", description: "Enquiries submitted through the public contact form." },
   ai: { title: "AI Conversations", description: "Assistant threads across all workspaces, for support and abuse review." },
   growth: { title: "Growth", description: "Freemium funnel, referral leaderboard, and newsletter subscribers." },
+  donations: { title: "Donations", description: "One-time community contributions and their verified payment status." },
   logs: { title: "Logs", description: "Public-site visits, sign-in activity, and outbound email delivery." },
   settings: { title: "Settings", description: "Packages, email, billing, bot protection, AI, and platform configuration." }
 };
@@ -1149,6 +1153,7 @@ function AdminPanel() {
     inbox: false,
     ai: false,
     growth: false,
+    donations: false,
     logs: false,
     settings: settingsTabLoading[settingsTab]
   };
@@ -1168,7 +1173,7 @@ function AdminPanel() {
       return;
     }
     // Inbox, AI, and Growth each render their own reload button.
-    if (section === "analytics" || section === "inbox" || section === "ai" || section === "growth") return;
+    if (section === "analytics" || section === "inbox" || section === "ai" || section === "growth" || section === "donations") return;
     if (section === "users") {
       void usersRes.reload();
       void subscriptionsRes.reload();
@@ -2500,6 +2505,9 @@ function AdminPanel() {
                     type="password"
                     value={paymentWebhookSecret}
                   />
+                  {paymentForm.provider.toLowerCase() === "stripe" && (
+                    <small className="adm-field-help">Stripe webhook endpoint: <code>{apiBaseUrl}/donations/webhook/stripe</code>. Subscribe to Checkout Session and charge refund events.</small>
+                  )}
                 </label>
                 <div className="form-actions">
                   <button className="primary-button" disabled={savingPayment} onClick={savePaymentSettings} type="button">
@@ -2738,6 +2746,7 @@ function AdminPanel() {
     inbox: () => <InboxSection onUnreadChange={setInboxUnread} />,
     ai: () => <AiThreadsSection />,
     growth: () => <GrowthSection />,
+    donations: () => <DonationsSection />,
     logs: () => <LogsSection />,
     settings: renderSettings
   };

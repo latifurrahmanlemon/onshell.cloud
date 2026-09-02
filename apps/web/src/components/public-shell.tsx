@@ -13,6 +13,7 @@ const navLinks = [
   { href: "/desktop", label: "Desktop app" },
   { href: "/browser-ssh-client", label: "Browser SSH" },
   { href: "/#pricing", label: "Pricing" },
+  { href: "/donate", label: "Donate" },
   { href: "/security", label: "Security" },
   // Last, and marked external, because it leaves the site — but present in the
   // primary nav rather than buried in the footer: "you can read the code" is a
@@ -161,6 +162,7 @@ export function PublicFooter() {
         </div>
         <div className="lp-footer-col">
           <strong>Open source</strong>
+          <a href="/donate">Support Onshell</a>
           <a href={site.repoUrl} rel="noreferrer" target="_blank">
             Source on GitHub
           </a>

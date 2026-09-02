@@ -1685,3 +1685,12 @@ a.lp-plan-cta {
   gap: 12px;
   margin-top: 24px;
 }
+
+/* ----------------------------------------------------- open-source support */
+
+.lp-support { padding-block: clamp(34px, 5vw, 64px); }
+.lp-support-inner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; padding-block: 26px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.lp-support-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 13px; background: var(--accent-weak); color: var(--accent-text); }
+.lp-support h2 { margin: 5px 0 5px; font: 700 clamp(1.2rem, 2.4vw, 1.6rem)/1.2 var(--font-display); letter-spacing: -.025em; }
+.lp-support p { margin: 0; color: var(--muted); font-size: .93rem; }
+@media (max-width: 700px) { .lp-support-inner { grid-template-columns: auto 1fr; } .lp-support-inner > a { grid-column: 1 / -1; justify-content: center; } }

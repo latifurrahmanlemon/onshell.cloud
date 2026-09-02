@@ -2805,3 +2805,29 @@
     flex: 1 1 100%;
   }
 }
+
+/* -------------------------------------------------------------- donations */
+.donation-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.donation-summary-card { display: flex; align-items: center; gap: 14px; padding: 20px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
+.donation-summary-card > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--accent-weak); color: var(--accent-text); }
+.donation-summary-card div { display: grid; gap: 3px; }
+.donation-summary-card small { color: var(--soft); }
+.donation-summary-card strong { font: 700 1.35rem/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
+.donation-tools select { min-height: 38px; padding: 0 32px 0 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--text); }
+.adm-field-help { display: block; margin-top: 6px; color: var(--soft); font-weight: 400; line-height: 1.5; }
+.adm-field-help code { overflow-wrap: anywhere; color: var(--accent-text); }
+.donation-table-wrap { overflow-x: auto; }
+.donation-table { width: 100%; border-collapse: collapse; font-size: .87rem; }
+.donation-table th, .donation-table td { padding: 13px 15px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+.donation-table th { color: var(--soft); font-size: .72rem; letter-spacing: .055em; text-transform: uppercase; white-space: nowrap; }
+.donation-table tbody tr:last-child td { border-bottom: 0; }
+.donation-table td { color: var(--muted); }
+.donation-table td strong, .donation-table td small { display: block; }
+.donation-table td strong { color: var(--text); }
+.donation-table td small { margin-top: 3px; color: var(--soft); }
+.donation-table .donation-amount { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.donation-message { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.donation-loading, .donation-empty, .donation-error { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: var(--soft); text-align: center; }
+.donation-empty svg { color: var(--accent-text); }
+.donation-empty strong, .donation-error strong { color: var(--text); }
+@media (max-width: 720px) { .donation-summary-grid { grid-template-columns: 1fr; } .donation-tools { width: 100%; } .donation-tools .search-field { flex: 1 1 100%; } }

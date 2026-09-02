@@ -6,6 +6,7 @@ import {
   Cpu,
   Download,
   KeyRound,
+  HeartHandshake,
   MonitorSmartphone,
   Play,
   ShieldCheck,
@@ -546,6 +547,20 @@ export default async function DownloadPage() {
           </div>
         </section>
       )}
+
+      <section className="lp-section dl-support-section" aria-labelledby="download-support-title">
+        <div className="lp-container">
+          <div className="dl-support-card">
+            <span><HeartHandshake aria-hidden="true" size={23} /></span>
+            <div>
+              <span className="lp-section-eyebrow">Keep releases moving</span>
+              <h2 id="download-support-title">Onshell is useful to you?</h2>
+              <p>Support ongoing desktop builds and open-source maintenance with a one-time donation from $1.</p>
+            </div>
+            <a className="secondary-button large" href="/donate?source=download">Donate</a>
+          </div>
+        </div>
+      </section>
     </PublicShell>
   );
 }

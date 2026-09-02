@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   FileLock2,
+  HeartHandshake,
   KeyRound,
   MonitorUp,
   ScrollText,
@@ -1099,6 +1100,24 @@ export default function PublicPage() {
             })}
           </motion.div>
         </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-support"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <motion.div className="lp-container lp-support-inner" variants={motionVariants.fade}>
+          <span className="lp-support-icon"><HeartHandshake aria-hidden="true" size={22} /></span>
+          <div>
+            <span className="lp-section-eyebrow">Community supported</span>
+            <h2>Onshell helped? Buy the project a coffee.</h2>
+            <p>Make a one-time donation from $1. No account, subscription, or login required.</p>
+          </div>
+          <a className="secondary-button large" href="/donate?source=website">Support Onshell</a>
+        </motion.div>
       </motion.section>
 
       <motion.section

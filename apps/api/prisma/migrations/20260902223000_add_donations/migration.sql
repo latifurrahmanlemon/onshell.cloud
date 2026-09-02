@@ -1,0 +1,22 @@
+CREATE TABLE `Donation` (
+  `id` VARCHAR(191) NOT NULL,
+  `amountCents` INTEGER NOT NULL,
+  `currency` VARCHAR(191) NOT NULL DEFAULT 'USD',
+  `donorName` VARCHAR(191) NULL,
+  `donorEmail` VARCHAR(191) NULL,
+  `message` TEXT NULL,
+  `source` VARCHAR(191) NOT NULL DEFAULT 'website',
+  `status` ENUM('PENDING', 'PAID', 'FAILED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
+  `provider` ENUM('STRIPE', 'PADDLE', 'SSL_COMMERZ', 'MANUAL') NOT NULL DEFAULT 'STRIPE',
+  `providerSessionId` VARCHAR(191) NULL,
+  `providerPaymentId` VARCHAR(191) NULL,
+  `failureReason` VARCHAR(191) NULL,
+  `paidAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  UNIQUE INDEX `Donation_providerSessionId_key` (`providerSessionId`),
+  UNIQUE INDEX `Donation_providerPaymentId_key` (`providerPaymentId`),
+  INDEX `Donation_status_createdAt_idx` (`status`, `createdAt`),
+  INDEX `Donation_donorEmail_idx` (`donorEmail`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
