@@ -166,16 +166,22 @@ type PlanAction =
   | { kind: "downgrade" }
   | { kind: "forbidden" };
 
-function resolvePlanAction(plan: ConsolePlan, growth: GrowthOverview): PlanAction {
+function resolvePlanAction(plan: ConsolePlan, growth: GrowthOverview, interval: BillingInterval): PlanAction {
   const current = growth.plan;
-  if (current && plan.code === current.code) return { kind: "current" };
+  const currentInterval = growth.subscription?.billingInterval?.toLowerCase();
+  if (current && plan.code === current.code && currentInterval === interval) return { kind: "current" };
   if (!growth.canManageBilling) return { kind: "forbidden" };
   // Moving down a tier touches proration and data retention, so it goes through
   // a human rather than a self-serve button.
   if (plan.isFree || (current && plan.displayOrder < current.displayOrder)) return { kind: "downgrade" };
   return {
     kind: "buy",
-    label: plan.trialDays > 0 ? `Start ${plan.trialDays}-day trial` : `Upgrade to ${plan.name}`
+    label:
+      current && plan.code === current.code
+        ? `Switch to ${interval} billing`
+        : plan.trialDays > 0
+          ? `Start ${plan.trialDays}-day trial`
+          : `Upgrade to ${plan.name}`
   };
 }
 
@@ -192,7 +198,7 @@ function PlanCard({
   busy: boolean;
   onChoose: (plan: ConsolePlan) => void;
 }) {
-  const action = resolvePlanAction(plan, growth);
+  const action = resolvePlanAction(plan, growth, interval);
   const price = planPrice(plan, interval);
   const saving = interval === "yearly" ? yearlySaving(plan) : null;
 

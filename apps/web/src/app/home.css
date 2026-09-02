@@ -597,6 +597,17 @@ html {
   background: var(--surface);
 }
 
+.lp-checkout.is-active {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.lp-checkout-submit {
+  align-self: flex-start;
+  min-width: 210px;
+  min-height: 44px;
+}
+
 .lp-checkout-head {
   display: flex;
   flex-direction: column;
@@ -689,6 +700,11 @@ html {
     linear-gradient(var(--surface), var(--surface)) padding-box,
     var(--brand-gradient) border-box;
   box-shadow: var(--accent-glow), var(--shadow-lg);
+}
+
+.lp-plan.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-lg);
 }
 
 .lp-plan-badge {

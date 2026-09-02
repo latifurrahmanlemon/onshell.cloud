@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   Bot,
@@ -495,6 +495,10 @@ export default function PublicPage() {
   const [checkoutEmail, setCheckoutEmail] = useState("");
   const [checkoutOrganization, setCheckoutOrganization] = useState("");
   const [checkoutStatus, setCheckoutStatus] = useState("");
+  const [selectedPlanCode, setSelectedPlanCode] = useState<string>();
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const checkoutRef = useRef<HTMLDivElement>(null);
+  const checkoutEmailRef = useRef<HTMLInputElement>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const checkoutTurnstile = useTurnstile("checkout");
 
@@ -560,6 +564,7 @@ export default function PublicPage() {
       return;
     }
 
+    setCheckoutBusy(true);
     setCheckoutStatus("Preparing checkout…");
     try {
       const response = await fetch(`${apiBaseUrl}/checkout`, {
@@ -594,7 +599,18 @@ export default function PublicPage() {
     } catch {
       checkoutTurnstile.reset();
       setCheckoutStatus("Checkout service is not reachable. Please try again shortly.");
+    } finally {
+      setCheckoutBusy(false);
     }
+  }
+
+  function selectPaidPlan(planCode: string) {
+    setSelectedPlanCode(planCode);
+    setCheckoutStatus("");
+    requestAnimationFrame(() => {
+      checkoutRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+      window.setTimeout(() => checkoutEmailRef.current?.focus({ preventScroll: true }), reduce ? 0 : 350);
+    });
   }
 
   return (
@@ -869,7 +885,7 @@ export default function PublicPage() {
               const cta = planCta(plan);
               return (
                 <motion.article
-                  className={cx("lp-plan", plan.highlighted && "is-highlighted", plan.isFree && "is-free")}
+                  className={cx("lp-plan", plan.highlighted && "is-highlighted", plan.isFree && "is-free", selectedPlanCode === plan.code && "is-selected")}
                   key={plan.code}
                   variants={motionVariants.item}
                   whileHover={reduce ? undefined : { y: -4 }}
@@ -909,7 +925,8 @@ export default function PublicPage() {
                     <button
                       className={cx("lp-plan-cta", plan.highlighted ? "primary-button" : "secondary-button")}
                       type="button"
-                      onClick={() => startCheckout(plan.code)}
+                      aria-pressed={selectedPlanCode === plan.code}
+                      onClick={() => selectPaidPlan(plan.code)}
                     >
                       {cta.label}
                     </button>
@@ -928,16 +945,17 @@ export default function PublicPage() {
 
           {/* Checkout details, only relevant once a paid plan is chosen. Kept
               below the grid so the Free CTA is never gated behind a form. */}
-          <motion.div className="lp-checkout" variants={motionVariants.fade}>
+          <motion.div className={cx("lp-checkout", selectedPlanCode && "is-active")} variants={motionVariants.fade} ref={checkoutRef}>
             <div className="lp-checkout-head">
-              <strong>Upgrading to a paid plan?</strong>
-              <span>We&apos;ll pass these details to the billing provider.</span>
+              <strong>{selectedPlanCode ? `Continue with ${visiblePlans.find((plan) => plan.code === selectedPlanCode)?.name ?? "selected plan"}` : "Choose Team or Business above"}</strong>
+              <span>{selectedPlanCode ? `${interval === "yearly" ? "Yearly" : "Monthly"} billing selected. We’ll pass these details securely to the billing provider.` : "Select a paid package first, then enter your details."}</span>
             </div>
             <div className="lp-checkout-fields">
               <label className="lp-field" htmlFor="checkout-email">
                 <span>Your email</span>
                 <input
                   id="checkout-email"
+                  ref={checkoutEmailRef}
                   onChange={(event) => setCheckoutEmail(event.target.value)}
                   placeholder="you@company.com"
                   type="email"
@@ -955,6 +973,10 @@ export default function PublicPage() {
               </label>
             </div>
             <TurnstileWidget key={checkoutTurnstile.widgetKey} {...checkoutTurnstile.widgetProps} />
+            <button className="primary-button lp-checkout-submit" type="button" disabled={!selectedPlanCode || checkoutBusy} onClick={() => selectedPlanCode && void startCheckout(selectedPlanCode)}>
+              {checkoutBusy ? "Preparing checkout…" : selectedPlanCode ? `Continue with ${visiblePlans.find((plan) => plan.code === selectedPlanCode)?.name ?? "plan"}` : "Select a package above"}
+              {!checkoutBusy && <ArrowRight aria-hidden="true" size={17} />}
+            </button>
             <p className="lp-checkout-status" aria-live="polite">
               {checkoutStatus ||
                 "Need more than 50 users or custom retention? Talk to us about Enterprise instead."}
