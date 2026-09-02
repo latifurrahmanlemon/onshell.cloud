@@ -98,7 +98,14 @@ const contactListSchema = z.object({
 const aiThreadListSchema = z.object({
   search: z.string().trim().max(120).optional(),
   take: z.coerce.number().int().min(1).max(100).default(50),
-  skip: z.coerce.number().int().min(0).default(0)
+  skip: z.coerce.number().int().min(0).default(0),
+  organizationId: z.string().trim().optional(),
+  archived: z.enum(["all", "open", "archived"]).default("all"),
+  messages: z.enum(["all", "with", "empty"]).default("all"),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  sort: z.enum(["lastMessageAt", "createdAt", "messageCount", "title"]).default("lastMessageAt"),
+  direction: z.enum(["asc", "desc"]).default("desc")
 });
 
 const donationListSchema = z.object({
@@ -1257,36 +1264,47 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       if (!actor) return reply.code(403).send({ error: "forbidden" });
 
       const query = aiThreadListSchema.parse(request.query);
-      const where: Prisma.AiThreadWhereInput = query.search
-        ? {
-            OR: [
-              { title: { contains: query.search } },
-              { user: { email: { contains: query.search } } },
-              { user: { name: { contains: query.search } } }
-            ]
-          }
-        : {};
+      const where: Prisma.AiThreadWhereInput = {
+        ...(query.search ? {
+          OR: [
+            { title: { contains: query.search } },
+            { user: { email: { contains: query.search } } },
+            { user: { name: { contains: query.search } } },
+            { organization: { name: { contains: query.search } } }
+          ]
+        } : {}),
+        ...(query.organizationId ? { organizationId: query.organizationId } : {}),
+        ...(query.archived === "open" ? { archivedAt: null } : query.archived === "archived" ? { archivedAt: { not: null } } : {}),
+        ...(query.messages === "with" ? { messageCount: { gt: 0 } } : query.messages === "empty" ? { messageCount: 0 } : {}),
+        ...(query.from || query.to ? { lastMessageAt: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } } : {})
+      };
 
-      const [total, threads] = await Promise.all([
+      const [total, threads, organizations] = await Promise.all([
         prisma.aiThread.count({ where }),
         prisma.aiThread.findMany({
           where,
-          orderBy: { lastMessageAt: "desc" },
+          orderBy: { [query.sort]: query.direction },
           take: query.take,
           skip: query.skip,
           select: {
             id: true,
             title: true,
             messageCount: true,
+            archivedAt: true,
             lastMessageAt: true,
             createdAt: true,
             user: { select: { id: true, name: true, email: true, avatarUrl: true } },
             organization: { select: { id: true, name: true } }
           }
+        }),
+        prisma.organization.findMany({
+          where: { aiThreads: { some: {} } },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true }
         })
       ]);
 
-      return { total, take: query.take, skip: query.skip, threads };
+      return { total, take: query.take, skip: query.skip, organizations, threads };
     } catch (error) {
       return handleRouteError(reply, error);
     }

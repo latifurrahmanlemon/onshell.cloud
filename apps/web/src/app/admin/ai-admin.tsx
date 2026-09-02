@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Eye,
   KeyRound,
@@ -37,6 +39,7 @@ interface AiThreadRow {
   id: string;
   title: string;
   messageCount: number;
+  archivedAt: string | null;
   lastMessageAt: string;
   createdAt: string;
   // Threads cascade-delete with their user, so this is normally present — but the
@@ -49,6 +52,7 @@ interface AiThreadListResponse {
   total: number;
   take: number;
   skip: number;
+  organizations: Array<{ id: string; name: string }>;
   threads: AiThreadRow[];
 }
 
@@ -458,6 +462,14 @@ function ThreadModal({ threadId, onClose }: { threadId: string; onClose: () => v
 export function AiThreadsSection() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
+  const [archived, setArchived] = useState("all");
+  const [messages, setMessages] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [sort, setSort] = useState("lastMessageAt-desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [viewId, setViewId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -467,14 +479,42 @@ export function AiThreadsSection() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  useEffect(() => setPage(1), [debouncedSearch, organizationId, archived, messages, from, to, sort, pageSize]);
+
   const query = useMemo(() => {
-    const params = new URLSearchParams({ take: "100" });
+    const [sortKey, direction] = sort.split("-");
+    const params = new URLSearchParams({
+      take: String(pageSize),
+      skip: String((page - 1) * pageSize),
+      archived,
+      messages,
+      sort: sortKey!,
+      direction: direction!
+    });
     if (debouncedSearch) params.set("search", debouncedSearch);
+    if (organizationId) params.set("organizationId", organizationId);
+    if (from) params.set("from", `${from}T00:00:00.000Z`);
+    if (to) params.set("to", `${to}T23:59:59.999Z`);
     return params.toString();
-  }, [debouncedSearch]);
+  }, [archived, debouncedSearch, from, messages, organizationId, page, pageSize, sort, to]);
 
   const { data, loading, error, reload } = useAdminResource<AiThreadListResponse>(`/admin/ai/threads?${query}`);
   const threads = data?.threads ?? [];
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
+  const filtersActive = Boolean(debouncedSearch || organizationId || archived !== "all" || messages !== "all" || from || to);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  function clearFilters() {
+    setSearch("");
+    setOrganizationId("");
+    setArchived("all");
+    setMessages("all");
+    setFrom("");
+    setTo("");
+  }
 
   async function remove(thread: AiThreadRow) {
     const owner = thread.user ? thread.user.name : "a deleted user";
@@ -515,15 +555,28 @@ export function AiThreadsSection() {
         </button>
       </div>
 
-      <label className="inbox-search">
-        <Search aria-hidden="true" size={15} />
-        <input
-          placeholder="Search by title, user name, or email"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          aria-label="Search conversations"
-        />
-      </label>
+      <div className="adm-ai-toolbar">
+        <label className="inbox-search">
+          <Search aria-hidden="true" size={15} />
+          <input placeholder="Search title, user, email, or workspace" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search conversations" />
+        </label>
+        <select aria-label="Filter conversations by workspace" className="adm-filter" onChange={(event) => setOrganizationId(event.target.value)} value={organizationId}>
+          <option value="">All workspaces</option>
+          {(data?.organizations ?? []).map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+        </select>
+        <select aria-label="Filter conversations by archive status" className="adm-filter" onChange={(event) => setArchived(event.target.value)} value={archived}>
+          <option value="all">All statuses</option><option value="open">Open</option><option value="archived">Archived</option>
+        </select>
+        <select aria-label="Filter conversations by messages" className="adm-filter" onChange={(event) => setMessages(event.target.value)} value={messages}>
+          <option value="all">Any message count</option><option value="with">With messages</option><option value="empty">Empty</option>
+        </select>
+        <label className="logs-date-field"><span>From</span><input aria-label="Conversation activity from" onChange={(event) => setFrom(event.target.value)} type="date" value={from} /></label>
+        <label className="logs-date-field"><span>To</span><input aria-label="Conversation activity to" onChange={(event) => setTo(event.target.value)} type="date" value={to} /></label>
+        <select aria-label="Sort conversations" className="adm-filter" onChange={(event) => setSort(event.target.value)} value={sort}>
+          <option value="lastMessageAt-desc">Recent activity</option><option value="lastMessageAt-asc">Oldest activity</option><option value="createdAt-desc">Newest created</option><option value="messageCount-desc">Most messages</option><option value="title-asc">Title A–Z</option>
+        </select>
+        {filtersActive && <button className="adm-link-button" onClick={clearFilters} type="button">Clear filters</button>}
+      </div>
 
       {error && (
         <p className="admin-inline-error" role="alert">
@@ -544,7 +597,7 @@ export function AiThreadsSection() {
       )}
 
       {!loading && threads.length === 0 ? (
-        <p className="admin-empty">{debouncedSearch ? "No conversations match your search." : "No AI conversations yet."}</p>
+        <p className="admin-empty">{filtersActive ? "No conversations match the current search and filters." : "No AI conversations yet."}</p>
       ) : (
         <div className="admin-table-wrap">
           <table className="admin-table ai-threads-table">
@@ -569,7 +622,7 @@ export function AiThreadsSection() {
                   </th>
                   <td>{thread.organization?.name ?? "—"}</td>
                   <td>
-                    <span className="ai-thread-title">{thread.title}</span>
+                    <span className="ai-thread-title">{thread.title}<small>{thread.archivedAt ? "Archived" : "Open"}</small></span>
                   </td>
                   <td className="ai-threads-num">{thread.messageCount}</td>
                   <td className="ai-threads-date">{formatDateTime(thread.lastMessageAt)}</td>
@@ -601,6 +654,12 @@ export function AiThreadsSection() {
           </table>
         </div>
       )}
+
+      {data && data.total > 0 && <div className="adm-pagination">
+        <label className="adm-page-size">Rows per page<select aria-label="AI conversations rows per page" onChange={(event) => setPageSize(Number(event.target.value))} value={pageSize}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
+        <span className="adm-pagination-info">Page {page} of {totalPages} · {data.total.toLocaleString()} conversations</span>
+        <div className="adm-pagination-controls"><button aria-label="Previous conversations page" className="icon-button compact" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} type="button"><ChevronLeft size={15} /></button><button aria-label="Next conversations page" className="icon-button compact" disabled={page >= totalPages || loading} onClick={() => setPage((current) => current + 1)} type="button"><ChevronRight size={15} /></button></div>
+      </div>}
 
       {viewId && <ThreadModal threadId={viewId} onClose={() => setViewId(null)} />}
     </div>

@@ -251,6 +251,7 @@ type UserStatusFilter = "all" | "verified" | "unverified";
 type UserView = "directory" | "history";
 
 const USERS_PAGE_SIZE = 8;
+const PURCHASE_PAGE_SIZES = [10, 25, 50] as const;
 
 const USER_ROLE_OPTIONS: Array<{ value: "owner" | "admin" | "devops" | "developer" | "auditor"; label: string }> = [
   { value: "owner", label: "Owner" },
@@ -981,6 +982,11 @@ function AdminPanel() {
   const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>("all");
   const [userSort, setUserSort] = useState<{ key: UserSortKey; dir: SortDir }>({ key: "created", dir: "desc" });
   const [userPage, setUserPage] = useState(1);
+  const [purchaseQuery, setPurchaseQuery] = useState("");
+  const [purchaseStatus, setPurchaseStatus] = useState("all");
+  const [purchaseInterval, setPurchaseInterval] = useState("all");
+  const [purchasePage, setPurchasePage] = useState(1);
+  const [purchasePageSize, setPurchasePageSize] = useState(10);
 
   /* users — create modal */
   const [newUserModalOpen, setNewUserModalOpen] = useState(false);
@@ -1121,6 +1127,10 @@ function AdminPanel() {
   useEffect(() => {
     setUserPage(1);
   }, [userQuery, userRoleFilter, userStatusFilter, userSort]);
+
+  useEffect(() => {
+    setPurchasePage(1);
+  }, [purchaseQuery, purchaseStatus, purchaseInterval, purchasePageSize]);
 
   const groupedSettings = useMemo(() => {
     const groups = new Map<string, AppSetting[]>();
@@ -2064,22 +2074,50 @@ function AdminPanel() {
     for (const user of usersRes.data ?? []) {
       if (user.organizationId) memberCounts.set(user.organizationId, (memberCounts.get(user.organizationId) ?? 0) + 1);
     }
+    const query = purchaseQuery.trim().toLowerCase();
+    const filteredSubscriptions = subscriptions.filter((subscription) => {
+      const matchesQuery = !query || `${subscription.organization?.name ?? ""} ${subscription.plan?.name ?? ""} ${subscription.status}`.toLowerCase().includes(query);
+      const matchesStatus = purchaseStatus === "all" || subscription.status === purchaseStatus;
+      const matchesInterval = purchaseInterval === "all" || subscription.billingInterval === purchaseInterval;
+      return matchesQuery && matchesStatus && matchesInterval;
+    });
+    const totalPages = Math.max(1, Math.ceil(filteredSubscriptions.length / purchasePageSize));
+    const safePage = Math.min(purchasePage, totalPages);
+    const pageRows = filteredSubscriptions.slice((safePage - 1) * purchasePageSize, safePage * purchasePageSize);
+    const filtersActive = Boolean(query || purchaseStatus !== "all" || purchaseInterval !== "all");
+    const statuses = [...new Set(subscriptions.map((subscription) => subscription.status))].sort();
+    const intervals = [...new Set(subscriptions.map((subscription) => subscription.billingInterval))].sort();
     return (
       <div className="panel">
-        <div className="panel-header tight">
+        <div className="panel-header">
           <div>
             <h2>Purchase history</h2>
             <p>Which organization bought which package, its status, and when.</p>
           </div>
-          <span className="adm-count">{subscriptionsRes.data ? `${subscriptions.length} total` : ""}</span>
+          <span className="adm-count">{subscriptionsRes.data ? `${filteredSubscriptions.length} of ${subscriptions.length}` : ""}</span>
+        </div>
+        <div className="adm-purchase-toolbar">
+          <label className="search-field">
+            <Search aria-hidden="true" size={15} />
+            <input aria-label="Search purchase history" onChange={(event) => setPurchaseQuery(event.target.value)} placeholder="Search organization, plan, or status" value={purchaseQuery} />
+          </label>
+          <select aria-label="Filter purchases by status" className="adm-filter" onChange={(event) => setPurchaseStatus(event.target.value)} value={purchaseStatus}>
+            <option value="all">All statuses</option>
+            {statuses.map((status) => <option key={status} value={status}>{status.toLowerCase().replace(/_/g, " ")}</option>)}
+          </select>
+          <select aria-label="Filter purchases by interval" className="adm-filter" onChange={(event) => setPurchaseInterval(event.target.value)} value={purchaseInterval}>
+            <option value="all">All intervals</option>
+            {intervals.map((interval) => <option key={interval} value={interval}>{interval.toLowerCase()}</option>)}
+          </select>
+          {filtersActive && <button className="adm-link-button" onClick={() => { setPurchaseQuery(""); setPurchaseStatus("all"); setPurchaseInterval("all"); }} type="button">Clear filters</button>}
         </div>
         {subscriptionsRes.loading && !subscriptionsRes.data ? (
           <SkeletonRows rows={4} />
-        ) : subscriptions.length === 0 ? (
+        ) : pageRows.length === 0 ? (
           <EmptyState
-            body="Purchases appear here as soon as an organization is assigned a package. Assign one from a user's manage panel, or wait for a checkout."
+            body={filtersActive ? "No purchases match the current search and filters." : "Purchases appear here as soon as an organization is assigned a package. Assign one from a user's manage panel, or wait for a checkout."}
             icon={Receipt}
-            title="No purchases yet"
+            title={filtersActive ? "No matching purchases" : "No purchases yet"}
           />
         ) : (
           <div>
@@ -2091,7 +2129,7 @@ function AdminPanel() {
               <span>Current period</span>
               <span>Purchased</span>
             </div>
-            {subscriptions.map((subscription) => (
+            {pageRows.map((subscription) => (
               <div className="adm-hist-row" key={subscription.id}>
                 <div>
                   <strong>{subscription.organization?.name ?? "Unknown org"}</strong>
@@ -2111,6 +2149,14 @@ function AdminPanel() {
                 <span data-label="Purchased">{formatDate(subscription.createdAt)}</span>
               </div>
             ))}
+            <div className="adm-pagination">
+              <label className="adm-page-size">Rows per page<select aria-label="Purchase history rows per page" onChange={(event) => setPurchasePageSize(Number(event.target.value))} value={purchasePageSize}>{PURCHASE_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
+              <span className="adm-pagination-info">Page {safePage} of {totalPages}</span>
+              <div className="adm-pagination-controls">
+                <button aria-label="Previous purchase page" className="icon-button compact" disabled={safePage <= 1} onClick={() => setPurchasePage((page) => Math.max(1, page - 1))} type="button"><ChevronLeft size={15} /></button>
+                <button aria-label="Next purchase page" className="icon-button compact" disabled={safePage >= totalPages} onClick={() => setPurchasePage((page) => page + 1)} type="button"><ChevronRight size={15} /></button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -2920,17 +2966,19 @@ function AdminPanel() {
           </div>
         </header>
 
-        <AnimatePresence initial={false} mode="wait">
-          <motion.div
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
-            initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
-            key={section}
-            transition={{ duration: reduceMotion ? 0 : 0.18, ease: "easeOut" }}
-          >
-            {sectionRenderers[section]()}
-          </motion.div>
-        </AnimatePresence>
+        <div className="admin-scroll-area">
+          <AnimatePresence initial={false} mode="wait">
+            <motion.div
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+              key={section}
+              transition={{ duration: reduceMotion ? 0 : 0.18, ease: "easeOut" }}
+            >
+              {sectionRenderers[section]()}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </section>
 
       <AnimatePresence>

@@ -94,7 +94,8 @@ interface EmailListResponse extends LogListResponse<EmailRow> {
 
 type LogTab = "visitors" | "auth" | "emails";
 
-const LOGS_PAGE_SIZE = 25;
+const DEFAULT_LOGS_PAGE_SIZE = 25;
+const LOGS_PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const LOG_TABS: Array<{ id: LogTab; label: string; icon: typeof Globe }> = [
   { id: "visitors", label: "Visitor log", icon: Globe },
@@ -191,6 +192,7 @@ function LogTable<Row extends { id: string }, Detail extends { id: string }, Lis
   const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [range, setRange] = useState({ from: "", to: "" });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_LOGS_PAGE_SIZE);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ loading: boolean; data?: Detail; error?: string }>({ loading: false });
 
@@ -207,8 +209,8 @@ function LogTable<Row extends { id: string }, Detail extends { id: string }, Lis
 
   const query = useMemo(() => {
     const params = new URLSearchParams({
-      take: String(LOGS_PAGE_SIZE),
-      skip: String((page - 1) * LOGS_PAGE_SIZE),
+      take: String(pageSize),
+      skip: String((page - 1) * pageSize),
       sort: sort.key,
       direction: sort.direction
     });
@@ -219,7 +221,7 @@ function LogTable<Row extends { id: string }, Detail extends { id: string }, Lis
       if (value) params.set(param, value);
     }
     return params.toString();
-  }, [page, sort, debouncedSearch, range, filterValues]);
+  }, [page, pageSize, sort, debouncedSearch, range, filterValues]);
 
   const { data, loading, error, reload } = useAdminResource<List>(`/admin/logs/${resource}?${query}`);
 
@@ -255,10 +257,14 @@ function LogTable<Row extends { id: string }, Detail extends { id: string }, Lis
 
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / LOGS_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const filterSpecs = filters?.(data) ?? [];
   const filtersActive =
     debouncedSearch !== "" || range.from !== "" || range.to !== "" || Object.values(filterValues).some(Boolean);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   function toggleSort(key: string) {
     setSort((current) =>
@@ -427,8 +433,21 @@ function LogTable<Row extends { id: string }, Detail extends { id: string }, Lis
           </div>
 
           <div className="adm-pagination">
+            <label className="adm-page-size">
+              Rows per page
+              <select
+                aria-label={`${title} rows per page`}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                value={pageSize}
+              >
+                {LOGS_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
             <span className="adm-pagination-info">
-              Page {page} of {totalPages}
+              Page {page} of {totalPages} · {total.toLocaleString()} entries
             </span>
             <div className="adm-pagination-controls">
               <button

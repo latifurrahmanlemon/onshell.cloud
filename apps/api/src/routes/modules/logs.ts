@@ -109,7 +109,9 @@ const engagementSchema = z.object({
 });
 
 const analyticsQuerySchema = z.object({
-  range: z.enum(["7d", "30d", "90d"]).default("30d")
+  range: z.enum(["7d", "30d", "90d"]).default("30d"),
+  recentTake: z.coerce.number().int().min(5).max(100).default(20),
+  recentSkip: z.coerce.number().int().min(0).default(0)
 });
 
 const visitorSummary = {
@@ -296,12 +298,14 @@ export async function registerLogRoutes(app: FastifyInstance, config: RuntimeCon
     try {
       const actor = await requirePlatformAdmin(request, config);
       if (!actor) return reply.code(403).send({ error: "forbidden" });
-      const { range } = analyticsQuerySchema.parse(request.query);
+      const { range, recentTake, recentSkip } = analyticsQuerySchema.parse(request.query);
       const days = Number(range.slice(0, -1));
-      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const from = new Date();
+      from.setUTCHours(0, 0, 0, 0);
+      from.setUTCDate(from.getUTCDate() - (days - 1));
       const where = { createdAt: { gte: from } } satisfies Prisma.VisitorLogWhereInput;
 
-      const [views, aggregate, distinct, trend, pages, countries, browsers, devices, sources, recent] = await Promise.all([
+      const [views, aggregate, distinct, trend, pages, countries, browsers, devices, sources, recent, activeUsers] = await Promise.all([
         prisma.visitorLog.count({ where }),
         prisma.visitorLog.aggregate({ where, _avg: { durationMs: true }, _sum: { durationMs: true } }),
         prisma.$queryRaw<Array<{ visitors: bigint; sessions: bigint }>>(Prisma.sql`
@@ -324,7 +328,18 @@ export async function registerLogRoutes(app: FastifyInstance, config: RuntimeCon
           GROUP BY COALESCE(utmSource, referrer, 'Direct')
           ORDER BY views DESC LIMIT 10
         `),
-        prisma.visitorLog.findMany({ where, orderBy: { createdAt: "desc" }, take: 20, select: visitorSummary })
+        prisma.visitorLog.findMany({ where, orderBy: { createdAt: "desc" }, take: recentTake, skip: recentSkip, select: visitorSummary }),
+        prisma.visitorLog.findMany({
+          where: { ...where, userId: { not: null } },
+          orderBy: { createdAt: "desc" },
+          distinct: ["userId"],
+          take: 10,
+          select: {
+            path: true,
+            createdAt: true,
+            user: { select: { id: true, name: true, email: true } }
+          }
+        })
       ]);
 
       const visitorCount = Number(distinct[0]?.visitors ?? 0);
@@ -337,6 +352,19 @@ export async function registerLogRoutes(app: FastifyInstance, config: RuntimeCon
         ) single_page_sessions
       `);
 
+      const trendByDay = new Map(
+        trend.map((row) => [
+          new Date(row.day).toISOString().slice(0, 10),
+          { views: Number(row.views), visitors: Number(row.visitors), sessions: Number(row.sessions) }
+        ])
+      );
+      const filledTrend = Array.from({ length: days }, (_, index) => {
+        const date = new Date(from);
+        date.setUTCDate(date.getUTCDate() + index);
+        const day = date.toISOString().slice(0, 10);
+        return { day, views: 0, visitors: 0, sessions: 0, ...trendByDay.get(day) };
+      });
+
       return {
         range,
         totals: {
@@ -347,13 +375,19 @@ export async function registerLogRoutes(app: FastifyInstance, config: RuntimeCon
           totalDurationMs: aggregate._sum.durationMs ?? 0,
           bounceRate: sessionCount ? Math.round((Number(bounced[0]?.count ?? 0) / sessionCount) * 1000) / 10 : 0
         },
-        trend: trend.map((row) => ({ day: new Date(row.day).toISOString().slice(0, 10), views: Number(row.views), visitors: Number(row.visitors), sessions: Number(row.sessions) })),
+        trend: filledTrend,
         pages: pages.map((row) => ({ path: row.path, views: row._count._all, averageDurationMs: Math.round(row._avg.durationMs ?? 0) })),
         countries: countries.map((row) => ({ name: row.country ?? "Unknown", views: row._count._all })),
         browsers: browsers.map((row) => ({ name: row.browser ?? "Unknown", views: row._count._all })),
         devices: devices.map((row) => ({ name: row.deviceType ?? "Unknown", views: row._count._all })),
         sources: sources.map((row) => ({ name: row.name, views: Number(row.views) })),
-        recent
+        activeUsers: activeUsers.filter((row) => row.user),
+        recent: {
+          total: views,
+          take: recentTake,
+          skip: recentSkip,
+          rows: recent
+        }
       };
     } catch (error) {
       return handleRouteError(reply, error);
