@@ -7,9 +7,12 @@ export type IconName =
   | "code"
   | "computer"
   | "files"
+  | "external"
   | "folder"
   | "gear"
   | "history"
+  | "heart"
+  | "help"
   | "host"
   | "key"
   | "logout"
@@ -62,6 +65,12 @@ export function Icon({ name, size = 18, ...props }: Props) {
         <path d="M19 21H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6l5 5Z" />
       </>
     ),
+    external: (
+      <>
+        <path d="M15 3h6v6M10 14 21 3" />
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      </>
+    ),
     folder: <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />,
     gear: (
       <>
@@ -73,6 +82,13 @@ export function Icon({ name, size = 18, ...props }: Props) {
       <>
         <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
         <path d="M3 3v5h5M12 7v5l3 2" />
+      </>
+    ),
+    heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />,
+    help: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.6 9a2.5 2.5 0 1 1 3.8 2.1c-.9.6-1.4 1-1.4 2.4M12 17h.01" />
       </>
     ),
     host: (

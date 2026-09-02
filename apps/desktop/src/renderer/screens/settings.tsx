@@ -241,6 +241,15 @@ export function Settings({ state, hosts, onClose }: Props) {
       </section>
 
       <section className="settings__section">
+        <h2>Help &amp; support</h2>
+        <p className="hint">Read the website for guides and project details, or make a one-time contribution to support open-source development.</p>
+        <div className="settings__support-actions">
+          <button className="button" onClick={() => void bridge.openExternal("https://onshell.cloud")}>Open Onshell website</button>
+          <button className="button button--primary" onClick={() => void bridge.openExternal("https://onshell.cloud/donate?source=desktop")}>Support Onshell</button>
+        </div>
+      </section>
+
+      <section className="settings__section">
         <h2>Server</h2>
         <p className="hint selectable">{state.server?.apiBaseUrl}</p>
         <p className="hint">

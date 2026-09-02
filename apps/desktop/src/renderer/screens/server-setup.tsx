@@ -11,10 +11,10 @@ import { bridge } from "../bridge.js";
 
 const HOSTED = "https://onshell.cloud";
 
-export function ServerSetup() {
+export function ServerSetup({ initialError }: { initialError?: string } = {}) {
   const [value, setValue] = useState(HOSTED);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<string | undefined>(initialError);
 
   async function connect(input: string) {
     setBusy(true);

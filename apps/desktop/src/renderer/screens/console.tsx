@@ -13,6 +13,7 @@ import type { AuditLog, CredentialSummary, Host, RemoteSession, Snippet } from "
 import { TerminalPane } from "../terminal.js";
 import { Files } from "./files.js";
 import { Settings } from "./settings.js";
+import { Help } from "./help.js";
 import { Icon } from "../icons.js";
 import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, VaultView } from "./resource-view.js";
@@ -33,6 +34,7 @@ type Overlay =
   | { kind: "settings" }
   | { kind: "vault" }
   | { kind: "history" }
+  | { kind: "help" }
   | { kind: "tasks" }
   | { kind: "workspaces" }
   | { kind: "files"; target: FileSessionTargetRequest; label: string };
@@ -502,6 +504,7 @@ export function Console({ state }: Props) {
           })}
           {overlay.kind === "tasks" && <div className="tab tab--active"><button className="tab__select"><Icon name="tasks" size={14}/><span className="tab__title">Tasks</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Tasks"><Icon name="close" size={13}/></button></div>}
           {overlay.kind === "workspaces" && <div className="tab tab--active"><button className="tab__select"><Icon name="split" size={14}/><span className="tab__title">Workspaces</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Workspaces"><Icon name="close" size={13}/></button></div>}
+          {overlay.kind === "help" && <div className="tab tab--active"><button className="tab__select"><Icon name="help" size={14}/><span className="tab__title">Help</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Help"><Icon name="close" size={13}/></button></div>}
           <button
             className="tab tab--new"
             aria-expanded={newTerminalOpen}
@@ -595,6 +598,7 @@ export function Console({ state }: Props) {
         <button className={`activity-button${overlay.kind === "tasks" ? " activity-button--active" : ""}`} aria-label="Tasks" data-tooltip="Tasks" onClick={() => setOverlay({ kind: "tasks" })}><Icon name="tasks" /></button>
         <button className={`activity-button${overlay.kind === "workspaces" ? " activity-button--active" : ""}`} aria-label="Workspaces" data-tooltip="Workspaces" onClick={() => setOverlay({ kind: "workspaces" })}><Icon name="split" /></button>
         <span className="activity-rail__spacer" />
+        <button className={`activity-button${overlay.kind === "help" ? " activity-button--active" : ""}`} aria-label="Help and support" data-tooltip="Help" onClick={() => setOverlay({ kind: "help" })}><Icon name="help" /></button>
         <button
           className={`activity-button${overlay.kind === "settings" ? " activity-button--active" : ""}`}
           aria-label="Settings"
@@ -898,6 +902,7 @@ export function Console({ state }: Props) {
           )}
           {overlay.kind === "tasks" && <Tasks initial={tasks} />}
           {overlay.kind === "workspaces" && <Workspaces hosts={hosts} currentHostIds={tabs.map((tab) => tab.target.kind === "local" ? undefined : tab.target.hostId).filter((id): id is string => Boolean(id))} onOpen={(ids) => void openNamedWorkspace(ids)} />}
+          {overlay.kind === "help" && <Help version={state.version} onClose={() => setOverlay({ kind: "none" })} />}
 
           {overlay.kind === "none" && !activeTab && (
             <div className="empty">
