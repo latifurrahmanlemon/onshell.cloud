@@ -54,6 +54,15 @@ const bridge: OnshellBridge = {
     createTask: (text) => ipcRenderer.invoke(CHANNELS.consoleCreateTask, text),
     updateTask: (taskId, patch) => ipcRenderer.invoke(CHANNELS.consoleUpdateTask, taskId, patch),
     deleteTask: (taskId) => ipcRenderer.invoke(CHANNELS.consoleDeleteTask, taskId),
+    notifications: () => ipcRenderer.invoke(CHANNELS.consoleNotifications),
+    markNotificationRead: (notificationId) => ipcRenderer.invoke(CHANNELS.consoleReadNotification, notificationId),
+    createCredential: (input) => ipcRenderer.invoke(CHANNELS.consoleCreateCredential, input),
+    updateCredential: (credentialId, input) => ipcRenderer.invoke(CHANNELS.consoleUpdateCredential, credentialId, input),
+    rotateCredential: (credentialId, secret) => ipcRenderer.invoke(CHANNELS.consoleRotateCredential, credentialId, secret),
+    deleteCredential: (credentialId) => ipcRenderer.invoke(CHANNELS.consoleDeleteCredential, credentialId),
+    workspaces: () => ipcRenderer.invoke(CHANNELS.consoleWorkspaces),
+    createWorkspace: (input) => ipcRenderer.invoke(CHANNELS.consoleCreateWorkspace, input),
+    deleteWorkspace: (workspaceId) => ipcRenderer.invoke(CHANNELS.consoleDeleteWorkspace, workspaceId),
     setFavorite: (hostId, favorite) => ipcRenderer.invoke(CHANNELS.consoleSetFavorite, hostId, favorite)
   },
 

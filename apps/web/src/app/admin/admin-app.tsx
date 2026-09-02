@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ArrowLeftRight,
   Bot,
+  Bell,
   Camera,
   CheckCircle2,
   ChevronDown,
@@ -240,7 +241,7 @@ interface NewSettingForm {
 }
 
 type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "logs" | "settings";
-type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "general";
+type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "notifications" | "general";
 
 type UserSortKey = "name" | "email" | "role" | "created";
 type UserRoleFilter = "all" | "platform" | "owner" | "admin" | "devops" | "developer" | "auditor";
@@ -294,6 +295,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> 
   { id: "billing", label: "Billing Provider", icon: CreditCard },
   { id: "bots", label: "Bot Protection", icon: ShieldCheck },
   { id: "ai", label: "AI Assistant", icon: Bot },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "general", label: "General", icon: Settings2 }
 ];
 
@@ -1010,6 +1012,8 @@ function AdminPanel() {
   const [savingSettingKey, setSavingSettingKey] = useState<string | null>(null);
   const [newSetting, setNewSetting] = useState<NewSettingForm>(NEW_SETTING_DEFAULTS);
   const [savingNewSetting, setSavingNewSetting] = useState(false);
+  const [notificationDraft, setNotificationDraft] = useState({ title: "", message: "", actionUrl: "", expiresAt: "" });
+  const [publishingNotification, setPublishingNotification] = useState(false);
 
   /* account — password (modal) */
   const [currentPassword, setCurrentPassword] = useState("");
@@ -1129,6 +1133,7 @@ function AdminPanel() {
   const settingsTabLoading: Record<SettingsTab, boolean> = {
     bots: false,
     ai: false,
+    notifications: false,
     packages: plansRes.loading,
     smtp: smtpRes.loading,
     billing: paymentRes.loading,
@@ -1156,6 +1161,7 @@ function AdminPanel() {
         billing: paymentRes.reload,
         bots: async () => undefined,
         ai: async () => undefined,
+        notifications: async () => undefined,
         general: settingsRes.reload
       };
       void tabReloaders[settingsTab]();
@@ -2658,12 +2664,32 @@ function AdminPanel() {
     );
   }
 
+  function renderNotificationPublisher() {
+    async function publish() {
+      if (!notificationDraft.title.trim() || !notificationDraft.message.trim()) return;
+      setPublishingNotification(true);
+      try {
+        await apiSend("/admin/notifications", "POST", {
+          title: notificationDraft.title.trim(),
+          message: notificationDraft.message.trim(),
+          actionUrl: notificationDraft.actionUrl.trim() || undefined,
+          expiresAt: notificationDraft.expiresAt ? new Date(notificationDraft.expiresAt).toISOString() : undefined
+        });
+        setNotificationDraft({ title: "", message: "", actionUrl: "", expiresAt: "" });
+        showToast("success", "Notification published to all existing users.");
+      } catch (cause) { showToast("error", errorText(cause)); }
+      finally { setPublishingNotification(false); }
+    }
+    return <div className="adm-stack"><section className="settings-card"><div className="settings-card-head"><div><p className="eyebrow">Product updates</p><h3>Publish user notification</h3><p>Appears automatically in both web and desktop notification centres for every existing user.</p></div><Bell size={20}/></div><div className="settings-form"><label>Title<input maxLength={120} value={notificationDraft.title} onChange={(event) => setNotificationDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Onshell 0.4 is available"/></label><label>Message<textarea maxLength={1000} rows={5} value={notificationDraft.message} onChange={(event) => setNotificationDraft((current) => ({ ...current, message: event.target.value }))} placeholder="What changed and why it matters"/></label><div className="form-grid two"><label>Action URL (optional)<input type="url" value={notificationDraft.actionUrl} onChange={(event) => setNotificationDraft((current) => ({ ...current, actionUrl: event.target.value }))} placeholder="https://onshell.cloud/updates"/></label><label>Expires (optional)<input type="datetime-local" value={notificationDraft.expiresAt} onChange={(event) => setNotificationDraft((current) => ({ ...current, expiresAt: event.target.value }))}/></label></div><div className="form-actions"><button className="primary-button" disabled={publishingNotification || !notificationDraft.title.trim() || !notificationDraft.message.trim()} onClick={() => void publish()} type="button">{publishingNotification ? <Loader2 className="adm-spin" size={16}/> : <Send size={16}/>}<span>{publishingNotification ? "Publishing..." : "Publish to all users"}</span></button></div></div></section></div>;
+  }
+
   const settingsTabRenderers: Record<SettingsTab, () => ReactNode> = {
     packages: renderPackages,
     smtp: renderSmtp,
     billing: renderBilling,
     bots: () => <BotProtectionPanel />,
     ai: () => <AiSettingsPanel />,
+    notifications: renderNotificationPublisher,
     general: renderGeneralSettings
   };
 

@@ -39,6 +39,8 @@ export interface DesktopSettings {
     theme: "system" | "dark" | "light";
     fontFamily: string;
     fontSize: number;
+    terminalTheme: "onshell" | "nord" | "dracula" | "solarized" | "paper";
+    hostThemes: Record<string, "onshell" | "nord" | "dracula" | "solarized" | "paper">;
   };
   /** "Share this computer" — the agent tunnel. Off until switched on. */
   sharing: { enabled: boolean };
@@ -53,7 +55,9 @@ const DEFAULTS: DesktopSettings = {
     // Deliberately a stack rather than one name: the first entry that exists on
     // the machine wins, and every platform has a different monospace default.
     fontFamily: "'Cascadia Mono', 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace",
-    fontSize: 13
+    fontSize: 13,
+    terminalTheme: "onshell",
+    hostThemes: {}
   },
   sharing: { enabled: false }
 };

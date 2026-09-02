@@ -17,6 +17,7 @@ import type {
   Role,
   Snippet,
   TaskItem,
+  AppNotification,
   ThemePreference,
   User
 } from "@onshell/shared";
@@ -32,6 +33,7 @@ export type {
   Role,
   Snippet,
   TaskItem,
+  AppNotification,
   ThemePreference,
   User
 };

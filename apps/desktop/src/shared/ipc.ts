@@ -15,6 +15,8 @@ import type {
   RemoteSession,
   Snippet,
   TaskItem,
+  AppNotification,
+  HostWorkspace,
   User
 } from "@onshell/api-client";
 
@@ -30,6 +32,8 @@ export interface AppearanceSettings {
   theme: "system" | "dark" | "light";
   fontFamily: string;
   fontSize: number;
+  terminalTheme: "onshell" | "nord" | "dracula" | "solarized" | "paper";
+  hostThemes: Record<string, AppearanceSettings["terminalTheme"]>;
 }
 
 /**
@@ -227,6 +231,7 @@ export interface ConsoleData {
   credentials: CredentialSummary[];
   snippets: Snippet[];
   tasks: TaskItem[];
+  notifications: AppNotification[];
   sessions: RemoteSession[];
   audit: AuditLog[];
 }
@@ -276,6 +281,15 @@ export interface OnshellBridge {
     createTask(text: string): Promise<TaskItem>;
     updateTask(taskId: string, patch: { text?: string; completed?: boolean }): Promise<TaskItem>;
     deleteTask(taskId: string): Promise<void>;
+    notifications(): Promise<AppNotification[]>;
+    markNotificationRead(notificationId: string): Promise<void>;
+    createCredential(input: { name: string; kind: "password" | "ssh_key" | "rdp_password"; secret: string; attachedHostIds: string[] }): Promise<CredentialSummary>;
+    updateCredential(credentialId: string, input: { name?: string; attachedHostIds?: string[] }): Promise<CredentialSummary>;
+    rotateCredential(credentialId: string, secret: string): Promise<CredentialSummary>;
+    deleteCredential(credentialId: string): Promise<void>;
+    workspaces(): Promise<HostWorkspace[]>;
+    createWorkspace(input: { name: string; description?: string; hostIds: string[] }): Promise<HostWorkspace>;
+    deleteWorkspace(workspaceId: string): Promise<void>;
     setFavorite(hostId: string, favorite: boolean): Promise<void>;
   };
 
@@ -369,6 +383,15 @@ export const CHANNELS = {
   consoleCreateTask: "console:create-task",
   consoleUpdateTask: "console:update-task",
   consoleDeleteTask: "console:delete-task",
+  consoleNotifications: "console:notifications",
+  consoleReadNotification: "console:read-notification",
+  consoleCreateCredential: "console:create-credential",
+  consoleUpdateCredential: "console:update-credential",
+  consoleRotateCredential: "console:rotate-credential",
+  consoleDeleteCredential: "console:delete-credential",
+  consoleWorkspaces: "console:workspaces",
+  consoleCreateWorkspace: "console:create-workspace",
+  consoleDeleteWorkspace: "console:delete-workspace",
   consoleSetFavorite: "console:set-favorite",
 
   sharingState: "sharing:state",

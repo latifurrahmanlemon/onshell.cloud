@@ -223,6 +223,16 @@ export interface TaskItem {
   updatedAt: string;
 }
 
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  actionUrl?: string;
+  publishedAt: string;
+  expiresAt?: string;
+  read: boolean;
+}
+
 export interface Plan {
   id: string;
   code: string;

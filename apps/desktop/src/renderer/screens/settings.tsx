@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { bridge } from "../bridge.js";
 import type { AppState, ApprovalMode, DesktopDeviceSummary, SharingState, UpdateStatus } from "../../shared/ipc.js";
+import type { Host } from "@onshell/api-client";
 
 const APPROVAL_LABELS: Record<ApprovalMode, string> = {
   trusted: "Anyone in the workspace",
@@ -18,6 +19,7 @@ const APPROVAL_LABELS: Record<ApprovalMode, string> = {
 
 interface Props {
   state: AppState;
+  hosts: Host[];
   onClose(): void;
 }
 
@@ -26,7 +28,7 @@ function when(value?: string) {
   return new Date(value).toLocaleString();
 }
 
-export function Settings({ state, onClose }: Props) {
+export function Settings({ state, hosts, onClose }: Props) {
   const [devices, setDevices] = useState<DesktopDeviceSummary[]>([]);
   const [sharing, setSharing] = useState<SharingState>();
   const [sharingBusy, setSharingBusy] = useState(false);
@@ -111,6 +113,20 @@ export function Settings({ state, onClose }: Props) {
             </button>
           ))}
         </div>
+        <h3 className="settings__subhead">Terminal palette</h3>
+        <div className="settings__choices settings__themes">
+          {(["onshell", "nord", "dracula", "solarized", "paper"] as const).map((theme) => (
+            <button key={theme} className={`choice choice--compact theme-choice theme-choice--${theme}${state.appearance.terminalTheme === theme ? " choice--active" : ""}`} onClick={() => void bridge.settings.update({ appearance: { terminalTheme: theme } })}>
+              <span className="theme-choice__swatch" />
+              <strong>{theme}</strong>
+            </button>
+          ))}
+        </div>
+        {hosts.filter((host) => !host.isLocal).length > 0 && <div className="host-theme-list">
+          <h3 className="settings__subhead">Per-host palette</h3>
+          <p className="hint">Override the palette for production or customer hosts while keeping the global default elsewhere.</p>
+          {hosts.filter((host) => !host.isLocal).map((host) => <label key={host.id}><span>{host.name}</span><select value={state.appearance.hostThemes[host.id] ?? "default"} onChange={(event) => { const hostThemes = { ...state.appearance.hostThemes }; if (event.target.value === "default") delete hostThemes[host.id]; else hostThemes[host.id] = event.target.value as AppState["appearance"]["terminalTheme"]; void bridge.settings.update({ appearance: { hostThemes } }); }}><option value="default">Use global default</option><option value="onshell">Onshell</option><option value="nord">Nord</option><option value="dracula">Dracula</option><option value="solarized">Solarized</option><option value="paper">Paper</option></select></label>)}
+        </div>}
         <div className="field field--inline">
           <label htmlFor="fontSize">Terminal font size</label>
           <input

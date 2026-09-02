@@ -20,6 +20,7 @@ import { registerPublicRoutes } from "./modules/public.js";
 import { registerSessionRoutes } from "./modules/sessions.js";
 import { registerSnippetRoutes } from "./modules/snippets.js";
 import { registerTaskRoutes } from "./modules/tasks.js";
+import { registerNotificationRoutes } from "./modules/notifications.js";
 
 export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig) {
   await registerHealthRoutes(app, config);
@@ -37,6 +38,7 @@ export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig
   await registerSessionRoutes(app, config);
   await registerSnippetRoutes(app);
   await registerTaskRoutes(app);
+  await registerNotificationRoutes(app, config);
   await registerAiRoutes(app, config);
   await registerGrowthRoutes(app, config);
   await registerAuditRoutes(app);

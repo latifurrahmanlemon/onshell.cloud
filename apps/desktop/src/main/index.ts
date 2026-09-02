@@ -339,16 +339,17 @@ function registerHandlers() {
     const client = requireApi();
     // Fetched together because the console is unusable with a partial picture,
     // and six sequential round trips over a slow link is a visible stall.
-    const [identity, hosts, credentials, snippets, tasks, sessions, audit] = await Promise.all([
+    const [identity, hosts, credentials, snippets, tasks, notifications, sessions, audit] = await Promise.all([
       client.me(),
       client.hosts(),
       client.credentials(),
       client.snippets(),
       client.tasks(),
+      client.notifications(),
       client.sessions(),
       client.audit(50)
     ]);
-    return { identity, hosts, credentials, snippets, tasks, sessions, audit };
+    return { identity, hosts, credentials, snippets, tasks, notifications, sessions, audit };
   });
 
   ipcMain.handle(CHANNELS.consoleHosts, () => requireApi().hosts());
@@ -372,6 +373,15 @@ function registerHandlers() {
   ipcMain.handle(CHANNELS.consoleCreateTask, (_event, text: string) => requireApi().createTask(text));
   ipcMain.handle(CHANNELS.consoleUpdateTask, (_event, taskId: string, patch: { text?: string; completed?: boolean }) => requireApi().updateTask(taskId, patch));
   ipcMain.handle(CHANNELS.consoleDeleteTask, async (_event, taskId: string) => { await requireApi().deleteTask(taskId); });
+  ipcMain.handle(CHANNELS.consoleNotifications, () => requireApi().notifications());
+  ipcMain.handle(CHANNELS.consoleReadNotification, async (_event, notificationId: string) => { await requireApi().markNotificationRead(notificationId); });
+  ipcMain.handle(CHANNELS.consoleCreateCredential, (_event, input: { name: string; kind: "password" | "ssh_key" | "rdp_password"; secret: string; attachedHostIds: string[] }) => requireApi().createCredential(input));
+  ipcMain.handle(CHANNELS.consoleUpdateCredential, (_event, credentialId: string, input: { name?: string; attachedHostIds?: string[] }) => requireApi().updateCredential(credentialId, input));
+  ipcMain.handle(CHANNELS.consoleRotateCredential, (_event, credentialId: string, secret: string) => requireApi().rotateCredential(credentialId, secret));
+  ipcMain.handle(CHANNELS.consoleDeleteCredential, async (_event, credentialId: string) => { await requireApi().deleteCredential(credentialId); });
+  ipcMain.handle(CHANNELS.consoleWorkspaces, () => requireApi().workspaces());
+  ipcMain.handle(CHANNELS.consoleCreateWorkspace, (_event, input: { name: string; description?: string; hostIds: string[] }) => requireApi().createWorkspace(input));
+  ipcMain.handle(CHANNELS.consoleDeleteWorkspace, async (_event, workspaceId: string) => { await requireApi().deleteWorkspace(workspaceId); });
   ipcMain.handle(CHANNELS.consoleSetFavorite, async (_event, hostId: string, favorite: boolean) => {
     await requireApi().setHostFavorite(hostId, favorite);
   });

@@ -159,6 +159,7 @@ model User {
   enrolledAgents           AgentDevice[]        @relation("AgentEnrolledBy")
   agentPairingCodes        AgentPairingCode[]   @relation("AgentPairingCreatedBy")
   desktopDevices           DesktopDevice[]
+  notificationReads        NotificationRead[]
 
   @@index([referredById])
   @@index([lastActiveOrganizationId])
@@ -565,6 +566,30 @@ model TaskItem {
   owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, ownerId, completed, createdAt])
+}
+
+model AppNotification {
+  id          String             @id @default(cuid())
+  title       String
+  message     String             @db.Text
+  actionUrl   String?
+  publishedAt DateTime           @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  reads       NotificationRead[]
+
+  @@index([publishedAt])
+}
+
+model NotificationRead {
+  notificationId String
+  userId         String
+  readAt         DateTime        @default(now())
+  notification   AppNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([userId, readAt])
 }
 
 model SftpOperation {

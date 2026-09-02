@@ -47,6 +47,7 @@ import type {
   Role,
   Snippet,
   TaskItem,
+  AppNotification,
   ThemePreference,
   User
 } from "./types.js";
@@ -167,11 +168,11 @@ export function createApiClient(options: ApiClientOptions) {
 
     credentials: async () => unwrapList<CredentialSummary>(await request("/credentials"), "credentials"),
     createCredential: (body: Record<string, unknown>) =>
-      request<unknown>("/credentials", { method: "POST", body: JSON.stringify(body) }),
+      request<CredentialSummary>("/credentials", { method: "POST", body: JSON.stringify(body) }),
     updateCredential: (id: string, body: { name?: string; attachedHostIds?: string[] }) =>
-      request<unknown>(`/credentials/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+      request<CredentialSummary>(`/credentials/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     rotateCredential: (id: string, secret: string) =>
-      request<unknown>(`/credentials/${id}/rotate`, { method: "POST", body: JSON.stringify({ secret }) }),
+      request<CredentialSummary>(`/credentials/${id}/rotate`, { method: "POST", body: JSON.stringify({ secret }) }),
     deleteCredential: (id: string) => request<unknown>(`/credentials/${id}`, { method: "DELETE" }),
 
     sessions: async () => unwrapList<RemoteSession>(await request("/sessions"), "sessions"),
@@ -204,6 +205,10 @@ export function createApiClient(options: ApiClientOptions) {
     updateTask: (id: string, body: { text?: string; completed?: boolean }) =>
       request<TaskItem>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deleteTask: (id: string) => request<unknown>(`/tasks/${id}`, { method: "DELETE" }),
+    notifications: async () => unwrapList<AppNotification>(await request("/notifications"), "notifications"),
+    markNotificationRead: (id: string) => request<{ ok: true }>(`/notifications/${id}/read`, { method: "POST" }),
+    publishNotification: (body: { title: string; message: string; actionUrl?: string; expiresAt?: string }) =>
+      request<AppNotification>("/admin/notifications", { method: "POST", body: JSON.stringify(body) }),
 
     audit: async (limit = 50) => unwrapList<AuditLog>(await request(`/audit?limit=${limit}`), "logs"),
 

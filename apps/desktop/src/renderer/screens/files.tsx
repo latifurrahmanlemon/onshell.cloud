@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { bridge } from "../bridge.js";
 import type { FileEntry, FileSessionOpened, FileSessionTargetRequest } from "../../shared/ipc.js";
+import { Icon } from "../icons.js";
+import type { Host } from "@onshell/api-client";
 
 interface PaneState extends FileSessionOpened {
   path: string;
@@ -109,6 +111,9 @@ interface PaneProps {
 }
 
 function Pane({ title, pane, windowsStyle, onNavigate, onSelect }: PaneProps) {
+  const [search, setSearch] = useState("");
+  const [pathDraft, setPathDraft] = useState("");
+  useEffect(() => { if (pane) setPathDraft(pane.path); }, [pane?.path]);
   if (!pane) {
     return (
       <div className="pane">
@@ -124,15 +129,14 @@ function Pane({ title, pane, windowsStyle, onNavigate, onSelect }: PaneProps) {
         <span>{pane.label}</span>
         <span className={`tab__mode tab__mode--${pane.mode}`}>{pane.mode}</span>
       </div>
-      <div className="pane__path selectable" title={pane.path}>
-        {pane.path}
-      </div>
+      <form className="pane__path" onSubmit={(event) => { event.preventDefault(); onNavigate(pathDraft); }}><input className="selectable" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} aria-label={`${title} path`}/></form>
+      <div className="pane__search"><Icon name="search" size={13}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label={`Search ${title}`}/></div>
       {pane.error && <div className="pane__error">{pane.error}</div>}
       <div className="pane__list">
         <button className="row row--up" onClick={() => onNavigate(joinPath(pane.path, "..", windowsStyle))}>
           ..
         </button>
-        {pane.entries
+        {pane.entries.filter((entry) => entry.name.toLowerCase().includes(search.trim().toLowerCase()))
           .slice()
           .sort((a, b) =>
             a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1
@@ -161,18 +165,41 @@ function Pane({ title, pane, windowsStyle, onNavigate, onSelect }: PaneProps) {
 interface Props {
   remote: FileSessionTargetRequest;
   hostLabel: string;
+  hosts: Host[];
+  connectionMode: "direct" | "relay";
   onClose(): void;
 }
 
-export function Files({ remote, hostLabel, onClose }: Props) {
+export function Files({ remote, hostLabel, hosts, connectionMode, onClose }: Props) {
   // Held in state so the target object identity is stable; a fresh object every
   // render would reopen the session on every keystroke elsewhere in the tree.
   const [localTarget] = useState<FileSessionTargetRequest>({ kind: "local" });
-  const [remoteTarget] = useState<FileSessionTargetRequest>(remote);
+  const [tabs, setTabs] = useState(() => [{ id: crypto.randomUUID(), target: remote, label: hostLabel }]);
+  const [activeTabId, setActiveTabId] = useState<string>(tabs[0]!.id);
+  const activeFileTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]!;
+  const remoteTarget = activeFileTab.target;
+  const [swapped, setSwapped] = useState(false);
 
   const localSide = usePane(localTarget, navigator.platform.startsWith("Win"));
   const remoteSide = usePane(remoteTarget, false);
   const [status, setStatus] = useState<string>();
+
+  function addHost(hostId: string) {
+    const host = hosts.find((item) => item.id === hostId);
+    if (!host) return;
+    const tab = { id: crypto.randomUUID(), label: host.name, target: { kind: connectionMode, hostId: host.id } as FileSessionTargetRequest };
+    setTabs((current) => [...current, tab]);
+    setActiveTabId(tab.id);
+  }
+
+  function closeFileTab(id: string) {
+    setTabs((current) => {
+      const next = current.filter((tab) => tab.id !== id);
+      if (id === activeTabId) setActiveTabId(next.at(-1)?.id ?? "");
+      if (next.length === 0) onClose();
+      return next;
+    });
+  }
 
   async function transfer(direction: "up" | "down") {
     const from = direction === "up" ? localSide.pane : remoteSide.pane;
@@ -206,13 +233,15 @@ export function Files({ remote, hostLabel, onClose }: Props) {
   return (
     <div className="files">
       <header className="files__head">
-        <h2>Files — {hostLabel}</h2>
+        <div><h2>Files — {activeFileTab.label}</h2><div className="files__tabs">{tabs.map((tab) => <button className={tab.id === activeTabId ? "is-active" : ""} key={tab.id} onClick={() => setActiveTabId(tab.id)}><span>{tab.label}</span>{tabs.length > 1 && <span role="button" aria-label={`Close ${tab.label}`} onClick={(event) => { event.stopPropagation(); closeFileTab(tab.id); }}>×</span>}</button>)}</div></div>
+        <div className="files__actions"><select aria-label="Open another SFTP host" defaultValue="" onChange={(event) => { if (event.target.value) addHost(event.target.value); event.target.value = ""; }}><option value="">New SFTP tab…</option>{hosts.filter((host) => !host.isLocal).map((host) => <option key={host.id} value={host.id}>{host.name}</option>)}</select><button className="button button--ghost" onClick={() => setSwapped((value) => !value)}><Icon name="split" size={14}/>Swap sides</button>
         <button className="button button--ghost" onClick={onClose}>
           Close
         </button>
+        </div>
       </header>
 
-      <div className="files__panes">
+      <div className={`files__panes${swapped ? " files__panes--swapped" : ""}`}>
         <Pane
           title="This computer"
           pane={localSide.pane}

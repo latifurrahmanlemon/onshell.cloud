@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Braces,
+  Bell,
   Building2,
   Check,
   CheckCircle2,
@@ -47,7 +48,7 @@ import {
   Users,
   X
 } from "lucide-react";
-import type { AgentDevice, AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
+import type { AgentDevice, AppNotification, AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
 import { canOpenSession, isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
 import { ApiError, consoleApi, keepSessionAlive, sessionWebsocketUrl } from "./api";
@@ -199,6 +200,8 @@ export function ConsoleApp() {
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
   const [sessions, setSessions] = useState<RemoteSession[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [agents, setAgents] = useState<AgentDevice[]>([]);
   const [audit, setAudit] = useState<AuditLog[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -260,6 +263,8 @@ export function ConsoleApp() {
       /* storage unavailable */
     }
   }, []);
+
+  useEffect(() => { void consoleApi.notifications().then(setNotifications).catch(() => undefined); }, []);
 
   // Restore saved terminal appearance after mount, so the server-rendered
   // markup and the first client render still agree.
@@ -1001,6 +1006,10 @@ export function ConsoleApp() {
 
       <main className="workspace">
         <div className="console-topright">
+          <div className="web-notification-anchor">
+            <button aria-label="Notifications" className={cx("console-topright-btn", notificationsOpen && "is-active")} data-tooltip="Notifications" onClick={() => setNotificationsOpen((open) => !open)} type="button"><Bell size={16}/>{notifications.some((item) => !item.read) && <span className="console-topright-badge">{notifications.filter((item) => !item.read).length}</span>}</button>
+            {notificationsOpen && <div className="web-notifications" role="dialog" aria-label="Notifications"><header><strong>Notifications</strong></header><div>{notifications.map((item) => <article className={item.read ? "" : "is-unread"} key={item.id} onClick={() => { if (!item.read) { void consoleApi.markNotificationRead(item.id); setNotifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, read: true } : entry)); } }}><strong>{item.title}</strong><p>{item.message}</p>{item.actionUrl && <a href={item.actionUrl} target="_blank" rel="noreferrer">Learn more</a>}</article>)}{notifications.length === 0 && <p className="web-notifications-empty">You’re all caught up.</p>}</div></div>}
+          </div>
           <button
             aria-label="Open terminal"
             className={cx("console-topright-btn", view === "terminal" && "is-active")}

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AuditLog, CredentialSummary, Host, RemoteSession } from "@onshell/api-client";
 import { Icon } from "../icons.js";
+import { bridge } from "../bridge.js";
 
 interface BaseProps {
   hosts: Host[];
@@ -8,7 +9,37 @@ interface BaseProps {
 }
 
 export function VaultView({ credentials, hosts, onClose }: BaseProps & { credentials: CredentialSummary[] }) {
+  const [items, setItems] = useState(credentials);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"name" | "used">("name");
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<CredentialSummary>();
+  const [error, setError] = useState<string>();
+  useEffect(() => setItems(credentials), [credentials]);
   const hostNames = useMemo(() => new Map(hosts.map((host) => [host.id, host.name])), [hosts]);
+  const visible = items.filter((item) => `${item.name} ${item.kind} ${item.attachedHostIds.map((id) => hostNames.get(id) ?? "").join(" ")}`.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => sort === "name" ? a.name.localeCompare(b.name) : (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? ""));
+  async function create(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const data = new FormData(event.currentTarget);
+    try { const item = await bridge.console.createCredential({ name: String(data.get("name") ?? ""), kind: data.get("kind") as "password" | "ssh_key" | "rdp_password", secret: String(data.get("secret") ?? ""), attachedHostIds: data.getAll("hosts").map(String) }); setItems((current) => [item, ...current]); setCreating(false); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create credential."); }
+  }
+  async function remove(item: CredentialSummary) {
+    if (item.attachedHostIds.length > 0) return;
+    try { await bridge.console.deleteCredential(item.id); setItems((current) => current.filter((entry) => entry.id !== item.id)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete credential."); }
+  }
+  async function update(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing) return;
+    const data = new FormData(event.currentTarget);
+    try {
+      let item = await bridge.console.updateCredential(editing.id, { name: String(data.get("name") ?? ""), attachedHostIds: data.getAll("hosts").map(String) });
+      const secret = String(data.get("secret") ?? "").trim();
+      if (secret) item = await bridge.console.rotateCredential(editing.id, secret);
+      setItems((current) => current.map((entry) => entry.id === item.id ? item : entry));
+      setEditing(undefined);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update credential."); }
+  }
   return (
     <section className="resource-view" aria-labelledby="vault-title">
       <header className="resource-view__head">
@@ -21,22 +52,24 @@ export function VaultView({ credentials, hosts, onClose }: BaseProps & { credent
           Back to terminals
         </button>
       </header>
+      <div className="resource-filters"><label><Icon name="search" size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search vault"/></label><select value={sort} onChange={(event) => setSort(event.target.value as "name" | "used")}><option value="name">Name</option><option value="used">Last used</option></select><button className="button button--primary" onClick={() => setCreating(true)}><Icon name="plus" size={14}/>Add</button></div>
+      {error && <p className="error">{error}</p>}
       <div className="resource-view__stats">
         <div>
-          <strong>{credentials.length}</strong>
+          <strong>{items.length}</strong>
           <span>Vault items</span>
         </div>
         <div>
-          <strong>{credentials.filter((item) => item.kind === "ssh_key").length}</strong>
+          <strong>{items.filter((item) => item.kind === "ssh_key").length}</strong>
           <span>SSH keys</span>
         </div>
         <div>
-          <strong>{credentials.reduce((total, item) => total + item.attachedHostIds.length, 0)}</strong>
+          <strong>{items.reduce((total, item) => total + item.attachedHostIds.length, 0)}</strong>
           <span>Host assignments</span>
         </div>
       </div>
       <div className="credential-grid">
-        {credentials.map((credential) => (
+        {visible.map((credential) => (
           <article className="credential-card" key={credential.id}>
             <span className="credential-card__icon">
               <Icon name="key" />
@@ -51,15 +84,19 @@ export function VaultView({ credentials, hosts, onClose }: BaseProps & { credent
                 : credential.attachedHostIds.map((id) => hostNames.get(id) ?? "Unavailable host").join(", ")}
             </div>
             <small>{credential.lastUsedAt ? `Last used ${formatDate(credential.lastUsedAt)}` : "Not used yet"}</small>
+            <button className="button button--ghost credential-edit" onClick={() => setEditing(credential)}><Icon name="gear" size={13}/>Edit</button>
+            <button className="icon icon--danger credential-delete" disabled={credential.attachedHostIds.length > 0} onClick={() => void remove(credential)} title={credential.attachedHostIds.length > 0 ? "Detach from hosts before deleting" : "Delete credential"}><Icon name="close" size={13}/></button>
           </article>
         ))}
-        {credentials.length === 0 && (
+        {visible.length === 0 && (
           <Empty
             title="No vault items"
-            detail="Create credentials in the web console; desktop management arrives in the infrastructure phase."
+            detail="Add a password or SSH key and assign it to one or more hosts."
           />
         )}
       </div>
+      {creating && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="snippet-modal" onSubmit={(event) => void create(event)}><header><div><span className="snippet-emoji"><Icon name="key" size={16}/></span><div><strong>Add credential</strong><p>Secret material is encrypted before storage.</p></div></div><button className="icon" type="button" onClick={() => setCreating(false)}><Icon name="close" size={13}/></button></header><label>Name<input name="name" required minLength={2}/></label><label>Type<select name="kind"><option value="password">Password</option><option value="ssh_key">SSH key</option><option value="rdp_password">RDP password</option></select></label><label>Secret<textarea name="secret" required rows={5}/></label><fieldset className="vault-hosts"><legend>Attach to hosts</legend>{hosts.filter((host) => !host.isLocal).map((host) => <label key={host.id}><input type="checkbox" name="hosts" value={host.id}/>{host.name}</label>)}</fieldset><footer><button className="button button--ghost" type="button" onClick={() => setCreating(false)}>Cancel</button><button className="button button--primary" type="submit">Save credential</button></footer></form></div>}
+      {editing && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(undefined); }}><form className="snippet-modal" onSubmit={(event) => void update(event)}><header><div><span className="snippet-emoji"><Icon name="key" size={16}/></span><div><strong>Edit credential</strong><p>Leave the replacement secret blank to keep the current one.</p></div></div><button className="icon" type="button" onClick={() => setEditing(undefined)}><Icon name="close" size={13}/></button></header><label>Name<input name="name" required minLength={2} defaultValue={editing.name}/></label><label>Replace secret<textarea name="secret" rows={5} placeholder="Unchanged"/></label><fieldset className="vault-hosts"><legend>Attached hosts</legend>{hosts.filter((host) => !host.isLocal).map((host) => <label key={host.id}><input type="checkbox" name="hosts" value={host.id} defaultChecked={editing.attachedHostIds.includes(host.id)}/>{host.name}</label>)}</fieldset><footer><button className="button button--ghost" type="button" onClick={() => setEditing(undefined)}>Cancel</button><button className="button button--primary" type="submit">Save changes</button></footer></form></div>}
     </section>
   );
 }

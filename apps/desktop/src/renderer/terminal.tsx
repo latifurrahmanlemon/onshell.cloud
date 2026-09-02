@@ -23,21 +23,13 @@ interface Props {
 }
 
 /** Terminal colours, kept in step with the tokens in app.css. */
-const THEME = {
-  background: "#0c1017",
-  foreground: "#edf2f7",
-  cursor: "#58d68d",
-  selectionBackground: "#1e3a5f",
-  black: "#0c1017",
-  red: "#ff6b78",
-  green: "#58d68d",
-  yellow: "#f0b95a",
-  blue: "#5aa9e6",
-  magenta: "#b980f0",
-  cyan: "#4fd1c5",
-  white: "#edf2f7",
-  brightBlack: "#637083"
-} as const;
+const THEMES: Record<AppearanceSettings["terminalTheme"], NonNullable<ConstructorParameters<typeof Terminal>[0]>["theme"]> = {
+  onshell: { background: "#0c1017", foreground: "#edf2f7", cursor: "#58d68d", selectionBackground: "#1e3a5f", black: "#0c1017", red: "#ff6b78", green: "#58d68d", yellow: "#f0b95a", blue: "#5aa9e6", magenta: "#b980f0", cyan: "#4fd1c5", white: "#edf2f7", brightBlack: "#637083" },
+  nord: { background: "#2e3440", foreground: "#d8dee9", cursor: "#88c0d0", selectionBackground: "#4c566a", black: "#3b4252", red: "#bf616a", green: "#a3be8c", yellow: "#ebcb8b", blue: "#81a1c1", magenta: "#b48ead", cyan: "#8fbcbb", white: "#e5e9f0", brightBlack: "#616e88" },
+  dracula: { background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2", selectionBackground: "#44475a", black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c", blue: "#8be9fd", magenta: "#ff79c6", cyan: "#8be9fd", white: "#f8f8f2", brightBlack: "#6272a4" },
+  solarized: { background: "#002b36", foreground: "#839496", cursor: "#93a1a1", selectionBackground: "#073642", black: "#073642", red: "#dc322f", green: "#859900", yellow: "#b58900", blue: "#268bd2", magenta: "#d33682", cyan: "#2aa198", white: "#eee8d5", brightBlack: "#586e75" },
+  paper: { background: "#fbfaf7", foreground: "#253044", cursor: "#1f7a55", selectionBackground: "#dbeafe", black: "#253044", red: "#b42318", green: "#157f3d", yellow: "#9a6700", blue: "#175cd3", magenta: "#9e4784", cyan: "#087f8c", white: "#f2f4f7", brightBlack: "#667085" }
+};
 
 export function TerminalPane({ terminalId, appearance, visible, position = "primary" }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -56,7 +48,7 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
       // grow the renderer's heap without limit.
       scrollback: 10_000,
       allowProposedApi: true,
-      theme: THEME
+      theme: THEMES[appearance.terminalTheme]
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -108,9 +100,10 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
     if (!term) return;
     term.options.fontFamily = appearance.fontFamily;
     term.options.fontSize = appearance.fontSize;
+    term.options.theme = THEMES[appearance.terminalTheme];
     fitRef.current?.fit();
     bridge.terminals.resize(terminalId, term.cols, term.rows);
-  }, [appearance.fontFamily, appearance.fontSize, terminalId]);
+  }, [appearance.fontFamily, appearance.fontSize, appearance.terminalTheme, terminalId]);
 
   // A hidden pane measures as zero-width, so refit and refocus on the way back.
   useEffect(() => {

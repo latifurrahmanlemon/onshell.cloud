@@ -16,7 +16,7 @@ import { app } from "electron";
 /** Where releases are published. Overridable for a fork or a self-hosted build. */
 const RELEASES_API =
   process.env.ONSHELL_RELEASES_API ??
-  "https://api.github.com/repos/latifurrahmanlemon/onshell.cloud/releases/latest";
+  "https://api.github.com/repos/latifurrahmanlemon/onshell-downloads/releases/latest";
 
 export interface UpdateStatus {
   current: string;

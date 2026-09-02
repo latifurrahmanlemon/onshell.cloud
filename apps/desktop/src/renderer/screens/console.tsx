@@ -17,6 +17,7 @@ import { Icon } from "../icons.js";
 import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, VaultView } from "./resource-view.js";
 import { Tasks } from "./tasks.js";
+import { Workspaces } from "./workspaces.js";
 
 interface Props {
   state: AppState;
@@ -33,6 +34,7 @@ type Overlay =
   | { kind: "vault" }
   | { kind: "history" }
   | { kind: "tasks" }
+  | { kind: "workspaces" }
   | { kind: "files"; target: FileSessionTargetRequest; label: string };
 
 export function Console({ state }: Props) {
@@ -42,6 +44,8 @@ export function Console({ state }: Props) {
   const [sessions, setSessions] = useState<RemoteSession[]>([]);
   const [audit, setAudit] = useState<AuditLog[]>([]);
   const [tasks, setTasks] = useState<import("@onshell/api-client").TaskItem[]>([]);
+  const [notifications, setNotifications] = useState<import("@onshell/api-client").AppNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [shells, setShells] = useState<LocalShell[]>([]);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>();
@@ -100,6 +104,7 @@ export function Console({ state }: Props) {
         setSessions(data.sessions);
         setAudit(data.audit);
         setTasks(data.tasks);
+        setNotifications(data.notifications);
       })
       .catch((cause: unknown) => {
         // Audit or session history being unavailable must not make the terminal
@@ -363,6 +368,22 @@ export function Console({ state }: Props) {
     setRestoring(false);
   }
 
+  async function openNamedWorkspace(hostIds: string[]) {
+    setError(undefined);
+    const opened: string[] = [];
+    let failures = 0;
+    for (const hostId of hostIds.slice(0, 4)) {
+      const host = hosts.find((item) => item.id === hostId);
+      if (!host) { failures += 1; continue; }
+      const target: TerminalTarget = { kind: state.connectionMode === "direct" ? "direct" : "relay", hostId };
+      const result = await bridge.terminals.open(target);
+      if (result.ok) { accept(result, target); opened.push(result.terminal.terminalId); }
+      else failures += 1;
+    }
+    if (opened.length > 1) setSecondaryId(opened.at(-2));
+    if (failures) setError(`${failures} workspace host${failures === 1 ? "" : "s"} could not be opened.`);
+  }
+
   /** Pastes a snippet into the focused terminal, without pressing return. */
   function sendSnippet(snippet: Snippet) {
     if (!activeId) {
@@ -468,6 +489,7 @@ export function Console({ state }: Props) {
             </div>
           ))}
           {overlay.kind === "tasks" && <div className="tab tab--active"><button className="tab__select"><Icon name="tasks" size={14}/><span className="tab__title">Tasks</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Tasks"><Icon name="close" size={13}/></button></div>}
+          {overlay.kind === "workspaces" && <div className="tab tab--active"><button className="tab__select"><Icon name="split" size={14}/><span className="tab__title">Workspaces</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Workspaces"><Icon name="close" size={13}/></button></div>}
           <button
             className="tab tab--new"
             aria-expanded={newTerminalOpen}
@@ -483,14 +505,15 @@ export function Console({ state }: Props) {
           <button className={`titlebar-tool${snippetsOpen ? " titlebar-tool--active" : ""}`} onClick={() => setSnippetsOpen((open) => !open)} aria-label="Snippets" data-tooltip="Snippets">
             <Icon name="code" size={15} />
           </button>
-          <button className="titlebar-tool" aria-label="Notifications" data-tooltip={update?.available ? `Update ${update.latest} available` : "Notifications"} onClick={() => update?.url && void bridge.openExternal(update.url)}>
+          <button className={`titlebar-tool${notificationsOpen ? " titlebar-tool--active" : ""}`} aria-label="Notifications" data-tooltip="Notifications" onClick={() => setNotificationsOpen((open) => !open)}>
             <Icon name="bell" size={15} />
-            {update?.available && <span className="notification-dot" />}
+            {(update?.available || notifications.some((item) => !item.read)) && <span className="notification-dot" />}
           </button>
           <span className="titlebar-connection" data-tooltip={`${state.connectionMode} connection`}>
             <span className="connection-state__dot" />
           </span>
         </div>
+        {notificationsOpen && <div className="desktop-notifications" role="dialog" aria-label="Notifications"><header><strong>Notifications</strong><button className="icon" onClick={() => setNotificationsOpen(false)}><Icon name="close" size={13}/></button></header><div>{update?.available && <article className="is-unread"><strong>Onshell {update.latest} is available</strong><p>A new desktop release is ready to download.</p>{update.url && <button onClick={() => void bridge.openExternal(update.url!)}>Open release</button>}</article>}{notifications.map((item) => <article className={item.read ? "" : "is-unread"} key={item.id} onClick={() => { if (!item.read) { void bridge.console.markNotificationRead(item.id); setNotifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, read: true } : entry)); } }}><strong>{item.title}</strong><p>{item.message}</p>{item.actionUrl && <button onClick={() => void bridge.openExternal(item.actionUrl!)}>Learn more</button>}</article>)}{notifications.length === 0 && !update?.available && <p className="hint">You’re all caught up.</p>}</div></div>}
         {newTerminalOpen && (
           <div className="new-terminal-menu" role="menu" aria-label="Open a terminal">
             <div className="new-terminal-menu__search">
@@ -558,6 +581,7 @@ export function Console({ state }: Props) {
           <Icon name="history" />
         </button>
         <button className={`activity-button${overlay.kind === "tasks" ? " activity-button--active" : ""}`} aria-label="Tasks" data-tooltip="Tasks" onClick={() => setOverlay({ kind: "tasks" })}><Icon name="tasks" /></button>
+        <button className={`activity-button${overlay.kind === "workspaces" ? " activity-button--active" : ""}`} aria-label="Workspaces" data-tooltip="Workspaces" onClick={() => setOverlay({ kind: "workspaces" })}><Icon name="split" /></button>
         <span className="activity-rail__spacer" />
         <button
           className={`activity-button${overlay.kind === "settings" ? " activity-button--active" : ""}`}
@@ -827,7 +851,7 @@ export function Console({ state }: Props) {
             <TerminalPane
               key={tab.terminalId}
               terminalId={tab.terminalId}
-              appearance={state.appearance}
+              appearance={{ ...state.appearance, terminalTheme: tab.target.kind !== "local" && tab.target.hostId ? state.appearance.hostThemes[tab.target.hostId] ?? state.appearance.terminalTheme : state.appearance.terminalTheme }}
               visible={
                 overlay.kind === "none" && (tab.terminalId === activeId || tab.terminalId === secondaryTab?.terminalId)
               }
@@ -835,10 +859,10 @@ export function Console({ state }: Props) {
             />
           ))}
 
-          {overlay.kind === "settings" && <Settings state={state} onClose={() => setOverlay({ kind: "none" })} />}
+          {overlay.kind === "settings" && <Settings state={state} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />}
 
           {overlay.kind === "files" && (
-            <Files remote={overlay.target} hostLabel={overlay.label} onClose={() => setOverlay({ kind: "none" })} />
+            <Files remote={overlay.target} hostLabel={overlay.label} hosts={hosts} connectionMode={state.connectionMode} onClose={() => setOverlay({ kind: "none" })} />
           )}
 
           {overlay.kind === "vault" && (
@@ -849,6 +873,7 @@ export function Console({ state }: Props) {
             <HistoryView sessions={sessions} audit={audit} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />
           )}
           {overlay.kind === "tasks" && <Tasks initial={tasks} />}
+          {overlay.kind === "workspaces" && <Workspaces hosts={hosts} currentHostIds={tabs.map((tab) => tab.target.kind === "local" ? undefined : tab.target.hostId).filter((id): id is string => Boolean(id))} onOpen={(ids) => void openNamedWorkspace(ids)} />}
 
           {overlay.kind === "none" && !activeTab && (
             <div className="empty">
