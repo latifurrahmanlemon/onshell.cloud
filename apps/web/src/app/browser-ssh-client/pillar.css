@@ -7,7 +7,9 @@
 }
 
 .pillar-inner {
-  max-width: 820px;
+  /* Keep long-form pages on the same horizontal grid as the public nav and
+     footer. Readable text sizing is handled by the individual content blocks. */
+  max-width: 1160px;
 }
 
 /* Answer-first box. Deliberately the first prose on the page so both a skimming
