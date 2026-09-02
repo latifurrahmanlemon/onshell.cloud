@@ -338,6 +338,11 @@ export interface OnshellBridge {
     save(targets: TerminalTarget[]): Promise<SavedWorkspace>;
   };
 
+  clipboard: {
+    readText(): Promise<string>;
+    writeText(text: string): Promise<void>;
+  };
+
   settings: {
     update(patch: { connectionMode?: "direct" | "relay"; appearance?: Partial<AppearanceSettings> }): Promise<AppState>;
   };
@@ -359,6 +364,8 @@ export interface OnshellBridge {
 export const CHANNELS = {
   getState: "app:get-state",
   state: "app:state",
+  clipboardReadText: "clipboard:read-text",
+  clipboardWriteText: "clipboard:write-text",
 
   serverProbe: "server:probe",
   serverUse: "server:use",

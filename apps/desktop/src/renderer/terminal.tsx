@@ -9,11 +9,12 @@
  * rebuilding it would lose the scrollback, and a shell whose history vanishes
  * when you glance at another tab is not a terminal anyone wants.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { bridge } from "./bridge.js";
 import type { AppearanceSettings } from "../shared/ipc.js";
+import { terminalClipboardAction } from "./terminal-clipboard.js";
 
 interface Props {
   terminalId: string;
@@ -33,8 +34,25 @@ const THEMES: Record<AppearanceSettings["terminalTheme"], NonNullable<Constructo
 
 export function TerminalPane({ terminalId, appearance, visible, position = "primary" }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal>(null);
   const fitRef = useRef<FitAddon>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number }>();
+
+  async function copySelection() {
+    const selection = termRef.current?.getSelection();
+    if (!selection) return;
+    await bridge.clipboard.writeText(selection);
+    setContextMenu(undefined);
+    termRef.current?.focus();
+  }
+
+  async function pasteClipboard() {
+    const text = await bridge.clipboard.readText();
+    if (text) termRef.current?.paste(text);
+    setContextMenu(undefined);
+    termRef.current?.focus();
+  }
 
   useEffect(() => {
     const host = hostRef.current;
@@ -55,6 +73,27 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
     term.open(host);
     termRef.current = term;
     fitRef.current = fit;
+
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      const action = terminalClipboardAction(event, isMac, term.hasSelection());
+
+      if (action === "copy") {
+        event.preventDefault();
+        const selection = term.getSelection();
+        if (selection) void bridge.clipboard.writeText(selection);
+        return false;
+      }
+      if (action === "paste") {
+        event.preventDefault();
+        void bridge.clipboard.readText().then((text) => {
+          if (text) term.paste(text);
+        });
+        return false;
+      }
+      return true;
+    });
 
     const input = term.onData((data) => bridge.terminals.write(terminalId, data));
 
@@ -118,5 +157,48 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
     return () => cancelAnimationFrame(frame);
   }, [visible, terminalId, position]);
 
-  return <div className={`terminal-pane terminal-pane--${position}`} hidden={!visible} ref={hostRef} />;
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(undefined);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [contextMenu]);
+
+  return (
+    <div
+      className={`terminal-pane terminal-pane--${position}`}
+      hidden={!visible}
+      ref={paneRef}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        const bounds = paneRef.current?.getBoundingClientRect();
+        if (!bounds) return;
+        setContextMenu({
+          x: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - 154)),
+          y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - 86))
+        });
+      }}
+    >
+      <div className="terminal-pane__host" ref={hostRef} />
+      {contextMenu && (
+        <div
+          className="terminal-context-menu"
+          role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button disabled={!termRef.current?.hasSelection()} onClick={() => void copySelection()} role="menuitem" type="button">
+            <span>Copy</span><kbd>{/Mac/.test(navigator.platform) ? "⌘C" : "Ctrl+C"}</kbd>
+          </button>
+          <button onClick={() => void pasteClipboard()} role="menuitem" type="button">
+            <span>Paste</span><kbd>{/Mac/.test(navigator.platform) ? "⌘V" : "Ctrl+V"}</kbd>
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

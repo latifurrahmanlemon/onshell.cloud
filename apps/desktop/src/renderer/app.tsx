@@ -6,9 +6,10 @@
  * changed — the next push takes this window back to sign-in without the UI
  * having to notice or agree.
  */
-import { useEffect, useState } from "react";
-import { bridge } from "./bridge.js";
+import { useEffect, useRef, useState } from "react";
+import { bridge, subscribeActivity } from "./bridge.js";
 import type { AppState } from "../shared/ipc.js";
+import logoUrl from "../../build/icon.png";
 import { ServerSetup } from "./screens/server-setup.js";
 import { SignIn } from "./screens/sign-in.js";
 import { Console } from "./screens/console.js";
@@ -16,6 +17,11 @@ import { Console } from "./screens/console.js";
 export function App() {
   const [state, setState] = useState<AppState>();
   const [changingServer, setChangingServer] = useState(false);
+  const [pending, setPending] = useState(0);
+
+  useEffect(() => {
+    return subscribeActivity(setPending);
+  }, []);
 
   useEffect(() => {
     void bridge.getState().then(setState);
@@ -36,19 +42,50 @@ export function App() {
 
   // Nothing renders until the first state arrives — a flash of the sign-in
   // screen for an already-signed-in user reads as having been signed out.
-  if (!state) return null;
-
-  if (!state.server || changingServer) return <ServerSetup />;
-
-  if (!state.user) {
-    return (
+  let screen;
+  if (!state) screen = null;
+  else if (!state.server || changingServer) screen = <ServerSetup />;
+  else if (!state.user) {
+    screen = (
       <SignIn
         serverLabel={state.server.label}
         keychainAvailable={state.keychainAvailable}
         onChangeServer={() => setChangingServer(true)}
       />
     );
-  }
+  } else screen = <Console state={state} />;
 
-  return <Console state={state} />;
+  return (
+    <>
+      {screen}
+      <AppActivity active={!state || pending > 0} logoUrl={logoUrl} />
+    </>
+  );
+}
+
+function AppActivity({ active, logoUrl }: { active: boolean; logoUrl: string }) {
+  const [visible, setVisible] = useState(active);
+  const hideTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    if (active) {
+      setVisible(true);
+      return;
+    }
+    hideTimer.current = window.setTimeout(() => setVisible(false), 240);
+    return () => {
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    };
+  }, [active]);
+
+  if (!visible) return null;
+  return (
+    <div className="app-activity" role="status" aria-live="polite" aria-label="Onshell is working">
+      <span className="app-activity__mark">
+        <img alt="" aria-hidden="true" src={logoUrl} />
+      </span>
+      <span>Working…</span>
+    </div>
+  );
 }

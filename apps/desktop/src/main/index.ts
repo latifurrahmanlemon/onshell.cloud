@@ -11,7 +11,7 @@
  * copy of this app, and the only way to guarantee that is for the server never
  * to be a source of executable code.
  */
-import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -238,6 +238,11 @@ async function openExternal(url: string) {
 
 function registerHandlers() {
   ipcMain.handle(CHANNELS.getState, () => buildState());
+  ipcMain.handle(CHANNELS.clipboardReadText, () => clipboard.readText());
+  ipcMain.handle(CHANNELS.clipboardWriteText, (_event, text: unknown) => {
+    if (typeof text !== "string") return;
+    clipboard.writeText(text.slice(0, 1_000_000));
+  });
 
   ipcMain.handle(CHANNELS.serverProbe, async (_event, input: string) => {
     try {

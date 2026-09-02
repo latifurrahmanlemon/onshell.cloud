@@ -109,6 +109,11 @@ const bridge: OnshellBridge = {
     save: (targets) => ipcRenderer.invoke(CHANNELS.workspaceSave, targets)
   },
 
+  clipboard: {
+    readText: () => ipcRenderer.invoke(CHANNELS.clipboardReadText),
+    writeText: (text) => ipcRenderer.invoke(CHANNELS.clipboardWriteText, text)
+  },
+
   updates: {
     check: (force) => ipcRenderer.invoke(CHANNELS.updatesCheck, force)
   },
