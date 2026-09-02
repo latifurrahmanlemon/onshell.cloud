@@ -2,6 +2,7 @@ import type { SVGProps } from "react";
 
 export type IconName =
   | "chevron-right"
+  | "bell"
   | "close"
   | "code"
   | "computer"
@@ -11,12 +12,14 @@ export type IconName =
   | "history"
   | "host"
   | "key"
+  | "logout"
   | "plus"
   | "refresh"
   | "search"
   | "split"
   | "star"
-  | "terminal";
+  | "terminal"
+  | "tasks";
 
 interface Props extends SVGProps<SVGSVGElement> {
   name: IconName;
@@ -26,6 +29,12 @@ interface Props extends SVGProps<SVGSVGElement> {
 /** One restrained, stroke-based icon language for every desktop control. */
 export function Icon({ name, size = 18, ...props }: Props) {
   const paths: Record<IconName, React.ReactNode> = {
+    bell: (
+      <>
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+        <path d="M10 21h4" />
+      </>
+    ),
     "chevron-right": <path d="m9 18 6-6-6-6" />,
     close: (
       <>
@@ -79,6 +88,13 @@ export function Icon({ name, size = 18, ...props }: Props) {
         <path d="m11 12 8-8M15 8l3 3M17 6l2 2" />
       </>
     ),
+    logout: (
+      <>
+        <path d="M10 17l5-5-5-5" />
+        <path d="M15 12H3" />
+        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      </>
+    ),
     plus: <path d="M12 5v14M5 12h14" />,
     refresh: (
       <>
@@ -103,6 +119,12 @@ export function Icon({ name, size = 18, ...props }: Props) {
       <>
         <path d="m4 17 6-6-6-6" />
         <path d="M12 19h8" />
+      </>
+    ),
+    tasks: (
+      <>
+        <path d="M9 6h11M9 12h11M9 18h11" />
+        <path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
       </>
     )
   };

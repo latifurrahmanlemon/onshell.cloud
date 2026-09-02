@@ -22,6 +22,7 @@ import {
   KeyRound,
   Laptop,
   Layers,
+  ListTodo,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -62,6 +63,7 @@ import {
   SettingsView,
   SnippetsView,
   TeamView,
+  TasksView,
   VaultView,
   WorkspacesView
 } from "./panels";
@@ -98,6 +100,7 @@ type ViewKey =
   | "sftp"
   | "vault"
   | "snippets"
+  | "tasks"
   | "team"
   | "billing"
   | "audit"
@@ -129,6 +132,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "sftp", label: "Files", icon: FolderLock },
   { key: "vault", label: "Vault", icon: KeyRound },
   { key: "snippets", label: "Snippets", icon: Braces },
+  { key: "tasks", label: "Tasks", icon: ListTodo },
   { key: "team", label: "Team", icon: Users },
   { key: "billing", label: "Plan & billing", icon: CreditCard },
   { key: "audit", label: "Audit", icon: ScrollText },
@@ -1283,6 +1287,7 @@ export function ConsoleApp() {
                 snippets={snippets}
               />
             )}
+            {view === "tasks" && <TasksView />}
 
             {view === "team" && (
               <TeamView

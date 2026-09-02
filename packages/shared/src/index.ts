@@ -212,6 +212,17 @@ export interface Snippet {
   updatedAt: string;
 }
 
+export interface TaskItem {
+  id: string;
+  organizationId: string;
+  ownerId: string;
+  text: string;
+  completed: boolean;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Plan {
   id: string;
   code: string;

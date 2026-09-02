@@ -46,6 +46,7 @@ import type {
   RemoteSession,
   Role,
   Snippet,
+  TaskItem,
   ThemePreference,
   User
 } from "./types.js";
@@ -124,9 +125,9 @@ export function createApiClient(options: ApiClientOptions) {
 
     hosts: async () => unwrapList<Host>(await request("/hosts"), "hosts"),
     createHost: (body: Record<string, unknown>) =>
-      request<unknown>("/hosts", { method: "POST", body: JSON.stringify(body) }),
+      request<Host>("/hosts", { method: "POST", body: JSON.stringify(body) }),
     updateHost: (id: string, body: Record<string, unknown>) =>
-      request<unknown>(`/hosts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+      request<Host>(`/hosts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deleteHost: (id: string) => request<unknown>(`/hosts/${id}`, { method: "DELETE" }),
     /** Pin or unpin a host for the signed-in account. Both calls are idempotent. */
     setHostFavorite: (id: string, favorite: boolean) =>
@@ -195,8 +196,14 @@ export function createApiClient(options: ApiClientOptions) {
 
     snippets: async () => unwrapList<Snippet>(await request("/snippets"), "snippets"),
     createSnippet: (body: Record<string, unknown>) =>
-      request<unknown>("/snippets", { method: "POST", body: JSON.stringify(body) }),
+      request<Snippet>("/snippets", { method: "POST", body: JSON.stringify(body) }),
     deleteSnippet: (id: string) => request<unknown>(`/snippets/${id}`, { method: "DELETE" }),
+
+    tasks: async () => unwrapList<TaskItem>(await request("/tasks"), "tasks"),
+    createTask: (text: string) => request<TaskItem>("/tasks", { method: "POST", body: JSON.stringify({ text }) }),
+    updateTask: (id: string, body: { text?: string; completed?: boolean }) =>
+      request<TaskItem>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    deleteTask: (id: string) => request<unknown>(`/tasks/${id}`, { method: "DELETE" }),
 
     audit: async (limit = 50) => unwrapList<AuditLog>(await request(`/audit?limit=${limit}`), "logs"),
 

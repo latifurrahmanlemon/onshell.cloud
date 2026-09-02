@@ -45,7 +45,15 @@ const bridge: OnshellBridge = {
   console: {
     load: () => ipcRenderer.invoke(CHANNELS.consoleLoad),
     hosts: () => ipcRenderer.invoke(CHANNELS.consoleHosts),
+    createHost: (input) => ipcRenderer.invoke(CHANNELS.consoleCreateHost, input),
+    updateHost: (hostId, input) => ipcRenderer.invoke(CHANNELS.consoleUpdateHost, hostId, input),
+    deleteHost: (hostId) => ipcRenderer.invoke(CHANNELS.consoleDeleteHost, hostId),
     snippets: () => ipcRenderer.invoke(CHANNELS.consoleSnippets),
+    createSnippet: (input) => ipcRenderer.invoke(CHANNELS.consoleCreateSnippet, input),
+    tasks: () => ipcRenderer.invoke(CHANNELS.consoleTasks),
+    createTask: (text) => ipcRenderer.invoke(CHANNELS.consoleCreateTask, text),
+    updateTask: (taskId, patch) => ipcRenderer.invoke(CHANNELS.consoleUpdateTask, taskId, patch),
+    deleteTask: (taskId) => ipcRenderer.invoke(CHANNELS.consoleDeleteTask, taskId),
     setFavorite: (hostId, favorite) => ipcRenderer.invoke(CHANNELS.consoleSetFavorite, hostId, favorite)
   },
 

@@ -116,6 +116,12 @@ function createWindow() {
     show: false,
     backgroundColor: "#0b0f14",
     title: "Onshell",
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 14, y: 14 }
+        }
+      : {}),
     webPreferences: {
       preload: path.join(dir, "preload.cjs"),
       contextIsolation: true,
@@ -333,19 +339,39 @@ function registerHandlers() {
     const client = requireApi();
     // Fetched together because the console is unusable with a partial picture,
     // and six sequential round trips over a slow link is a visible stall.
-    const [identity, hosts, credentials, snippets, sessions, audit] = await Promise.all([
+    const [identity, hosts, credentials, snippets, tasks, sessions, audit] = await Promise.all([
       client.me(),
       client.hosts(),
       client.credentials(),
       client.snippets(),
+      client.tasks(),
       client.sessions(),
       client.audit(50)
     ]);
-    return { identity, hosts, credentials, snippets, sessions, audit };
+    return { identity, hosts, credentials, snippets, tasks, sessions, audit };
   });
 
   ipcMain.handle(CHANNELS.consoleHosts, () => requireApi().hosts());
+  ipcMain.handle(CHANNELS.consoleCreateHost, (_event, input: Record<string, unknown>) => requireApi().createHost(input));
+  ipcMain.handle(CHANNELS.consoleUpdateHost, (_event, hostId: string, input: Record<string, unknown>) =>
+    requireApi().updateHost(hostId, input)
+  );
+  ipcMain.handle(CHANNELS.consoleDeleteHost, async (_event, hostId: string) => {
+    await requireApi().deleteHost(hostId);
+  });
   ipcMain.handle(CHANNELS.consoleSnippets, () => requireApi().snippets());
+  ipcMain.handle(CHANNELS.consoleCreateSnippet, async (_event, input: unknown) => {
+    const body = input as { name?: unknown; command?: unknown; scope?: unknown };
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const command = typeof body?.command === "string" ? body.command : "";
+    const scope = body?.scope === "team" ? "team" : "personal";
+    if (name.length < 2 || command.length < 1) throw new Error("Name and command are required.");
+    return requireApi().createSnippet({ name, command, scope });
+  });
+  ipcMain.handle(CHANNELS.consoleTasks, () => requireApi().tasks());
+  ipcMain.handle(CHANNELS.consoleCreateTask, (_event, text: string) => requireApi().createTask(text));
+  ipcMain.handle(CHANNELS.consoleUpdateTask, (_event, taskId: string, patch: { text?: string; completed?: boolean }) => requireApi().updateTask(taskId, patch));
+  ipcMain.handle(CHANNELS.consoleDeleteTask, async (_event, taskId: string) => { await requireApi().deleteTask(taskId); });
   ipcMain.handle(CHANNELS.consoleSetFavorite, async (_event, hostId: string, favorite: boolean) => {
     await requireApi().setHostFavorite(hostId, favorite);
   });

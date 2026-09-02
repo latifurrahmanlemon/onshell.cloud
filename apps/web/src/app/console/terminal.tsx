@@ -113,6 +113,8 @@ export default function XtermTerminal({
       lineHeight: 1.4,
       cursorBlink: true,
       theme: themeById(settingsRef.current.themeId).colors,
+      minimumContrastRatio: 4.5,
+      rescaleOverlappingGlyphs: true,
       allowProposedApi: true
     });
     const fit = new FitAddon();
@@ -121,6 +123,19 @@ export default function XtermTerminal({
     fit.fit();
     terminalRef.current = terminal;
     fitRef.current = fit;
+
+    // The mono webfont can finish loading after xterm measures its cells. A
+    // stale measurement is especially visible when a command wraps: the new
+    // row is painted over the old one. Re-measure once the real font is ready.
+    void document.fonts?.ready.then(() => {
+      if (terminalRef.current !== terminal) return;
+      terminal.clearTextureAtlas();
+      try {
+        fit.fit();
+      } catch {
+        // The tab may have been hidden while the font loaded.
+      }
+    });
 
     // Clipboard keys, the way a desktop terminal binds them. Left alone, xterm
     // turns Ctrl+C into SIGINT and Ctrl+V into a literal ^V, so neither reaches

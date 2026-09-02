@@ -37,9 +37,11 @@ import {
   Laptop,
   Layers,
   Link2,
+  ListTodo,
   Loader2,
   LogOut,
   Mail,
+  Minus,
   MonitorSmartphone,
   MonitorUp,
   Palette,
@@ -67,6 +69,7 @@ import type {
   Organization,
   Role,
   Snippet,
+  TaskItem,
   User,
 } from "@onshell/shared";
 import {
@@ -87,6 +90,42 @@ import type {
   TeamMember,
 } from "./api";
 import { consoleApi } from "./api";
+
+export function TasksView() {
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "active" | "completed">("active");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => consoleApi.tasks().then(setTasks), []);
+  useEffect(() => { void load(); }, [load]);
+  const visible = tasks.filter((task) => {
+    const stateMatches = filter === "all" || (filter === "completed" ? task.completed : !task.completed);
+    return stateMatches && task.text.toLowerCase().includes(query.trim().toLowerCase());
+  });
+  async function add(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const text = String(new FormData(form).get("task") ?? "").trim();
+    if (!text) return;
+    setBusy(true);
+    try { const task = await consoleApi.createTask(text); setTasks((current) => [task, ...current]); form.reset(); }
+    finally { setBusy(false); }
+  }
+  async function toggle(task: TaskItem) {
+    const next = await consoleApi.updateTask(task.id, { completed: !task.completed });
+    setTasks((current) => current.map((item) => item.id === next.id ? next : item));
+  }
+  async function remove(task: TaskItem) {
+    await consoleApi.deleteTask(task.id);
+    setTasks((current) => current.filter((item) => item.id !== task.id));
+  }
+  return <section className="panel tasks-view">
+    <div className="panel-header"><div><h2>Tasks</h2><p>Small things to remember, synced across web and desktop.</p></div></div>
+    <form className="task-compose" onSubmit={add}><ListTodo size={17}/><input name="task" maxLength={2000} placeholder="Add a task…" aria-label="New task"/><button className="primary-button" disabled={busy} type="submit"><Plus size={15}/>Add</button></form>
+    <div className="task-tools"><div className="search-field"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks…" aria-label="Search tasks"/></div><div className="task-filters">{(["active","all","completed"] as const).map((value) => <button key={value} className={filter === value ? "is-active" : ""} onClick={() => setFilter(value)} type="button">{value}</button>)}</div></div>
+    <div className="task-list">{visible.map((task) => <article className={task.completed ? "is-completed" : ""} key={task.id}><button className="task-check" aria-label={task.completed ? "Mark active" : "Mark complete"} onClick={() => void toggle(task)} type="button">{task.completed && <Check size={14}/>}</button><div><p>{task.text}</p><small>{task.completedAt ? `Completed ${relativeTime(task.completedAt)}` : `Added ${relativeTime(task.createdAt)}`}</small></div><button className="icon-button compact danger" aria-label="Delete task" onClick={() => void remove(task)} type="button"><Trash2 size={14}/></button></article>)}{visible.length === 0 && <EmptyState icon={<ListTodo size={22}/>} title="No tasks here" hint={query ? "Try another search." : "Add a task to get started."}/>}</div>
+  </section>;
+}
 import { HostTransferPanel } from "./host-transfer";
 import type { AccentValue, ThemeMode } from "../theme";
 import { ACCENT_PRESETS, accentToHex, isDefaultAccent } from "../theme";
@@ -192,6 +231,7 @@ function HostPicker({
   emptyHint,
   label = "Hosts",
   granted,
+  allowDuplicates = false,
 }: {
   hosts: Host[];
   selected: string[];
@@ -204,6 +244,8 @@ function HostPicker({
    * that rewrites the whole set can still be read as a change to what is there.
    */
   granted?: readonly string[];
+  /** Workspaces may intentionally open more than one shell on the same host. */
+  allowDuplicates?: boolean;
 }) {
   const [needle, setNeedle] = useState("");
   const visible = useMemo(() => {
@@ -221,13 +263,22 @@ function HostPicker({
   const toggle = (hostId: string, checked: boolean) =>
     onChange(checked ? [...selected, hostId] : selected.filter((id) => id !== hostId));
 
+  const add = (hostId: string) => onChange([...selected, hostId]);
+  const removeOne = (hostId: string) => {
+    const index = selected.lastIndexOf(hostId);
+    if (index < 0) return;
+    onChange(selected.filter((_, selectedIndex) => selectedIndex !== index));
+  };
+
   return (
     <div aria-label={label} className="span-two host-picker" role="group">
       <div className="host-picker-head">
         {/* Announced on change: with bulk actions in reach, the count is the only
             feedback that a click did what it looked like it did. */}
         <span aria-live="polite" role="status">
-          {selected.length} of {hosts.length} host{hosts.length === 1 ? "" : "s"} selected
+          {allowDuplicates
+            ? `${selected.length} terminal${selected.length === 1 ? "" : "s"} selected`
+            : `${selected.length} of ${hosts.length} host${hosts.length === 1 ? "" : "s"} selected`}
         </span>
         {/* One credential across thirty hosts is a normal shape, so both
             directions are one click rather than thirty. Bulk actions apply to
@@ -235,13 +286,25 @@ function HostPicker({
         <div className="host-picker-bulk">
           <button
             className="link-button"
-            disabled={visible.length === 0 || visible.every((host) => selected.includes(host.id))}
+            disabled={
+              visible.length === 0 ||
+              (allowDuplicates
+                ? selected.length >= 20
+                : visible.every((host) => selected.includes(host.id)))
+            }
             onClick={() =>
-              onChange([...selected, ...visible.filter((host) => !selected.includes(host.id)).map((host) => host.id)])
+              onChange(
+                [
+                  ...selected,
+                  ...visible
+                    .filter((host) => allowDuplicates || !selected.includes(host.id))
+                    .map((host) => host.id),
+                ].slice(0, 20),
+              )
             }
             type="button"
           >
-            {needle.trim() ? "Select shown" : "Select all"}
+            {allowDuplicates ? (needle.trim() ? "Add shown" : "Add all") : needle.trim() ? "Select shown" : "Select all"}
           </button>
           <button
             className="link-button"
@@ -273,15 +336,38 @@ function HostPicker({
             <ul className="host-picker-list">
               {visible.map((host) => {
                 const held = grantedSet.has(host.id);
+                const selectedCount = selected.filter((id) => id === host.id).length;
                 return (
                   <li key={host.id}>
-                    <label className="host-picker-item">
-                      <input
-                        aria-label={`Select ${host.name}${held ? " (already granted)" : ""}`}
-                        checked={selected.includes(host.id)}
-                        onChange={(event) => toggle(host.id, event.target.checked)}
-                        type="checkbox"
-                      />
+                    <div className={cx("host-picker-item", allowDuplicates && "is-multiple")}>
+                      {allowDuplicates ? (
+                        <span className="host-picker-stepper">
+                          <button
+                            aria-label={`Remove one ${host.name} terminal`}
+                            disabled={selectedCount === 0}
+                            onClick={() => removeOne(host.id)}
+                            type="button"
+                          >
+                            <Minus size={13} />
+                          </button>
+                          <output aria-label={`${selectedCount} ${host.name} terminals`}>{selectedCount}</output>
+                          <button
+                            aria-label={`Add another ${host.name} terminal`}
+                            disabled={selected.length >= 20}
+                            onClick={() => add(host.id)}
+                            type="button"
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </span>
+                      ) : (
+                        <input
+                          aria-label={`Select ${host.name}${held ? " (already granted)" : ""}`}
+                          checked={selected.includes(host.id)}
+                          onChange={(event) => toggle(host.id, event.target.checked)}
+                          type="checkbox"
+                        />
+                      )}
                       <span className="host-picker-item-main">
                         <span className="host-picker-item-name">
                           <strong>{host.name}</strong>
@@ -295,7 +381,7 @@ function HostPicker({
                         </small>
                       </span>
                       <span className={cx("env-pill", host.environment)}>{host.environment}</span>
-                    </label>
+                    </div>
                   </li>
                 );
               })}
@@ -1888,6 +1974,7 @@ export function WorkspacesView({
             <input name="description" placeholder="Deploy order: canary first" />
           </label>
           <HostPicker
+            allowDuplicates
             emptyHint="No hosts yet — add one first, then group them here."
             hosts={hosts}
             onChange={setDraftHostIds}
@@ -1922,6 +2009,7 @@ export function WorkspacesView({
               <input defaultValue={editing.description ?? ""} name="description" />
             </label>
             <HostPicker
+              allowDuplicates
               emptyHint="No hosts available to this account."
               hosts={hosts}
               onChange={setDraftHostIds}

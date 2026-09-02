@@ -14,6 +14,7 @@ import type {
   Host,
   RemoteSession,
   Snippet,
+  TaskItem,
   User
 } from "@onshell/api-client";
 
@@ -225,6 +226,7 @@ export interface ConsoleData {
   hosts: Host[];
   credentials: CredentialSummary[];
   snippets: Snippet[];
+  tasks: TaskItem[];
   sessions: RemoteSession[];
   audit: AuditLog[];
 }
@@ -265,7 +267,15 @@ export interface OnshellBridge {
   console: {
     load(): Promise<ConsoleData>;
     hosts(): Promise<Host[]>;
+    createHost(input: Record<string, unknown>): Promise<Host>;
+    updateHost(hostId: string, input: Record<string, unknown>): Promise<Host>;
+    deleteHost(hostId: string): Promise<void>;
     snippets(): Promise<Snippet[]>;
+    createSnippet(input: { name: string; command: string; scope: "personal" | "team" }): Promise<Snippet>;
+    tasks(): Promise<TaskItem[]>;
+    createTask(text: string): Promise<TaskItem>;
+    updateTask(taskId: string, patch: { text?: string; completed?: boolean }): Promise<TaskItem>;
+    deleteTask(taskId: string): Promise<void>;
     setFavorite(hostId: string, favorite: boolean): Promise<void>;
   };
 
@@ -350,7 +360,15 @@ export const CHANNELS = {
 
   consoleLoad: "console:load",
   consoleHosts: "console:hosts",
+  consoleCreateHost: "console:create-host",
+  consoleUpdateHost: "console:update-host",
+  consoleDeleteHost: "console:delete-host",
   consoleSnippets: "console:snippets",
+  consoleCreateSnippet: "console:create-snippet",
+  consoleTasks: "console:tasks",
+  consoleCreateTask: "console:create-task",
+  consoleUpdateTask: "console:update-task",
+  consoleDeleteTask: "console:delete-task",
   consoleSetFavorite: "console:set-favorite",
 
   sharingState: "sharing:state",

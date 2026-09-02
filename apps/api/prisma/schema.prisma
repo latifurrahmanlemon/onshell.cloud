@@ -137,6 +137,7 @@ model User {
   memberships              OrganizationMember[]
   sessions                 Session[]
   snippets                 Snippet[]
+  tasks                    TaskItem[]
   refreshTokens            RefreshToken[]
   twoFactorSecret          TwoFactorSecret?
   passwordResetToken       PasswordResetToken[]
@@ -181,6 +182,7 @@ model Organization {
   sessions           Session[]
   auditLogs          AuditLog[]
   snippets           Snippet[]
+  tasks              TaskItem[]
   subscriptions      Subscription[]
   usageRecords       UsageRecord[]
   aiThreads          AiThread[]
@@ -365,8 +367,9 @@ model HostWorkspaceHost {
   workspace   HostWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   host        Host          @relation(fields: [hostId], references: [id], onDelete: Cascade)
 
-  /// A host appearing twice would open a duplicate terminal for no reason.
-  @@unique([workspaceId, hostId])
+  /// Position, rather than host id, identifies an entry: repeating a host is a
+  /// supported way to open multiple independent shells on the same machine.
+  @@unique([workspaceId, position])
   /// Deleting a host cascades through this index rather than table-scanning
   /// every workspace in the install.
   @@index([hostId])
@@ -547,6 +550,21 @@ model Snippet {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   host           Host?        @relation(fields: [hostId], references: [id])
+}
+
+model TaskItem {
+  id             String       @id @default(cuid())
+  organizationId String
+  ownerId        String
+  text           String       @db.Text
+  completed      Boolean      @default(false)
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, ownerId, completed, createdAt])
 }
 
 model SftpOperation {

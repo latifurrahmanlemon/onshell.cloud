@@ -207,8 +207,12 @@
 }
 
 .terminal-tab.is-active {
-  background: var(--ink);
-  color: var(--text);
+  /* This tab belongs to the application chrome, not to the terminal canvas.
+     Using --ink here made the light-theme label inherit dark application text
+     on an always-dark background. Keep it on semantic theme tokens instead. */
+  border-color: var(--accent-weak-border);
+  background: var(--accent-weak);
+  color: var(--accent-text);
 }
 
 .terminal-tab .tab-dot {
@@ -280,7 +284,10 @@
   /* Fill the available viewport height so the terminal scales with the
      screen instead of sitting at a fixed cap. */
   height: clamp(320px, calc(100vh - 250px), 1400px);
-  padding: 10px;
+  /* Horizontal breathing room without a blank strip below the last terminal
+     row. The xterm viewport itself now owns the full available height. */
+  padding: 10px 10px 0;
+  overflow: hidden;
 }
 
 .xterm-container,
@@ -288,6 +295,10 @@
 .xterm-container .xterm-viewport {
   width: 100%;
   height: 100%;
+}
+
+.xterm-container .xterm-screen {
+  max-width: 100%;
 }
 
 .terminal-empty {
@@ -2875,7 +2886,7 @@
   list-style: none;
 }
 
-.form-grid label.host-picker-item {
+.form-grid .host-picker-item {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -2884,8 +2895,51 @@
   cursor: pointer;
 }
 
-.form-grid label.host-picker-item:hover {
+.form-grid .host-picker-item:hover {
   background: var(--surface-3, rgba(127, 127, 127, 0.08));
+}
+
+.form-grid .host-picker-item.is-multiple {
+  cursor: default;
+}
+
+.host-picker-stepper {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.host-picker-stepper button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.host-picker-stepper button:hover:not(:disabled) {
+  border-color: var(--accent-weak-border);
+  color: var(--accent-text);
+}
+
+.host-picker-stepper button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.host-picker-stepper output {
+  min-width: 20px;
+  color: var(--text);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .form-grid .host-picker-item input {
@@ -2945,6 +2999,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Tasks */
+.tasks-view { max-width: 980px; }
+.task-compose { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; margin: 0 14px 12px; padding: 10px 10px 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--soft); }
+.task-compose input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
+.task-tools { display: flex; justify-content: space-between; gap: 12px; margin: 0 14px 12px; }
+.task-filters { display: inline-flex; gap: 3px; padding: 3px; border-radius: 8px; background: var(--surface-2); }
+.task-filters button { padding: 5px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--soft); cursor: pointer; font-size: 11px; text-transform: capitalize; }
+.task-filters button.is-active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 10%); }
+.task-list { display: grid; gap: 5px; margin: 0 14px 14px; }
+.task-list article { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 11px; min-height: 56px; padding: 8px 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.task-check { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: transparent; color: var(--on-accent); cursor: pointer; }
+.task-list article.is-completed .task-check { border-color: var(--accent); background: var(--accent); }
+.task-list article p { margin: 0; color: var(--text); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.task-list article small { color: var(--soft); font-size: 10.5px; }
+.task-list article.is-completed p { color: var(--soft); text-decoration: line-through; }
+@media (max-width: 620px) { .task-tools { flex-direction: column; } .task-tools .search-field { width: 100%; } }
 
 /* ==========================================================================
    Host import / export workspace.

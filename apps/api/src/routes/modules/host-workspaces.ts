@@ -128,7 +128,9 @@ export async function registerHostWorkspaceRoutes(app: FastifyInstance) {
       select: { id: true }
     });
     const allowedSet = new Set(allowed.map((host) => host.id));
-    return requested.filter((hostId) => allowedSet.has(hostId));
+    // Preserve the submitted order and repetitions: each occurrence represents
+    // one terminal pane, while the unique list above is only for access lookup.
+    return hostIds.filter((hostId) => allowedSet.has(hostId));
   }
 
   app.get("/host-workspaces", async (request, reply) => {

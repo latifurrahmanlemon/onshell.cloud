@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, type LocalShell, type TerminalOpened, type TerminalTarget } from "../bridge.js";
-import type { AppState, FileSessionTargetRequest } from "../../shared/ipc.js";
+import type { AppState, FileSessionTargetRequest, UpdateStatus } from "../../shared/ipc.js";
 import type { AuditLog, CredentialSummary, Host, RemoteSession, Snippet } from "@onshell/api-client";
 import { TerminalPane } from "../terminal.js";
 import { Files } from "./files.js";
@@ -16,6 +16,7 @@ import { Settings } from "./settings.js";
 import { Icon } from "../icons.js";
 import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, VaultView } from "./resource-view.js";
+import { Tasks } from "./tasks.js";
 
 interface Props {
   state: AppState;
@@ -31,6 +32,7 @@ type Overlay =
   | { kind: "settings" }
   | { kind: "vault" }
   | { kind: "history" }
+  | { kind: "tasks" }
   | { kind: "files"; target: FileSessionTargetRequest; label: string };
 
 export function Console({ state }: Props) {
@@ -39,6 +41,7 @@ export function Console({ state }: Props) {
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
   const [sessions, setSessions] = useState<RemoteSession[]>([]);
   const [audit, setAudit] = useState<AuditLog[]>([]);
+  const [tasks, setTasks] = useState<import("@onshell/api-client").TaskItem[]>([]);
   const [shells, setShells] = useState<LocalShell[]>([]);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>();
@@ -57,6 +60,16 @@ export function Console({ state }: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
   const workspaceTouchedRef = useRef(false);
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateStatus>();
+  const [snippetsOpen, setSnippetsOpen] = useState(false);
+  const [snippetQuery, setSnippetQuery] = useState("");
+  const [snippetCreateOpen, setSnippetCreateOpen] = useState(false);
+  const [snippetPosition, setSnippetPosition] = useState({ x: 0, y: 0 });
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [hostEditor, setHostEditor] = useState<Host | "new">();
+  const [newTerminalOpen, setNewTerminalOpen] = useState(false);
+  const [newTerminalQuery, setNewTerminalQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +99,7 @@ export function Console({ state }: Props) {
         setCredentials(data.credentials);
         setSessions(data.sessions);
         setAudit(data.audit);
+        setTasks(data.tasks);
       })
       .catch((cause: unknown) => {
         // Audit or session history being unavailable must not make the terminal
@@ -105,6 +119,10 @@ export function Console({ state }: Props) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void bridge.updates.check().then(setUpdate);
   }, []);
 
   useEffect(() => {
@@ -172,6 +190,65 @@ export function Console({ state }: Props) {
   }, [hosts, query]);
 
   const activeTab = tabs.find((tab) => tab.terminalId === activeId);
+  const visibleSnippets = snippets.filter((snippet) =>
+    `${snippet.name} ${snippet.command}`.toLowerCase().includes(snippetQuery.trim().toLowerCase())
+  );
+  const newTerminalHosts = hosts.filter((host) =>
+    `${host.name} ${host.address} ${host.username ?? ""}`.toLowerCase().includes(newTerminalQuery.trim().toLowerCase())
+  );
+  const newTerminalShells = shells.filter((shell) =>
+    `${shell.label} ${shell.command}`.toLowerCase().includes(newTerminalQuery.trim().toLowerCase())
+  );
+
+  async function createSnippet(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    try {
+      const snippet = await bridge.console.createSnippet({
+        name: String(data.get("name") ?? ""),
+        command: String(data.get("command") ?? ""),
+        scope: data.get("scope") === "team" ? "team" : "personal"
+      });
+      setSnippets((current) => [snippet, ...current]);
+      setSnippetCreateOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create the snippet.");
+    }
+  }
+
+  async function saveHost(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const input = {
+      name: String(data.get("name") ?? ""), type: "ssh",
+      address: String(data.get("address") ?? ""), port: Number(data.get("port") ?? 22),
+      username: String(data.get("username") ?? "") || undefined,
+      environment: String(data.get("environment") ?? "development"),
+      tags: String(data.get("tags") ?? "").split(",").map((tag) => tag.trim()).filter(Boolean)
+    };
+    try {
+      if (hostEditor === "new") {
+        const host = await bridge.console.createHost(input);
+        setHosts((current) => [...current, host]);
+      } else if (hostEditor) {
+        const host = await bridge.console.updateHost(hostEditor.id, input);
+        setHosts((current) => current.map((item) => item.id === host.id ? host : item));
+      }
+      setHostEditor(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the host.");
+    }
+  }
+
+  async function deleteHost(host: Host) {
+    if (!confirm(`Delete ${host.name}?`)) return;
+    try {
+      await bridge.console.deleteHost(host.id);
+      setHosts((current) => current.filter((item) => item.id !== host.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete the host.");
+    }
+  }
 
   function accept(result: Awaited<ReturnType<typeof bridge.terminals.open>>, target: TerminalTarget) {
     if (!result.ok) return false;
@@ -371,8 +448,73 @@ export function Console({ state }: Props) {
   ];
 
   return (
-    <div className="console">
+    <div className={`console${sidebarOpen ? "" : " console--sidebar-hidden"}`}>
       {paletteOpen && <CommandPalette actions={commandActions} onClose={() => setPaletteOpen(false)} />}
+      <header className={`console-titlebar${state.platform === "darwin" ? " console-titlebar--mac" : ""}`}>
+        <div className="console-titlebar__drag" />
+        <div className="tabs" role="tablist" aria-label="Open terminals">
+          {tabs.map((tab) => (
+            <div
+              key={tab.terminalId}
+              className={`tab${tab.terminalId === activeId && overlay.kind === "none" ? " tab--active" : ""}`}
+            >
+              <button className="tab__select" type="button" onClick={() => { setActiveId(tab.terminalId); setOverlay({ kind: "none" }); }}>
+                <span className={`tab__status tab__status--${tab.mode}`} />
+                <span className="tab__title">{tab.title}{tab.closed ? " (ended)" : ""}</span>
+              </button>
+              <button className="tab__close" onClick={() => void closeTab(tab.terminalId)} aria-label={`Close ${tab.title}`}>
+                <Icon name="close" size={13} />
+              </button>
+            </div>
+          ))}
+          {overlay.kind === "tasks" && <div className="tab tab--active"><button className="tab__select"><Icon name="tasks" size={14}/><span className="tab__title">Tasks</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Tasks"><Icon name="close" size={13}/></button></div>}
+          <button
+            className="tab tab--new"
+            aria-expanded={newTerminalOpen}
+            aria-haspopup="menu"
+            aria-label="Open a terminal"
+            title="Open a terminal"
+            onClick={() => setNewTerminalOpen((open) => !open)}
+          >
+            <Icon name="plus" size={15} />
+          </button>
+        </div>
+        <div className="console-titlebar__tools">
+          <button className={`titlebar-tool${snippetsOpen ? " titlebar-tool--active" : ""}`} onClick={() => setSnippetsOpen((open) => !open)} aria-label="Snippets" data-tooltip="Snippets">
+            <Icon name="code" size={15} />
+          </button>
+          <button className="titlebar-tool" aria-label="Notifications" data-tooltip={update?.available ? `Update ${update.latest} available` : "Notifications"} onClick={() => update?.url && void bridge.openExternal(update.url)}>
+            <Icon name="bell" size={15} />
+            {update?.available && <span className="notification-dot" />}
+          </button>
+          <span className="titlebar-connection" data-tooltip={`${state.connectionMode} connection`}>
+            <span className="connection-state__dot" />
+          </span>
+        </div>
+        {newTerminalOpen && (
+          <div className="new-terminal-menu" role="menu" aria-label="Open a terminal">
+            <div className="new-terminal-menu__search">
+              <Icon name="search" size={14} />
+              <input autoFocus value={newTerminalQuery} onChange={(event) => setNewTerminalQuery(event.target.value)} placeholder="Search hosts or shells" aria-label="Search hosts or shells" />
+            </div>
+            <div className="new-terminal-menu__list">
+              {newTerminalShells.map((shell) => (
+                <button key={shell.id} role="menuitem" onClick={() => { setNewTerminalOpen(false); setNewTerminalQuery(""); void openLocal(shell.id); }}>
+                  <span className="resource-icon resource-icon--local"><Icon name="terminal" size={14} /></span>
+                  <span><strong>{shell.label}</strong><small>This computer · Local shell</small></span>
+                </button>
+              ))}
+              {newTerminalHosts.map((host) => (
+                <button key={host.id} role="menuitem" onClick={() => { setNewTerminalOpen(false); setNewTerminalQuery(""); void openHost(host); }}>
+                  <span className="resource-icon"><Icon name="host" size={14} /></span>
+                  <span><strong>{host.name}</strong><small>{host.username ? `${host.username}@` : ""}{host.address}{host.port !== 22 ? `:${host.port}` : ""}</small></span>
+                </button>
+              ))}
+              {newTerminalShells.length === 0 && newTerminalHosts.length === 0 && <p>No matching hosts or shells.</p>}
+            </div>
+          </div>
+        )}
+      </header>
       <nav className="activity-rail" aria-label="Workspace navigation">
         <div className="activity-rail__brand" aria-label="Onshell">
           O
@@ -381,7 +523,7 @@ export function Console({ state }: Props) {
           className={`activity-button${overlay.kind === "none" ? " activity-button--active" : ""}`}
           aria-label="Hosts"
           title="Hosts"
-          onClick={() => setOverlay({ kind: "none" })}
+          onClick={() => { setOverlay({ kind: "none" }); setSidebarOpen((open) => !open); }}
         >
           <Icon name="host" />
         </button>
@@ -400,19 +542,6 @@ export function Console({ state }: Props) {
           <Icon name="files" />
         </button>
         <button
-          className="activity-button"
-          aria-label="Focus snippets"
-          title="Snippets"
-          onClick={() => {
-            setOverlay({ kind: "none" });
-            requestAnimationFrame(() =>
-              document.getElementById("snippets-heading")?.scrollIntoView({ block: "start" })
-            );
-          }}
-        >
-          <Icon name="code" />
-        </button>
-        <button
           className={`activity-button${overlay.kind === "vault" ? " activity-button--active" : ""}`}
           aria-label="Vault"
           title="Vault"
@@ -428,6 +557,7 @@ export function Console({ state }: Props) {
         >
           <Icon name="history" />
         </button>
+        <button className={`activity-button${overlay.kind === "tasks" ? " activity-button--active" : ""}`} aria-label="Tasks" data-tooltip="Tasks" onClick={() => setOverlay({ kind: "tasks" })}><Icon name="tasks" /></button>
         <span className="activity-rail__spacer" />
         <button
           className={`activity-button${overlay.kind === "settings" ? " activity-button--active" : ""}`}
@@ -437,8 +567,17 @@ export function Console({ state }: Props) {
         >
           <Icon name="gear" />
         </button>
-        <div className="account-avatar" title={state.user?.email}>
-          {(state.user?.name ?? state.user?.email ?? "U").slice(0, 1).toUpperCase()}
+        <div className="account-menu">
+          <button className="account-avatar" aria-expanded={profileOpen} aria-label="Open profile menu" onClick={() => setProfileOpen((open) => !open)} data-tooltip="Profile">
+            {state.user?.avatarUrl ? <img alt="" src={state.user.avatarUrl} /> : (state.user?.name ?? state.user?.email ?? "U").slice(0, 1).toUpperCase()}
+          </button>
+          {profileOpen && (
+            <div className="account-popover">
+              <strong>{state.user?.name ?? "Onshell user"}</strong>
+              <span>{state.user?.email}</span>
+              <button onClick={() => void bridge.auth.signOut()}><Icon name="logout" size={14} /> Sign out</button>
+            </div>
+          )}
         </div>
       </nav>
       <aside className="sidebar">
@@ -449,9 +588,9 @@ export function Console({ state }: Props) {
           </div>
           <button
             className="icon icon--framed"
-            title="New local terminal"
-            aria-label="New local terminal"
-            onClick={() => void openLocal()}
+            title="Add host"
+            aria-label="Add host"
+            onClick={() => setHostEditor("new")}
           >
             <Icon name="plus" size={16} />
           </button>
@@ -520,6 +659,11 @@ export function Console({ state }: Props) {
                 </span>
               </button>
               <div className="host__actions">
+                {!host.isLocal && !host.isAgent && (
+                  <button className="icon" title="Edit host" onClick={() => setHostEditor(host)}>
+                    <Icon name="gear" size={14} />
+                  </button>
+                )}
                 <button
                   className="icon"
                   title={host.isFavorite ? "Unpin" : "Pin"}
@@ -543,34 +687,15 @@ export function Console({ state }: Props) {
                 >
                   <Icon name="folder" size={15} />
                 </button>
+                {!host.isLocal && !host.isAgent && (
+                  <button className="icon icon--danger" title="Delete host" onClick={() => void deleteHost(host)}>
+                    <Icon name="close" size={14} />
+                  </button>
+                )}
               </div>
             </div>
           ))}
 
-          {snippets.length > 0 && (
-            <>
-              <div className="sidebar__section" id="snippets-heading">
-                <span>Snippets</span>
-                <span>{snippets.length}</span>
-              </div>
-              {snippets.map((snippet) => (
-                <button
-                  key={snippet.id}
-                  className="host host--simple"
-                  onClick={() => sendSnippet(snippet)}
-                  title={snippet.command}
-                >
-                  <span className="resource-icon resource-icon--snippet">
-                    <Icon name="code" size={15} />
-                  </span>
-                  <span className="host__copy">
-                    <span className="host__name">{snippet.name}</span>
-                    <span className="host__meta">Insert command</span>
-                  </span>
-                </button>
-              ))}
-            </>
-          )}
         </div>
 
         <div className="sidebar__foot">
@@ -578,54 +703,61 @@ export function Console({ state }: Props) {
             <span className="connection-state__dot" />
             {state.connectionMode} connection
           </span>
-          <button className="text-button" onClick={() => void bridge.auth.signOut()}>
-            Sign out
-          </button>
         </div>
       </aside>
 
       <main className="workspace">
-        {tabs.length > 0 && (
-          <div className="tabs">
-            {tabs.map((tab) => (
-              <div
-                key={tab.terminalId}
-                className={`tab${tab.terminalId === activeId && overlay.kind === "none" ? " tab--active" : ""}`}
-              >
-                <button
-                  className="tab__select"
-                  type="button"
-                  onClick={() => {
-                    setActiveId(tab.terminalId);
-                    setOverlay({ kind: "none" });
-                  }}
-                >
-                  <span className={`tab__status tab__status--${tab.mode}`} />
-                  <span className="tab__title">
-                    {tab.title}
-                    {tab.closed ? " (ended)" : ""}
-                  </span>
-                </button>
-                <button
-                  className="tab__close"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void closeTab(tab.terminalId);
-                  }}
-                  aria-label={`Close ${tab.title}`}
-                >
-                  <Icon name="close" size={13} />
-                </button>
-              </div>
-            ))}
-            <button
-              className="tab tab--new"
-              aria-label="New local terminal"
-              title="New local terminal"
-              onClick={() => void openLocal()}
-            >
-              <Icon name="plus" size={15} />
-            </button>
+        {snippetsOpen && (
+          <div className="floating-snippets" role="dialog" aria-label="Snippets" style={{ transform: `translate(${snippetPosition.x}px, ${snippetPosition.y}px)` }}>
+            <div className="floating-snippets__head" onPointerDown={(event) => {
+              if ((event.target as HTMLElement).closest("button, input")) return;
+              const pointer = { x: event.clientX, y: event.clientY };
+              const origin = snippetPosition;
+              const move = (moveEvent: PointerEvent) => setSnippetPosition({ x: origin.x + moveEvent.clientX - pointer.x, y: origin.y + moveEvent.clientY - pointer.y });
+              const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+              window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+            }}>
+              <strong>Snippets</strong>
+              <div><button className="icon" onClick={() => setSnippetCreateOpen(true)} aria-label="Create snippet" data-tooltip="New snippet"><Icon name="plus" size={13} /></button><button className="icon" onClick={() => setSnippetsOpen(false)} aria-label="Hide snippets"><Icon name="close" size={13} /></button></div>
+            </div>
+            <div className="floating-snippets__search"><Icon name="search" size={14} /><input value={snippetQuery} onChange={(event) => setSnippetQuery(event.target.value)} placeholder="Search snippets" aria-label="Search snippets" /></div>
+            <div className="floating-snippets__list">
+              {visibleSnippets.map((snippet) => (
+                <article key={snippet.id}>
+                  <div><strong>{snippet.name}</strong><code className="selectable">{snippet.command}</code></div>
+                  <div>
+                    <button className="button button--ghost" onClick={() => void navigator.clipboard.writeText(snippet.command)}>Copy</button>
+                    <button className="button button--ghost" onClick={() => sendSnippet(snippet)}>Paste</button>
+                    <button className="button button--primary" onClick={() => { if (!activeId) return setError("Open a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); }}>Run</button>
+                  </div>
+                </article>
+              ))}
+              {visibleSnippets.length === 0 && <p className="hint">No matching snippets.</p>}
+            </div>
+          </div>
+        )}
+        {snippetCreateOpen && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSnippetCreateOpen(false); }}>
+            <form className="snippet-modal" onSubmit={(event) => void createSnippet(event)}>
+              <header><div><span className="snippet-emoji" aria-hidden="true">⌘</span><div><strong>New snippet</strong><p>Save a command for quick paste or run.</p></div></div><button className="icon" type="button" onClick={() => setSnippetCreateOpen(false)} aria-label="Close"><Icon name="close" size={14} /></button></header>
+              <label>Name<input name="name" required minLength={2} autoFocus placeholder="Restart service" /></label>
+              <label>Command<textarea name="command" required rows={4} placeholder="sudo systemctl restart…" /></label>
+              <label>Visibility<select name="scope"><option value="personal">Only me</option><option value="team">Workspace team</option></select></label>
+              <footer><button className="button button--ghost" type="button" onClick={() => setSnippetCreateOpen(false)}>Cancel</button><button className="button button--primary" type="submit">Create snippet</button></footer>
+            </form>
+          </div>
+        )}
+        {hostEditor && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setHostEditor(undefined); }}>
+            <form className="snippet-modal" onSubmit={(event) => void saveHost(event)}>
+              <header><div><span className="snippet-emoji" aria-hidden="true"><Icon name="host" size={17} /></span><div><strong>{hostEditor === "new" ? "Add host" : "Edit host"}</strong><p>Changes sync with the web workspace immediately.</p></div></div><button className="icon" type="button" onClick={() => setHostEditor(undefined)} aria-label="Close"><Icon name="close" size={14} /></button></header>
+              <label>Name<input name="name" required minLength={2} defaultValue={hostEditor === "new" ? "" : hostEditor.name} /></label>
+              <div className="modal-fields"><label>Address<input name="address" required defaultValue={hostEditor === "new" ? "" : hostEditor.address} /></label><label>Port<input name="port" required type="number" min={1} max={65535} defaultValue={hostEditor === "new" ? 22 : hostEditor.port} /></label></div>
+              <label>Username<input name="username" defaultValue={hostEditor === "new" ? "" : hostEditor.username} /></label>
+              <label>Environment<select name="environment" defaultValue={hostEditor === "new" ? "development" : hostEditor.environment}><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></label>
+              <label>Tags<input name="tags" defaultValue={hostEditor === "new" ? "" : hostEditor.tags.join(", ")} placeholder="web, customer-a" /></label>
+              <footer><button className="button button--ghost" type="button" onClick={() => setHostEditor(undefined)}>Cancel</button><button className="button button--primary" type="submit">Save host</button></footer>
+            </form>
           </div>
         )}
 
@@ -716,6 +848,7 @@ export function Console({ state }: Props) {
           {overlay.kind === "history" && (
             <HistoryView sessions={sessions} audit={audit} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />
           )}
+          {overlay.kind === "tasks" && <Tasks initial={tasks} />}
 
           {overlay.kind === "none" && !activeTab && (
             <div className="empty">

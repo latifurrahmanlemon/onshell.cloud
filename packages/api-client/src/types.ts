@@ -16,6 +16,7 @@ import type {
   RemoteSession,
   Role,
   Snippet,
+  TaskItem,
   ThemePreference,
   User
 } from "@onshell/shared";
@@ -30,6 +31,7 @@ export type {
   RemoteSession,
   Role,
   Snippet,
+  TaskItem,
   ThemePreference,
   User
 };

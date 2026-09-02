@@ -71,7 +71,21 @@ export function HistoryView({
   onClose
 }: BaseProps & { sessions: RemoteSession[]; audit: AuditLog[] }) {
   const [tab, setTab] = useState<"sessions" | "audit">("sessions");
+  const [query, setQuery] = useState("");
+  const [date, setDate] = useState("");
+  const [page, setPage] = useState(1);
   const hostNames = useMemo(() => new Map(hosts.map((host) => [host.id, host.name])), [hosts]);
+  const pageSize = 10;
+  const source = tab === "sessions" ? sessions : audit;
+  const filtered = source.filter((item) => {
+    const text = tab === "sessions"
+      ? `${hostNames.get((item as RemoteSession).hostId) ?? ""} ${(item as RemoteSession).protocol} ${(item as RemoteSession).status}`
+      : `${(item as AuditLog).action} ${(item as AuditLog).targetType} ${(item as AuditLog).targetId ?? ""}`;
+    const createdAt = tab === "sessions" ? (item as RemoteSession).startedAt : (item as AuditLog).createdAt;
+    return text.toLowerCase().includes(query.toLowerCase()) && (!date || createdAt.slice(0, 10) === date);
+  });
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = filtered.slice((Math.min(page, pages) - 1) * pageSize, Math.min(page, pages) * pageSize);
   return (
     <section className="resource-view" aria-labelledby="history-title">
       <header className="resource-view__head">
@@ -80,8 +94,8 @@ export function HistoryView({
           <h1 id="history-title">History & audit</h1>
           <p>Recent connections and workspace security events.</p>
         </div>
-        <button className="button" onClick={onClose}>
-          Back to terminals
+        <button className="icon icon--framed resource-back" onClick={onClose} aria-label="Back to terminals" title="Back to terminals">
+          <Icon name="chevron-right" size={15} />
         </button>
       </header>
       <div className="segmented" role="tablist">
@@ -102,6 +116,10 @@ export function HistoryView({
           Audit log <span>{audit.length}</span>
         </button>
       </div>
+      <div className="resource-filters">
+        <label><Icon name="search" size={14} /><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search history" aria-label="Search history" /></label>
+        <input type="date" value={date} onChange={(event) => { setDate(event.target.value); setPage(1); }} aria-label="Filter by date" />
+      </div>
       {tab === "sessions" ? (
         <div className="data-table" role="table" aria-label="Recent sessions">
           <div className="data-table__row data-table__head" role="row">
@@ -110,7 +128,7 @@ export function HistoryView({
             <span>Status</span>
             <span>Started</span>
           </div>
-          {sessions.map((session) => (
+          {(visible as RemoteSession[]).map((session) => (
             <div className="data-table__row" role="row" key={session.id}>
               <strong>{hostNames.get(session.hostId) ?? "Unavailable host"}</strong>
               <span>{session.protocol}</span>
@@ -118,13 +136,13 @@ export function HistoryView({
               <span>{formatDate(session.startedAt)}</span>
             </div>
           ))}
-          {sessions.length === 0 && (
+          {filtered.length === 0 && (
             <Empty title="No sessions yet" detail="Connections opened from desktop or web will appear here." />
           )}
         </div>
       ) : (
         <div className="audit-list">
-          {audit.map((entry) => (
+          {(visible as AuditLog[]).map((entry) => (
             <article key={entry.id}>
               <span className="audit-list__icon">
                 <Icon name="history" size={15} />
@@ -139,11 +157,12 @@ export function HistoryView({
               <time>{formatDate(entry.createdAt)}</time>
             </article>
           ))}
-          {audit.length === 0 && (
+          {filtered.length === 0 && (
             <Empty title="No audit events" detail="Workspace events will appear here when available." />
           )}
         </div>
       )}
+      {filtered.length > 0 && <div className="resource-pagination"><button className="button button--ghost" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {Math.min(page, pages)} of {pages}</span><button className="button button--ghost" disabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
     </section>
   );
 }
