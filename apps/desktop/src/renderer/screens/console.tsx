@@ -17,7 +17,7 @@ import { Icon } from "../icons.js";
 import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, VaultView } from "./resource-view.js";
 import { Tasks } from "./tasks.js";
-import { Workspaces } from "./workspaces.js";
+import { beginWorkspaceHostDrag, Workspaces } from "./workspaces.js";
 
 interface Props {
   state: AppState;
@@ -474,20 +474,32 @@ export function Console({ state }: Props) {
       <header className={`console-titlebar${state.platform === "darwin" ? " console-titlebar--mac" : ""}`}>
         <div className="console-titlebar__drag" />
         <div className="tabs" role="tablist" aria-label="Open terminals">
-          {tabs.map((tab) => (
-            <div
-              key={tab.terminalId}
-              className={`tab${tab.terminalId === activeId && overlay.kind === "none" ? " tab--active" : ""}`}
-            >
-              <button className="tab__select" type="button" onClick={() => { setActiveId(tab.terminalId); setOverlay({ kind: "none" }); }}>
-                <span className={`tab__status tab__status--${tab.mode}`} />
-                <span className="tab__title">{tab.title}{tab.closed ? " (ended)" : ""}</span>
-              </button>
-              <button className="tab__close" onClick={() => void closeTab(tab.terminalId)} aria-label={`Close ${tab.title}`}>
-                <Icon name="close" size={13} />
-              </button>
-            </div>
-          ))}
+          {tabs.map((tab) => {
+            const hostId = tab.target.kind === "local" ? undefined : tab.target.hostId;
+            return (
+              <div
+                draggable={Boolean(hostId)}
+                key={tab.terminalId}
+                className={`tab${tab.terminalId === activeId && overlay.kind === "none" ? " tab--active" : ""}${hostId ? " tab--draggable" : ""}`}
+                onDragStart={(event) => {
+                  if (!hostId || (event.target as HTMLElement).closest(".tab__close")) {
+                    event.preventDefault();
+                    return;
+                  }
+                  beginWorkspaceHostDrag(event.dataTransfer, hostId);
+                }}
+                title={hostId ? "Drag this terminal into Workspaces" : undefined}
+              >
+                <button className="tab__select" type="button" onClick={() => { setActiveId(tab.terminalId); setOverlay({ kind: "none" }); }}>
+                  <span className={`tab__status tab__status--${tab.mode}`} />
+                  <span className="tab__title">{tab.title}{tab.closed ? " (ended)" : ""}</span>
+                </button>
+                <button className="tab__close" onClick={() => void closeTab(tab.terminalId)} aria-label={`Close ${tab.title}`}>
+                  <Icon name="close" size={13} />
+                </button>
+              </div>
+            );
+          })}
           {overlay.kind === "tasks" && <div className="tab tab--active"><button className="tab__select"><Icon name="tasks" size={14}/><span className="tab__title">Tasks</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Tasks"><Icon name="close" size={13}/></button></div>}
           {overlay.kind === "workspaces" && <div className="tab tab--active"><button className="tab__select"><Icon name="split" size={14}/><span className="tab__title">Workspaces</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Workspaces"><Icon name="close" size={13}/></button></div>}
           <button
@@ -668,7 +680,19 @@ export function Console({ state }: Props) {
             <div className="host host__meta">{query ? "Nothing matches." : "No hosts saved yet."}</div>
           )}
           {visibleHosts.map((host) => (
-            <div key={host.id} className="host host--row">
+            <div
+              draggable
+              key={host.id}
+              className="host host--row host--draggable"
+              onDragStart={(event) => {
+                if ((event.target as HTMLElement).closest(".host__actions")) {
+                  event.preventDefault();
+                  return;
+                }
+                beginWorkspaceHostDrag(event.dataTransfer, host.id);
+              }}
+              title="Drag this host into Workspaces"
+            >
               <button className="host__open" onClick={() => void openHost(host)}>
                 <span className="resource-icon">
                   <Icon name="host" size={15} />
