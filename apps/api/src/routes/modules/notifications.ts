@@ -13,6 +13,43 @@ const createSchema = z.object({
   expiresAt: z.string().datetime().optional()
 });
 
+const DESKTOP_RELEASE_API =
+  process.env.ONSHELL_RELEASES_API ??
+  "https://api.github.com/repos/latifurrahmanlemon/onshell-downloads/releases/latest";
+
+async function syncLatestDesktopRelease() {
+  try {
+    const response = await fetch(DESKTOP_RELEASE_API, {
+      headers: { accept: "application/vnd.github+json", "user-agent": "onshell-api" },
+      signal: AbortSignal.timeout(8_000)
+    });
+    if (!response.ok) return;
+    const release = (await response.json()) as {
+      tag_name?: string;
+      html_url?: string;
+      draft?: boolean;
+      prerelease?: boolean;
+    };
+    if (!release.tag_name?.startsWith("desktop-v") || !release.html_url || release.draft || release.prerelease) return;
+    const exists = await prisma.appNotification.findFirst({
+      where: { actionUrl: release.html_url },
+      select: { id: true }
+    });
+    if (exists) return;
+    const version = release.tag_name.replace(/^desktop-v/, "");
+    await prisma.appNotification.create({
+      data: {
+        title: `Onshell Desktop ${version} is available`,
+        message: "A new verified desktop build is ready. Review the release notes and checksums before installing.",
+        actionUrl: release.html_url
+      }
+    });
+  } catch {
+    // Release discovery is best-effort. Offline deployments retry later and
+    // must never fail API startup merely because GitHub is unavailable.
+  }
+}
+
 export async function registerNotificationRoutes(app: FastifyInstance, config: RuntimeConfig) {
   app.get("/notifications", async (request, reply) => {
     try {
@@ -49,4 +86,9 @@ export async function registerNotificationRoutes(app: FastifyInstance, config: R
       return reply.code(201).send(notification);
     } catch (error) { return handleRouteError(reply, error); }
   });
+
+  void syncLatestDesktopRelease();
+  const releaseTimer = setInterval(() => void syncLatestDesktopRelease(), 15 * 60 * 1000);
+  releaseTimer.unref();
+  app.addHook("onClose", async () => clearInterval(releaseTimer));
 }
