@@ -50,6 +50,7 @@ const bridge: OnshellBridge = {
     deleteHost: (hostId) => ipcRenderer.invoke(CHANNELS.consoleDeleteHost, hostId),
     snippets: () => ipcRenderer.invoke(CHANNELS.consoleSnippets),
     createSnippet: (input) => ipcRenderer.invoke(CHANNELS.consoleCreateSnippet, input),
+    updateSnippet: (snippetId, input) => ipcRenderer.invoke(CHANNELS.consoleUpdateSnippet, snippetId, input),
     tasks: () => ipcRenderer.invoke(CHANNELS.consoleTasks),
     createTask: (text) => ipcRenderer.invoke(CHANNELS.consoleCreateTask, text),
     updateTask: (taskId, patch) => ipcRenderer.invoke(CHANNELS.consoleUpdateTask, taskId, patch),

@@ -277,6 +277,7 @@ export interface OnshellBridge {
     deleteHost(hostId: string): Promise<void>;
     snippets(): Promise<Snippet[]>;
     createSnippet(input: { name: string; command: string; scope: "personal" | "team" }): Promise<Snippet>;
+    updateSnippet(snippetId: string, input: { name: string; command: string; scope: "personal" | "team" }): Promise<Snippet>;
     tasks(): Promise<TaskItem[]>;
     createTask(text: string): Promise<TaskItem>;
     updateTask(taskId: string, patch: { text?: string; completed?: boolean }): Promise<TaskItem>;
@@ -386,6 +387,7 @@ export const CHANNELS = {
   consoleDeleteHost: "console:delete-host",
   consoleSnippets: "console:snippets",
   consoleCreateSnippet: "console:create-snippet",
+  consoleUpdateSnippet: "console:update-snippet",
   consoleTasks: "console:tasks",
   consoleCreateTask: "console:create-task",
   consoleUpdateTask: "console:update-task",

@@ -198,6 +198,8 @@ export function createApiClient(options: ApiClientOptions) {
     snippets: async () => unwrapList<Snippet>(await request("/snippets"), "snippets"),
     createSnippet: (body: Record<string, unknown>) =>
       request<Snippet>("/snippets", { method: "POST", body: JSON.stringify(body) }),
+    updateSnippet: (id: string, body: Record<string, unknown>) =>
+      request<Snippet>(`/snippets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deleteSnippet: (id: string) => request<unknown>(`/snippets/${id}`, { method: "DELETE" }),
 
     tasks: async () => unwrapList<TaskItem>(await request("/tasks"), "tasks"),

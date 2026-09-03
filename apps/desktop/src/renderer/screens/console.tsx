@@ -16,7 +16,7 @@ import { Settings } from "./settings.js";
 import { Help } from "./help.js";
 import { Icon } from "../icons.js";
 import { CommandPalette, type CommandAction } from "../command-palette.js";
-import { HistoryView, VaultView } from "./resource-view.js";
+import { HistoryView, HostsView, VaultView } from "./resource-view.js";
 import { Tasks } from "./tasks.js";
 import { beginWorkspaceHostDrag, Workspaces } from "./workspaces.js";
 
@@ -31,8 +31,9 @@ interface Tab extends TerminalOpened {
 
 type Overlay =
   | { kind: "none" }
+  | { kind: "hosts" }
   | { kind: "settings" }
-  | { kind: "vault" }
+  | { kind: "vault"; create?: boolean }
   | { kind: "history" }
   | { kind: "help" }
   | { kind: "tasks" }
@@ -71,8 +72,10 @@ export function Console({ state }: Props) {
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippetQuery, setSnippetQuery] = useState("");
   const [snippetCreateOpen, setSnippetCreateOpen] = useState(false);
+  const [snippetEditing, setSnippetEditing] = useState<Snippet>();
   const [snippetPosition, setSnippetPosition] = useState({ x: 0, y: 0 });
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(286);
   const [hostEditor, setHostEditor] = useState<Host | "new">();
   const [newTerminalOpen, setNewTerminalOpen] = useState(false);
   const [newTerminalQuery, setNewTerminalQuery] = useState("");
@@ -223,6 +226,23 @@ export function Console({ state }: Props) {
     }
   }
 
+  async function updateSnippet(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!snippetEditing) return;
+    const data = new FormData(event.currentTarget);
+    try {
+      const snippet = await bridge.console.updateSnippet(snippetEditing.id, {
+        name: String(data.get("name") ?? ""),
+        command: String(data.get("command") ?? ""),
+        scope: data.get("scope") === "team" ? "team" : "personal"
+      });
+      setSnippets((current) => current.map((item) => item.id === snippet.id ? snippet : item));
+      setSnippetEditing(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not update the snippet.");
+    }
+  }
+
   async function saveHost(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -233,13 +253,24 @@ export function Console({ state }: Props) {
       environment: String(data.get("environment") ?? "development"),
       tags: String(data.get("tags") ?? "").split(",").map((tag) => tag.trim()).filter(Boolean)
     };
+    const credentialId = String(data.get("credentialId") ?? "");
     try {
+      let savedHost: Host | undefined;
       if (hostEditor === "new") {
         const host = await bridge.console.createHost(input);
+        savedHost = host;
         setHosts((current) => [...current, host]);
       } else if (hostEditor) {
         const host = await bridge.console.updateHost(hostEditor.id, input);
+        savedHost = host;
         setHosts((current) => current.map((item) => item.id === host.id ? host : item));
+      }
+      if (savedHost) {
+        const currentlyAttached = credentials.filter((item) => item.attachedHostIds.includes(savedHost!.id));
+        await Promise.all(currentlyAttached.filter((item) => item.id !== credentialId).map((item) => bridge.console.updateCredential(item.id, { attachedHostIds: item.attachedHostIds.filter((id) => id !== savedHost!.id) })));
+        const selected = credentials.find((item) => item.id === credentialId);
+        if (selected && !selected.attachedHostIds.includes(savedHost.id)) await bridge.console.updateCredential(selected.id, { attachedHostIds: [...selected.attachedHostIds, savedHost.id] });
+        if (currentlyAttached.length > 0 || selected) setCredentials(await bridge.console.load().then((result) => result.credentials));
       }
       setHostEditor(undefined);
     } catch (cause) {
@@ -471,7 +502,7 @@ export function Console({ state }: Props) {
   ];
 
   return (
-    <div className={`console${sidebarOpen ? "" : " console--sidebar-hidden"}`}>
+    <div className={`console${sidebarOpen ? "" : " console--sidebar-hidden"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}>
       {paletteOpen && <CommandPalette actions={commandActions} onClose={() => setPaletteOpen(false)} />}
       <header className={`console-titlebar${state.platform === "darwin" ? " console-titlebar--mac" : ""}`}>
         <div className="console-titlebar__drag" />
@@ -502,6 +533,7 @@ export function Console({ state }: Props) {
               </div>
             );
           })}
+          {overlay.kind === "hosts" && <div className="tab tab--active"><button className="tab__select"><Icon name="host" size={14}/><span className="tab__title">Hosts</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Hosts"><Icon name="close" size={13}/></button></div>}
           {overlay.kind === "tasks" && <div className="tab tab--active"><button className="tab__select"><Icon name="tasks" size={14}/><span className="tab__title">Tasks</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Tasks"><Icon name="close" size={13}/></button></div>}
           {overlay.kind === "workspaces" && <div className="tab tab--active"><button className="tab__select"><Icon name="split" size={14}/><span className="tab__title">Workspaces</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Workspaces"><Icon name="close" size={13}/></button></div>}
           {overlay.kind === "help" && <div className="tab tab--active"><button className="tab__select"><Icon name="help" size={14}/><span className="tab__title">Help</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Help"><Icon name="close" size={13}/></button></div>}
@@ -558,10 +590,10 @@ export function Console({ state }: Props) {
           O
         </div>
         <button
-          className={`activity-button${overlay.kind === "none" ? " activity-button--active" : ""}`}
+          className={`activity-button${overlay.kind === "hosts" ? " activity-button--active" : ""}`}
           aria-label="Hosts"
           title="Hosts"
-          onClick={() => { setOverlay({ kind: "none" }); setSidebarOpen((open) => !open); }}
+          onClick={() => { setSidebarOpen(true); setOverlay({ kind: "hosts" }); }}
         >
           <Icon name="host" />
         </button>
@@ -756,6 +788,25 @@ export function Console({ state }: Props) {
             {state.connectionMode} connection
           </span>
         </div>
+        <div
+          aria-label="Resize hosts panel"
+          aria-orientation="vertical"
+          className="sidebar-resizer"
+          role="separator"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") setSidebarWidth((width) => Math.max(230, width - 16));
+            if (event.key === "ArrowRight") setSidebarWidth((width) => Math.min(480, width + 16));
+          }}
+          onPointerDown={(event) => {
+            const startX = event.clientX;
+            const startWidth = sidebarWidth;
+            const move = (moveEvent: PointerEvent) => setSidebarWidth(Math.min(480, Math.max(230, startWidth + moveEvent.clientX - startX)));
+            const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+        />
       </aside>
 
       <main className="workspace">
@@ -778,9 +829,10 @@ export function Console({ state }: Props) {
                 <article key={snippet.id}>
                   <div><strong>{snippet.name}</strong><code className="selectable">{snippet.command}</code></div>
                   <div>
-                    <button className="button button--ghost" onClick={() => void navigator.clipboard.writeText(snippet.command)}>Copy</button>
-                    <button className="button button--ghost" onClick={() => sendSnippet(snippet)}>Paste</button>
-                    <button className="button button--primary" onClick={() => { if (!activeId) return setError("Open a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); }}>Run</button>
+                    <button className="icon icon--framed" aria-label={`Copy ${snippet.name}`} title="Copy" onClick={() => void navigator.clipboard.writeText(snippet.command)}><Icon name="copy" size={13}/></button>
+                    <button className="icon icon--framed" aria-label={`Paste ${snippet.name}`} title="Paste" onClick={() => sendSnippet(snippet)}><Icon name="code" size={13}/></button>
+                    <button className="icon icon--framed" aria-label={`Edit ${snippet.name}`} title="Edit" onClick={() => setSnippetEditing(snippet)}><Icon name="gear" size={13}/></button>
+                    <button className="icon icon--framed icon--accent" aria-label={`Run ${snippet.name}`} title="Run" onClick={() => { if (!activeId) return setError("Open a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); }}><Icon name="play" size={13}/></button>
                   </div>
                 </article>
               ))}
@@ -799,6 +851,17 @@ export function Console({ state }: Props) {
             </form>
           </div>
         )}
+        {snippetEditing && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSnippetEditing(undefined); }}>
+            <form className="snippet-modal" onSubmit={(event) => void updateSnippet(event)}>
+              <header><div><span className="snippet-emoji"><Icon name="code" size={16}/></span><div><strong>Edit snippet</strong><p>Update the command or its visibility.</p></div></div><button className="icon" type="button" onClick={() => setSnippetEditing(undefined)} aria-label="Close"><Icon name="close" size={14}/></button></header>
+              <label>Name<input name="name" required minLength={2} defaultValue={snippetEditing.name}/></label>
+              <label>Command<textarea name="command" required rows={4} defaultValue={snippetEditing.command}/></label>
+              <label>Visibility<select name="scope" defaultValue={snippetEditing.scope}><option value="personal">Only me</option><option value="team">Workspace team</option></select></label>
+              <footer><button className="button button--ghost" type="button" onClick={() => setSnippetEditing(undefined)}>Cancel</button><button className="button button--primary" type="submit">Save changes</button></footer>
+            </form>
+          </div>
+        )}
         {hostEditor && (
           <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setHostEditor(undefined); }}>
             <form className="snippet-modal" onSubmit={(event) => void saveHost(event)}>
@@ -807,6 +870,7 @@ export function Console({ state }: Props) {
               <div className="modal-fields"><label>Address<input name="address" required defaultValue={hostEditor === "new" ? "" : hostEditor.address} /></label><label>Port<input name="port" required type="number" min={1} max={65535} defaultValue={hostEditor === "new" ? 22 : hostEditor.port} /></label></div>
               <label>Username<input name="username" defaultValue={hostEditor === "new" ? "" : hostEditor.username} /></label>
               <label>Environment<select name="environment" defaultValue={hostEditor === "new" ? "development" : hostEditor.environment}><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></label>
+              <div className="host-auth-row"><label>Authentication<select name="credentialId" defaultValue={hostEditor === "new" ? "" : credentials.find((item) => item.attachedHostIds.includes(hostEditor.id))?.id ?? ""}><option value="">No credential</option>{credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name} · {credential.kind.replace("_", " ")}</option>)}</select></label><button className="button button--ghost" type="button" onClick={() => { setHostEditor(undefined); setOverlay({ kind: "vault", create: true }); }}>Create in Vault</button></div>
               <label>Tags<input name="tags" defaultValue={hostEditor === "new" ? "" : hostEditor.tags.join(", ")} placeholder="web, customer-a" /></label>
               <footer><button className="button button--ghost" type="button" onClick={() => setHostEditor(undefined)}>Cancel</button><button className="button button--primary" type="submit">Save host</button></footer>
             </form>
@@ -894,8 +958,9 @@ export function Console({ state }: Props) {
           )}
 
           {overlay.kind === "vault" && (
-            <VaultView credentials={credentials} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />
+            <VaultView credentials={credentials} hosts={hosts} openCreateOnMount={overlay.create} onClose={() => setOverlay({ kind: "none" })} />
           )}
+          {overlay.kind === "hosts" && <HostsView hosts={hosts} onClose={() => setOverlay({ kind: "none" })} onOpen={(host) => void openHost(host)} onEdit={setHostEditor} />}
 
           {overlay.kind === "history" && (
             <HistoryView sessions={sessions} audit={audit} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />

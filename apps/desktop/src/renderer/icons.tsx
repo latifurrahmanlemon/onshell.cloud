@@ -6,17 +6,21 @@ export type IconName =
   | "close"
   | "code"
   | "computer"
+  | "copy"
   | "files"
   | "external"
   | "folder"
   | "gear"
   | "history"
+  | "grid"
   | "heart"
   | "help"
   | "host"
   | "key"
   | "logout"
+  | "list"
   | "plus"
+  | "play"
   | "refresh"
   | "search"
   | "split"
@@ -58,6 +62,7 @@ export function Icon({ name, size = 18, ...props }: Props) {
         <path d="M8 21h8M12 17v4" />
       </>
     ),
+    copy: <><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
     files: (
       <>
         <path d="M15 2H6a2 2 0 0 0-2 2v13" />
@@ -84,6 +89,7 @@ export function Icon({ name, size = 18, ...props }: Props) {
         <path d="M3 3v5h5M12 7v5l3 2" />
       </>
     ),
+    grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
     heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />,
     help: (
       <>
@@ -111,7 +117,9 @@ export function Icon({ name, size = 18, ...props }: Props) {
         <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
       </>
     ),
+    list: <><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></>,
     plus: <path d="M12 5v14M5 12h14" />,
+    play: <path d="m8 5 11 7-11 7Z" />,
     refresh: (
       <>
         <path d="M20 7h-5V2" />
