@@ -16,7 +16,10 @@ const routes: Array<{
   { path: "/download", priority: 0.8, changeFrequency: "weekly" },
   { path: "/donate", priority: 0.7, changeFrequency: "monthly" },
   { path: "/security", priority: 0.7, changeFrequency: "monthly" },
-  { path: "/contact", priority: 0.6, changeFrequency: "yearly" }
+  { path: "/contact", priority: 0.6, changeFrequency: "yearly" },
+  { path: "/privacy", priority: 0.4, changeFrequency: "yearly" },
+  { path: "/terms", priority: 0.4, changeFrequency: "yearly" },
+  { path: "/refund-policy", priority: 0.4, changeFrequency: "yearly" }
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

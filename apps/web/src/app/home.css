@@ -875,9 +875,29 @@ html {
 
 .lp-footer-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(240px, 1.6fr) repeat(4, minmax(0, 1fr));
   gap: 32px;
   padding-bottom: 40px;
+}
+
+.lp-footer-operator {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.lp-checkout-legal {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.lp-checkout-legal a,
+.donate-secure a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .lp-footer-brand {

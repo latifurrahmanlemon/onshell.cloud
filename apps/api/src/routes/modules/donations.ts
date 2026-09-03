@@ -102,7 +102,7 @@ export async function registerDonationRoutes(
                 product_data: {
                   name: "Support Onshell.cloud",
                   description:
-                    "A one-time contribution to open-source Onshell development.",
+                    "A one-time contribution to Onshell development, received by Holy LLC, operator of Onshell.cloud.",
                 },
               },
             },

@@ -97,7 +97,7 @@ export async function createCheckoutSession(input: CheckoutInput, setting: Payme
             unit_amount: amount,
             product_data: {
               name: `Onshell.cloud ${input.plan.name}`,
-              description: input.plan.description
+              description: `${input.plan.description} Onshell.cloud is operated by Holy LLC.`
             }
           }
         }

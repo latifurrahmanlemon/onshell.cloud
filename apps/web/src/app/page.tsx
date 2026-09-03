@@ -311,7 +311,8 @@ const structuredData = {
     {
       "@type": "Organization",
       "@id": `${SITE_URL}/#organization`,
-      name: site.name,
+      name: site.legalName,
+      alternateName: site.name,
       url: SITE_URL,
       logo: {
         "@type": "ImageObject",
@@ -978,6 +979,9 @@ export default function PublicPage() {
               {checkoutBusy ? "Preparing checkout…" : selectedPlanCode ? `Continue with ${visiblePlans.find((plan) => plan.code === selectedPlanCode)?.name ?? "plan"}` : "Select a package above"}
               {!checkoutBusy && <ArrowRight aria-hidden="true" size={17} />}
             </button>
+            <p className="lp-checkout-legal">
+              Payment is collected by {site.legalName}, operator of {site.name}. By continuing, you agree to our <a href="/terms">Terms</a> and acknowledge our <a href="/privacy">Privacy Policy</a> and <a href="/refund-policy">Refund Policy</a>.
+            </p>
             <p className="lp-checkout-status" aria-live="polite">
               {checkoutStatus ||
                 "Need more than 50 users or custom retention? Talk to us about Enterprise instead."}

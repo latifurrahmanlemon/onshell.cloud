@@ -20,6 +20,7 @@ export const gatewayBaseUrl = trimSlashes(
 export const site = {
   name: "Onshell.cloud",
   shortName: "Onshell",
+  legalName: "Holy LLC",
   domain: new URL(siteUrl).hostname,
   url: siteUrl,
   /** Primary positioning statement — reused in metadata, JSON-LD, and llms.txt. */

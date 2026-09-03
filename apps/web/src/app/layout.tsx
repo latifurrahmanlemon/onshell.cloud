@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { DM_Sans, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { AiChatWidget } from "../components/ai-chat-widget";
 import { VisitTracker } from "../components/visit-tracker";
-import { siteUrl } from "../lib/site";
+import { site, siteUrl } from "../lib/site";
 import { themeBootstrapScript } from "./theme";
 import "./globals.css";
 
@@ -57,9 +57,9 @@ export const metadata: Metadata = {
     "team server access",
     "free browser SSH"
   ],
-  authors: [{ name: "Onshell.cloud" }],
-  creator: "Onshell.cloud",
-  publisher: "Onshell.cloud",
+  authors: [{ name: site.legalName }],
+  creator: site.legalName,
+  publisher: site.legalName,
   category: "technology",
   alternates: {
     canonical: "/"

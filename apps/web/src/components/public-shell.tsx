@@ -181,10 +181,17 @@ export function PublicFooter() {
         </div>
         <div className="lp-footer-col">
           <strong>Company</strong>
+          <span className="lp-footer-operator">Onshell.cloud is operated by {site.legalName}.</span>
           <a href="/security">Security</a>
           <a href="/contact">Contact us</a>
           <a href={`mailto:${site.salesEmail}`}>Talk to sales</a>
           <a href={`mailto:${site.supportEmail}`}>Support</a>
+        </div>
+        <div className="lp-footer-col">
+          <strong>Legal</strong>
+          <a href="/privacy">Privacy policy</a>
+          <a href="/terms">Terms of service</a>
+          <a href="/refund-policy">Refund policy</a>
         </div>
         <div className="lp-footer-col">
           <strong>Account</strong>
@@ -195,7 +202,7 @@ export function PublicFooter() {
       </div>
       <div className="lp-container lp-footer-bottom">
         <p>
-          © {site.foundedYear} {site.name}. All rights reserved.
+          © {site.foundedYear} {site.legalName}. {site.name} is operated by {site.legalName}. All rights reserved.
         </p>
         <p className="lp-footer-meta">
           SSH · SFTP · RDP — from a browser or the desktop app ·{" "}

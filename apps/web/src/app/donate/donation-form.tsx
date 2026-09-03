@@ -224,8 +224,10 @@ export function DonationForm({
         {!busy && <ArrowRight aria-hidden="true" size={17} />}
       </button>
       <p className="donate-secure">
-        Secure one-time payment handled by Stripe. Onshell never receives your
-        card details.
+        Secure one-time payment to Holy LLC, the company that operates Onshell.cloud,
+        handled by Stripe. Onshell never receives your card details. By continuing,
+        you agree to our <a href="/terms">Terms</a> and acknowledge our <a href="/privacy">Privacy Policy</a>
+        {" "}and <a href="/refund-policy">Refund Policy</a>.
       </p>
     </form>
   );
