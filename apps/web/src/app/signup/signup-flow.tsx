@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
 import {
   Building2,
   Check,
@@ -106,7 +105,6 @@ function errorText(payload: any, fallback: string): string {
 }
 
 export function SignupFlow() {
-  const reduceMotion = useReducedMotion();
   const turnstile = useTurnstile("signup");
 
   const [mode, setMode] = useState<Mode>("signup");
@@ -317,14 +315,6 @@ export function SignupFlow() {
     }
   }
 
-  const cardMotion = reduceMotion
-    ? {}
-    : {
-        initial: { opacity: 0, y: 14 },
-        animate: { opacity: 1, y: 0 },
-        transition: { duration: 0.35, ease: "easeOut" as const }
-      };
-
   const headings: Record<Mode, { title: string; subtitle: string }> = {
     signup: {
       title: "Create your free workspace",
@@ -353,7 +343,7 @@ export function SignupFlow() {
       </div>
 
       <div className="auth-main">
-        <motion.section className="auth-card" aria-labelledby="auth-title" {...cardMotion}>
+        <section className="auth-card" aria-labelledby="auth-title">
           <div className="auth-heading">
             <h1 id="auth-title">{headings[mode].title}</h1>
             <p>{headings[mode].subtitle}</p>
@@ -549,7 +539,7 @@ export function SignupFlow() {
               </button>
             </form>
           )}
-        </motion.section>
+        </section>
       </div>
     </main>
   );
