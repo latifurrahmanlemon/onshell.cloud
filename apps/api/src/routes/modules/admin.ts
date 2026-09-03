@@ -964,10 +964,10 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const encryptedWebhookSecret = body.webhookSecret ? encryptSecret(body.webhookSecret, config.masterEncryptionKey) : undefined;
       const provider = toPrismaPaymentProvider(body.provider);
       const existing = await prisma.paymentSetting.findUnique({ where: { provider_mode: { provider, mode: body.mode } } });
-      if (body.enabled && body.provider === "stripe" && (!(encryptedSecretKey ?? existing?.encryptedSecretKey) || !(encryptedWebhookSecret ?? existing?.encryptedWebhookSecret))) {
+      if (body.enabled && body.provider === "stripe" && !(encryptedSecretKey ?? existing?.encryptedSecretKey)) {
         return reply.code(400).send({
           error: "stripe_configuration_incomplete",
-          message: "Add both the Stripe secret key and webhook signing secret before enabling Stripe."
+          message: "Add the Stripe secret key before enabling Stripe. The webhook signing secret is optional."
         });
       }
       const setting = await prisma.paymentSetting.upsert({

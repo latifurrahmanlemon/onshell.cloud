@@ -215,7 +215,8 @@ export async function registerGrowthRoutes(app: FastifyInstance, config: Runtime
             plan,
             billingInterval: body.billingInterval,
             email: user.email,
-            organizationName: organization?.name ?? "Workspace"
+            organizationName: organization?.name ?? "Workspace",
+            organizationId: user.organizationId
           },
           paymentSetting,
           config

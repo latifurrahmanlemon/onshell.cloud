@@ -1,12 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
-import prismaPkg, { type PaymentSetting } from "@prisma/client";
+import prismaPkg from "@prisma/client";
 import Stripe from "stripe";
 import { z } from "zod";
-import {
-  decryptPaymentSecret,
-  decryptWebhookSecret,
-} from "../../lib/checkout.js";
+import { decryptPaymentSecret } from "../../lib/checkout.js";
 import { prisma } from "../../lib/prisma.js";
 import { handleRouteError } from "../../lib/reply.js";
 import {
@@ -34,61 +31,6 @@ async function activeStripeSetting() {
     // Prefer live when an old test row is still present beside it.
     orderBy: { mode: "asc" },
   });
-}
-
-function paymentIntentId(value: string | Stripe.PaymentIntent | null) {
-  if (!value) return null;
-  return typeof value === "string" ? value : value.id;
-}
-
-async function applyCheckoutEvent(
-  session: Stripe.Checkout.Session,
-  status: "PAID" | "FAILED",
-) {
-  if (session.metadata?.kind !== "donation" || !session.metadata.donationId)
-    return;
-
-  const paid = status === "PAID" && session.payment_status === "paid";
-  await prisma.donation.updateMany({
-    where: { id: session.metadata.donationId },
-    data: {
-      status: paid ? DonationStatus.PAID : DonationStatus.FAILED,
-      amountCents: session.amount_total ?? undefined,
-      donorEmail:
-        session.customer_details?.email ?? session.customer_email ?? undefined,
-      donorName: session.customer_details?.name ?? undefined,
-      providerPaymentId: paymentIntentId(session.payment_intent) ?? undefined,
-      paidAt: paid ? new Date() : undefined,
-      failureReason: paid ? null : "Payment was not completed.",
-    },
-  });
-}
-
-async function handleStripeEvent(event: Stripe.Event) {
-  switch (event.type) {
-    case "checkout.session.completed":
-    case "checkout.session.async_payment_succeeded":
-      await applyCheckoutEvent(event.data.object, "PAID");
-      break;
-    case "checkout.session.async_payment_failed":
-    case "checkout.session.expired":
-      await applyCheckoutEvent(event.data.object, "FAILED");
-      break;
-    case "charge.refunded": {
-      const charge = event.data.object;
-      const intentId =
-        typeof charge.payment_intent === "string"
-          ? charge.payment_intent
-          : charge.payment_intent?.id;
-      if (intentId && charge.refunded) {
-        await prisma.donation.updateMany({
-          where: { providerPaymentId: intentId },
-          data: { status: DonationStatus.REFUNDED },
-        });
-      }
-      break;
-    }
-  }
 }
 
 export async function registerDonationRoutes(
@@ -188,46 +130,4 @@ export async function registerDonationRoutes(
       }
     },
   );
-
-  // Stripe signatures must be checked against the exact bytes received. A
-  // scoped parser keeps this one endpoint raw without changing every JSON route.
-  await app.register(async (webhookApp) => {
-    webhookApp.removeContentTypeParser("application/json");
-    webhookApp.addContentTypeParser(
-      "application/json",
-      { parseAs: "buffer" },
-      (_request, body, done) => done(null, body),
-    );
-    webhookApp.post(
-      "/donations/webhook/stripe",
-      { config: { rateLimit: false } },
-      async (request, reply) => {
-        const signature = request.headers["stripe-signature"];
-        if (typeof signature !== "string" || !Buffer.isBuffer(request.body)) {
-          return reply.code(400).send({ error: "invalid_webhook" });
-        }
-
-        const setting = await activeStripeSetting();
-        const secretKey = setting && decryptPaymentSecret(setting, config);
-        const webhookSecret = setting && decryptWebhookSecret(setting, config);
-        if (!setting || !secretKey || !webhookSecret) {
-          request.log.error("Stripe donation webhook is not configured");
-          return reply.code(503).send({ error: "webhook_not_configured" });
-        }
-
-        try {
-          const event = new Stripe(secretKey).webhooks.constructEvent(
-            request.body,
-            signature,
-            webhookSecret,
-          );
-          await handleStripeEvent(event);
-          return { received: true };
-        } catch (error) {
-          request.log.warn({ err: error }, "Rejected Stripe donation webhook");
-          return reply.code(400).send({ error: "invalid_webhook" });
-        }
-      },
-    );
-  });
 }

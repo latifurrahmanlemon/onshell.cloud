@@ -9,6 +9,7 @@ export interface CheckoutInput {
   billingInterval: "monthly" | "yearly";
   email: string;
   organizationName: string;
+  organizationId?: string;
 }
 
 export function decryptPaymentSecret(setting: PaymentSetting, config: RuntimeConfig) {
@@ -70,12 +71,23 @@ export async function createCheckoutSession(input: CheckoutInput, setting: Payme
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: input.email,
-      success_url: `${config.publicBaseUrl}/console?checkout=success`,
+      success_url: `${config.publicBaseUrl}/console?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${config.publicBaseUrl}/?checkout=cancelled`,
       metadata: {
+        kind: "package",
         planCode: input.plan.code,
         billingInterval: input.billingInterval,
-        organizationName: input.organizationName
+        organizationName: input.organizationName,
+        customerEmail: input.email,
+        ...(input.organizationId ? { organizationId: input.organizationId } : {})
+      },
+      payment_intent_data: {
+        metadata: {
+          kind: "package",
+          planCode: input.plan.code,
+          billingInterval: input.billingInterval,
+          ...(input.organizationId ? { organizationId: input.organizationId } : {})
+        }
       },
       line_items: [
         {

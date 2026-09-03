@@ -73,16 +73,34 @@ export async function registerBillingRoutes(app: FastifyInstance, config: Runtim
         });
       }
 
-      const paymentSetting = await prisma.paymentSetting.findFirst({
-        where: { enabled: true },
-        orderBy: [{ provider: "asc" }, { mode: "asc" }]
-      });
+      const [paymentSetting, existingCustomer] = await Promise.all([
+        prisma.paymentSetting.findFirst({
+          where: { enabled: true },
+          orderBy: [{ provider: "asc" }, { mode: "asc" }]
+        }),
+        prisma.user.findUnique({
+          where: { email: body.email },
+          select: {
+            memberships: {
+              orderBy: { createdAt: "asc" },
+              select: { organizationId: true, organization: { select: { name: true } } }
+            }
+          }
+        })
+      ]);
+      const namedMembership = existingCustomer?.memberships.find(
+        (membership) => membership.organization.name.toLowerCase() === body.organizationName.toLowerCase()
+      );
+      const organizationId =
+        namedMembership?.organizationId ??
+        (existingCustomer?.memberships.length === 1 ? existingCustomer.memberships[0]?.organizationId : undefined);
       const checkout = await createCheckoutSession(
         {
           plan,
           billingInterval: body.billingInterval,
           email: body.email,
-          organizationName: body.organizationName
+          organizationName: body.organizationName,
+          organizationId
         },
         paymentSetting,
         config

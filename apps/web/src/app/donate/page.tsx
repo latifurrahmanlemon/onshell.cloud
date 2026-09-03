@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 export default async function DonatePage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; source?: string }>;
+  searchParams: Promise<{ status?: string; source?: string; session_id?: string }>;
 }) {
   const query = await searchParams;
   const source =
@@ -82,7 +82,7 @@ export default async function DonatePage({
               </li>
             </ul>
           </div>
-          <DonationForm initialStatus={status} source={source} />
+          <DonationForm initialStatus={status} sessionId={query.session_id} source={source} />
         </div>
       </section>
     </PublicShell>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowRight, CheckCircle2, Coffee, Loader2 } from "lucide-react";
 import { TurnstileWidget, useTurnstile } from "../../components/turnstile";
 import { apiBaseUrl } from "../../lib/site";
@@ -9,9 +9,11 @@ const presets = [3, 5, 10, 25];
 
 export function DonationForm({
   initialStatus,
+  sessionId,
   source,
 }: {
   initialStatus?: "success" | "cancelled";
+  sessionId?: string;
   source: "website" | "download" | "desktop";
 }) {
   const [amount, setAmount] = useState("5");
@@ -36,6 +38,19 @@ export function DonationForm({
         : "$0.00",
     [amountNumber, validAmount],
   );
+
+  useEffect(() => {
+    if (initialStatus !== "success" || !sessionId) return;
+    void fetch(`${apiBaseUrl}/payments/stripe/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    }).then((response) => {
+      if (!response.ok) setError("Your payment is still being confirmed. Please refresh in a moment.");
+    }).catch(() => {
+      setError("Your payment is safe, but confirmation is delayed. Please refresh in a moment.");
+    });
+  }, [initialStatus, sessionId]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

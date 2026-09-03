@@ -2544,15 +2544,15 @@ function AdminPanel() {
                   />
                 </label>
                 <label>
-                  Webhook Secret
+                  Webhook Secret (optional)
                   <input
                     onChange={(event) => setPaymentWebhookSecret(event.target.value)}
-                    placeholder={paymentForm.hasWebhookSecret ? "Stored, leave blank to keep" : "whsec_..."}
+                    placeholder={paymentForm.hasWebhookSecret ? "Stored, leave blank to keep" : "Optional whsec_..."}
                     type="password"
                     value={paymentWebhookSecret}
                   />
                   {paymentForm.provider.toLowerCase() === "stripe" && (
-                    <small className="adm-field-help">Stripe webhook endpoint: <code>{apiBaseUrl}/donations/webhook/stripe</code>. Subscribe to Checkout Session and charge refund events.</small>
+                    <small className="adm-field-help">Optional reliability webhook: <code>{apiBaseUrl}/webhooks/stripe</code>. Checkout also verifies payments on return, so package purchases and donations work without it. Subscribe to Checkout Session and charge refund events.</small>
                   )}
                 </label>
                 <div className="form-actions">

@@ -51,7 +51,7 @@ import {
 import type { AgentDevice, AppNotification, AuditLog, CredentialSummary, Host, Organization, RemoteSession, Snippet, ThemePreference, User } from "@onshell/shared";
 import { canOpenSession, isShellHost } from "@onshell/shared";
 import { cx } from "@onshell/ui";
-import { ApiError, consoleApi, keepSessionAlive, sessionWebsocketUrl } from "./api";
+import { ApiError, apiBaseUrl, consoleApi, keepSessionAlive, sessionWebsocketUrl } from "./api";
 import type { MembershipSummary, PendingInvitation, TeamMember } from "./api";
 import { FilesView } from "./files";
 import { PlanUsagePanel, UpgradeBanner, useGrowth } from "./growth";
@@ -265,6 +265,27 @@ export function ConsoleApp() {
   }, []);
 
   useEffect(() => { void consoleApi.notifications().then(setNotifications).catch(() => undefined); }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (params.get("checkout") !== "success" || !sessionId) return;
+
+    void fetch(`${apiBaseUrl}/payments/stripe/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("confirmation_failed");
+        notify("Payment confirmed. Your package is active.");
+        params.delete("checkout");
+        params.delete("session_id");
+        const query = params.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+      })
+      .catch(() => notify("Payment received; confirmation is still processing.", "error"));
+  }, [notify]);
 
   // Restore saved terminal appearance after mount, so the server-rendered
   // markup and the first client render still agree.
