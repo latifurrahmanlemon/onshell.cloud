@@ -94,7 +94,7 @@ import { consoleApi } from "./api";
 export function TasksView() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "active" | "completed">("active");
+  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => consoleApi.tasks().then(setTasks), []);
   useEffect(() => { void load(); }, [load]);
@@ -124,10 +124,12 @@ export function TasksView() {
   }
   return <section className="panel tasks-view">
     <header className="task-hero">
-      <div><span className="task-eyebrow"><ListTodo size={14}/>Workspace planner</span><h2>Keep operational work moving</h2><p>Capture follow-ups beside your infrastructure and keep the same list synced across web and desktop.</p></div>
-      <div className="task-progress" aria-label={`${completionRate}% of tasks completed`}><div><strong>{completionRate}%</strong><span>completed</span></div><span className="task-progress-track"><i style={{ width: `${completionRate}%` }}/></span></div>
+      <div className="task-hero-copy"><span className="task-eyebrow"><ListTodo size={13}/>Workspace planner</span><h2>Tasks</h2><p>Capture follow-ups and keep the same focused queue synced across web and desktop.</p></div>
+      <div className="task-overview">
+        <div className="task-summary" aria-label="Task summary"><article><strong>{activeCount}</strong><span>Open</span></article><article><strong>{completedCount}</strong><span>Done</span></article><article><strong>{tasks.length}</strong><span>Total</span></article></div>
+        <div className="task-progress" aria-label={`${completionRate}% of tasks completed`}><div><strong>{completionRate}%</strong><span>completed</span></div><span className="task-progress-track"><i style={{ width: `${completionRate}%` }}/></span></div>
+      </div>
     </header>
-    <div className="task-summary" aria-label="Task summary"><article><strong>{activeCount}</strong><span>Open tasks</span></article><article><strong>{completedCount}</strong><span>Completed</span></article><article><strong>{tasks.length}</strong><span>Total captured</span></article></div>
     <div className="task-workspace">
       <form className="task-compose" onSubmit={add}><ListTodo size={18}/><input name="task" maxLength={2000} placeholder="What needs to get done?" aria-label="New task"/><button className="primary-button" disabled={busy} type="submit">{busy ? <Loader2 className="spin" size={15}/> : <Plus size={15}/>}Add task</button></form>
       <div className="task-tools"><div className="search-field"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks…" aria-label="Search tasks"/></div><div className="task-filters">{(["active","all","completed"] as const).map((value) => <button key={value} className={filter === value ? "is-active" : ""} onClick={() => setFilter(value)} type="button">{value}<span>{value === "active" ? activeCount : value === "completed" ? completedCount : tasks.length}</span></button>)}</div></div>
