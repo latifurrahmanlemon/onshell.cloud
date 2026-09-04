@@ -2172,6 +2172,57 @@
   font-size: 0.85rem;
 }
 
+/* globals.css also uses .admin-table for older div-based grids. Restore native
+   layout only for real tables so their columns fill the complete card. */
+table.admin-table {
+  display: table;
+}
+
+.adm-transactions,
+.ai-threads-table,
+.analytics-pages .admin-table,
+.analytics-active-users .admin-table,
+.analytics-recent {
+  table-layout: fixed;
+}
+
+.adm-transactions th:nth-child(1) { width: 18%; }
+.adm-transactions th:nth-child(2) { width: 10%; }
+.adm-transactions th:nth-child(3) { width: 18%; }
+.adm-transactions th:nth-child(4) { width: 10%; }
+.adm-transactions th:nth-child(5) { width: 10%; }
+.adm-transactions th:nth-child(6) { width: 16%; }
+.adm-transactions th:nth-child(7) { width: 18%; }
+
+.ai-threads-table th:nth-child(1) { width: 22%; }
+.ai-threads-table th:nth-child(2) { width: 15%; }
+.ai-threads-table th:nth-child(3) { width: 22%; }
+.ai-threads-table th:nth-child(4) { width: 10%; }
+.ai-threads-table th:nth-child(5) { width: 21%; }
+.ai-threads-table th:nth-child(6) { width: 10%; }
+
+.analytics-pages th:nth-child(1) { width: 52%; }
+.analytics-pages th:nth-child(2),
+.analytics-pages th:nth-child(3),
+.analytics-pages th:nth-child(4) { width: 16%; }
+
+.analytics-active-users th:nth-child(1) { width: 42%; }
+.analytics-active-users th:nth-child(2) { width: 20%; }
+.analytics-active-users th:nth-child(3) { width: 38%; }
+
+.analytics-recent th:nth-child(1) { width: 22%; }
+.analytics-recent th:nth-child(2) { width: 14%; }
+.analytics-recent th:nth-child(3) { width: 10%; }
+.analytics-recent th:nth-child(4) { width: 18%; }
+.analytics-recent th:nth-child(5) { width: 12%; }
+.analytics-recent th:nth-child(6) { width: 24%; }
+
+@media (max-width: 860px) {
+  .adm-transactions { min-width: 0; }
+  .adm-transactions th,
+  .adm-transactions td { width: auto; }
+}
+
 .admin-table thead th {
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);
@@ -2684,7 +2735,7 @@
   .ai-threads-table tbody { display: grid; gap: 10px; padding: 0 12px 12px; }
   .ai-threads-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 16px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-2); }
   .ai-threads-table th,
-  .ai-threads-table td { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0; border: 0; text-align: right; white-space: normal; }
+  .ai-threads-table td { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: auto; padding: 0; border: 0; text-align: right; white-space: normal; }
   .ai-threads-table th::before,
   .ai-threads-table td::before { content: attr(data-label); flex: 0 0 auto; color: var(--soft); font-size: .64rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
   .ai-threads-table th,
@@ -2875,7 +2926,7 @@
   .analytics-active-users th,
   .analytics-active-users td,
   .analytics-recent th,
-  .analytics-recent td { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0; border: 0; text-align: right; white-space: normal; }
+  .analytics-recent td { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: auto; padding: 0; border: 0; text-align: right; white-space: normal; }
   .analytics-pages th::before,
   .analytics-pages td::before,
   .analytics-active-users th::before,
