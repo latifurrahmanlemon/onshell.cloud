@@ -410,6 +410,10 @@ kbd {
   grid-template-columns: 56px 0 minmax(0, 1fr);
 }
 
+.console.console--sidebar-hidden {
+  grid-template-columns: 56px 0 minmax(0, 1fr);
+}
+
 .console--sidebar-hidden .sidebar {
   overflow: hidden;
   border-right: 0;
@@ -563,7 +567,11 @@ kbd {
   color: #07120c;
   font-weight: 800;
   letter-spacing: -0.04em;
+  padding: 0;
+  cursor: pointer;
 }
+
+.activity-rail__brand:hover { background: var(--accent-hover); }
 
 .activity-button {
   position: relative;
@@ -640,13 +648,15 @@ kbd {
 
 .sidebar__head {
   min-height: 64px;
-  padding: 12px 14px 11px 16px;
+  padding: 10px 7px 9px 12px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
+
+.sidebar__head-actions { display: flex; flex: 0 0 auto; gap: 4px; }
 
 .sidebar__account {
   max-width: 190px;
@@ -669,7 +679,7 @@ kbd {
 .sidebar__scroll {
   overflow-y: auto;
   flex: 1;
-  padding: 5px 8px 16px;
+  padding: 5px 3px 16px 6px;
   scroll-behavior: smooth;
 }
 
@@ -698,7 +708,7 @@ kbd {
   display: block;
   text-align: left;
   min-height: 48px;
-  padding: 6px 8px;
+  padding: 6px 5px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   transition:
@@ -873,12 +883,14 @@ kbd {
 .pane__search svg { position: absolute; left: 15px; color: var(--text-subtle); }
 .pane__search input { width: 100%; padding: 6px 8px 6px 28px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-inset); color: var(--text); font-size: 11px; }
 .snippet-modal .vault-hosts label { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 8px; color: var(--text); }
+.snippet-modal .vault-hosts, .snippet-modal .vault-hosts label, .vault-hosts__list { text-align: left; }
 .vault-modal { width: min(560px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow-y: auto; }
 .vault-hosts__search { position: relative; }
 .vault-hosts__search svg { position: absolute; left: 10px; color: var(--text-subtle); }
 .snippet-modal .vault-hosts__search input { padding-left: 30px; }
 .vault-hosts__list { max-height: 210px; overflow-y: auto; display: grid; gap: 3px; }
-.snippet-modal .vault-hosts__list > label { min-height: 45px; padding: 6px 8px; border-radius: 7px; }
+.snippet-modal .vault-hosts__list > label { width: 100%; min-height: 45px; justify-content: flex-start; padding: 6px 8px; border-radius: 7px; }
+.snippet-modal .vault-hosts__list > label input { flex: 0 0 auto; margin: 0; }
 .snippet-modal .vault-hosts__list > label:hover { background: var(--bg-raised); }
 .vault-hosts__list label > span { min-width: 0; display: grid; gap: 2px; }
 .vault-hosts__list strong, .vault-hosts__list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

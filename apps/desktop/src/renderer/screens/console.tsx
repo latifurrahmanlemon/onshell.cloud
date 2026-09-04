@@ -586,14 +586,21 @@ export function Console({ state }: Props) {
         )}
       </header>
       <nav className="activity-rail" aria-label="Workspace navigation">
-        <div className="activity-rail__brand" aria-label="Onshell">
+        <button
+          className="activity-rail__brand"
+          aria-label={sidebarOpen ? "Hide hosts panel" : "Show hosts panel"}
+          aria-pressed={sidebarOpen}
+          data-tooltip={sidebarOpen ? "Hide host panel" : "Show host panel"}
+          onClick={() => setSidebarOpen((open) => !open)}
+          type="button"
+        >
           O
-        </div>
+        </button>
         <button
           className={`activity-button${overlay.kind === "hosts" ? " activity-button--active" : ""}`}
           aria-label="Hosts"
           title="Hosts"
-          onClick={() => { setSidebarOpen(true); setOverlay({ kind: "hosts" }); }}
+          onClick={() => setOverlay({ kind: "hosts" })}
         >
           <Icon name="host" />
         </button>
@@ -658,14 +665,14 @@ export function Console({ state }: Props) {
             <div className="sidebar__eyebrow">Workspace</div>
             <div className="sidebar__account">{state.user?.name ?? state.user?.email ?? "Personal"}</div>
           </div>
-          <button
-            className="icon icon--framed"
-            title="Add host"
-            aria-label="Add host"
-            onClick={() => setHostEditor("new")}
-          >
-            <Icon name="plus" size={16} />
-          </button>
+          <div className="sidebar__head-actions">
+            <button className="icon icon--framed" title="Open local terminal" aria-label="Open local terminal" onClick={() => void openLocal()}>
+              <Icon name="terminal" size={15} />
+            </button>
+            <button className="icon icon--framed" title="Add host" aria-label="Add host" onClick={() => setHostEditor("new")}>
+              <Icon name="plus" size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="sidebar__search">
