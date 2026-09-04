@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Eye,
   KeyRound,
+  Loader2,
   MessagesSquare,
   RefreshCw,
   Save,
@@ -617,34 +618,35 @@ export function AiThreadsSection() {
             <tbody>
               {threads.map((thread) => (
                 <tr key={thread.id}>
-                  <th scope="row">
+                  <th scope="row" data-label="User">
                     <ThreadOwner user={thread.user} />
                   </th>
-                  <td>{thread.organization?.name ?? "—"}</td>
-                  <td>
+                  <td data-label="Workspace">{thread.organization?.name ?? "—"}</td>
+                  <td data-label="Conversation">
                     <span className="ai-thread-title">{thread.title}<small>{thread.archivedAt ? "Archived" : "Open"}</small></span>
                   </td>
-                  <td className="ai-threads-num">{thread.messageCount}</td>
-                  <td className="ai-threads-date">{formatDateTime(thread.lastMessageAt)}</td>
-                  <td>
+                  <td className="ai-threads-num" data-label="Messages">{thread.messageCount}</td>
+                  <td className="ai-threads-date" data-label="Last activity">{formatDateTime(thread.lastMessageAt)}</td>
+                  <td data-label="Actions">
                     <div className="ai-threads-actions">
                       <button
-                        className="admin-button subtle compact"
+                        className="icon-button compact"
                         type="button"
                         onClick={() => setViewId(thread.id)}
+                        aria-label={`View conversation "${thread.title}"`}
+                        title="View conversation"
                       >
                         <Eye aria-hidden="true" size={14} />
-                        View
                       </button>
                       <button
-                        className="admin-button subtle compact is-danger"
+                        className="icon-button compact danger"
                         type="button"
                         disabled={deletingId === thread.id}
                         onClick={() => void remove(thread)}
                         aria-label={`Delete conversation "${thread.title}"`}
+                        title={deletingId === thread.id ? "Deleting…" : "Delete conversation"}
                       >
-                        <Trash2 aria-hidden="true" size={14} />
-                        {deletingId === thread.id ? "Deleting…" : "Delete"}
+                        {deletingId === thread.id ? <Loader2 aria-hidden="true" className="is-spinning" size={14} /> : <Trash2 aria-hidden="true" size={14} />}
                       </button>
                     </div>
                   </td>

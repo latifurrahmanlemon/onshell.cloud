@@ -63,7 +63,7 @@ import { InboxSection } from "./inbox";
 import { LogsSection } from "./logs";
 import { OnshellMark } from "../brand";
 import { ThemeToggle } from "../theme";
-import { apiBaseUrl, apiSend, errorText, useAdminResource } from "./lib";
+import { apiBaseUrl, apiGet, apiSend, errorText, formatDateTime, useAdminResource } from "./lib";
 
 /* ------------------------------------------------------------------ types */
 
@@ -138,6 +138,24 @@ interface AdminUser {
   twoFactorEnabled: boolean;
   emailVerifiedAt?: string | null;
   createdAt?: string;
+  lastLoginAt?: string | null;
+  hostCount?: number;
+  taskCount?: number;
+  packageName?: string;
+  transactionCount?: number;
+}
+
+interface AdminTransaction {
+  id: string; kind: string; userName?: string | null; email?: string | null; organizationName?: string | null;
+  description: string; amountCents: number; currency: string; status: string; provider: string;
+  providerId?: string | null; receiptUrl?: string | null; paidAt?: string | null; createdAt: string; failureReason?: string | null;
+}
+
+interface AdminUserDetails extends AdminUser {
+  updatedAt: string;
+  counts: { tasks: number; snippets: number; sessions: number; aiThreads: number; desktopDevices: number };
+  memberships: Array<{ id: string; role: string; createdAt: string; organization: { id: string; name: string; slug: string; counts: { hosts: number; tasks: number; sessions: number; credentials: number; snippets: number } }; subscriptions: Array<{ id: string; status: string; billingInterval: string; currentPeriodStart: string; currentPeriodEnd: string; plan: { id: string; name: string; code: string }; invoices: Array<{ id: string; amountCents: number; currency: string; status: string; createdAt: string; paidAt?: string | null }> }> }>;
+  authEvents: Array<{ id: string; event: string; method: string; success: boolean; reason?: string | null; ipAddress?: string | null; createdAt: string }>;
 }
 
 interface AdminIdentity {
@@ -248,7 +266,7 @@ type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "notificati
 type UserSortKey = "name" | "email" | "role" | "created";
 type UserRoleFilter = "all" | "platform" | "owner" | "admin" | "devops" | "developer" | "auditor";
 type UserStatusFilter = "all" | "verified" | "unverified";
-type UserView = "directory" | "history";
+type UserView = "directory" | "history" | "transactions";
 
 const USERS_PAGE_SIZE = 8;
 const PURCHASE_PAGE_SIZES = [10, 25, 50] as const;
@@ -897,6 +915,23 @@ function Modal({
   );
 }
 
+function UserDetailsModal({ userId, onClose, reduceMotion }: { userId: string; onClose: () => void; reduceMotion: boolean }) {
+  const [detail, setDetail] = useState<AdminUserDetails | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { let active = true; void apiGet<AdminUserDetails>(`/admin/users/${userId}/details`).then((data) => { if (active) setDetail(data); }).catch((caught) => { if (active) setError(errorText(caught)); }); return () => { active = false; }; }, [userId]);
+  const membership = detail?.memberships[0];
+  const subscription = membership?.subscriptions[0];
+  return <Modal className="adm-modal-profile" description={detail?.email ?? "Loading account record…"} icon={Eye} onClose={onClose} reduceMotion={reduceMotion} title={detail?.name ?? "User details"}>
+    {error ? <ErrorBanner message={error} onRetry={() => window.location.reload()} retrying={false}/> : !detail ? <SkeletonRows rows={5}/> : <div className="adm-profile-detail">
+      <section className="adm-profile-hero"><span className="pf-avatar lg">{detail.avatarUrl ? <img alt="" src={detail.avatarUrl}/> : <span>{initials(detail.name)}</span>}</span><div><h3>{detail.name}</h3><a href={`mailto:${detail.email}`}>{detail.email}</a><p>{membership?.organization.name ?? "No organization"} · {membership?.role ?? detail.role}</p></div><div className="adm-profile-status"><span className={cx("adm-badge", detail.emailVerifiedAt ? "green" : "rose")}>{detail.emailVerifiedAt ? "Verified" : "Unverified"}</span><span className={cx("adm-badge", detail.twoFactorEnabled ? "green" : "soft")}>{detail.twoFactorEnabled ? "2FA enabled" : "2FA off"}</span>{detail.isPlatformAdmin && <span className="adm-badge amber">Platform admin</span>}</div></section>
+      <section className="adm-profile-metrics"><div><strong>{membership?.organization.counts.hosts ?? 0}</strong><span>Hosts</span></div><div><strong>{detail.counts.sessions}</strong><span>Sessions</span></div><div><strong>{detail.counts.tasks}</strong><span>Tasks</span></div><div><strong>{detail.counts.snippets}</strong><span>Snippets</span></div><div><strong>{detail.counts.aiThreads}</strong><span>AI threads</span></div><div><strong>{detail.counts.desktopDevices}</strong><span>Devices</span></div></section>
+      <div className="adm-profile-grid"><section><h3>Account</h3><dl><div><dt>User ID</dt><dd className="adm-mono">{detail.id}</dd></div><div><dt>Created</dt><dd>{formatDateTime(detail.createdAt!)}</dd></div><div><dt>Updated</dt><dd>{formatDateTime(detail.updatedAt)}</dd></div><div><dt>Last login</dt><dd>{detail.lastLoginAt ? formatDateTime(detail.lastLoginAt) : "Never"}</dd></div></dl></section><section><h3>Current package</h3><dl><div><dt>Plan</dt><dd>{subscription?.plan.name ?? "Free"}</dd></div><div><dt>Status</dt><dd>{subscription?.status?.toLowerCase() ?? "active"}</dd></div><div><dt>Billing</dt><dd>{subscription?.billingInterval?.toLowerCase() ?? "—"}</dd></div><div><dt>Invoices</dt><dd>{subscription?.invoices.length ?? 0}</dd></div></dl></section></div>
+      <section className="adm-profile-workspaces"><h3>Workspace access</h3>{detail.memberships.length ? detail.memberships.map((item) => { const activeSubscription = item.subscriptions[0]; return <article key={item.id}><div><strong>{item.organization.name}</strong><small>{item.organization.slug} · joined {formatDateTime(item.createdAt)}</small></div><span className="adm-badge soft">{item.role}</span><dl><div><dt>Package</dt><dd>{activeSubscription?.plan.name ?? "Free"}</dd></div><div><dt>Resources</dt><dd>{item.organization.counts.hosts} hosts · {item.organization.counts.credentials} credentials · {item.organization.counts.sessions} sessions</dd></div><div><dt>Workspace tasks</dt><dd>{item.organization.counts.tasks}</dd></div></dl></article>; }) : <p className="admin-empty">No workspace memberships.</p>}</section>
+      <section className="adm-profile-activity"><h3>Recent sign-in activity</h3>{detail.authEvents.length ? detail.authEvents.map((event) => <article key={event.id}><span className={cx("adm-status-dot", event.success ? "is-success" : "is-failed")}/><div><strong>{event.event.toLowerCase().replaceAll("_", " ")} · {event.method.toLowerCase()}</strong><small>{event.ipAddress ?? "Unknown IP"}{event.reason ? ` · ${event.reason}` : ""}</small></div><time>{formatDateTime(event.createdAt)}</time></article>) : <p className="admin-empty">No authentication activity recorded.</p>}</section>
+    </div>}
+  </Modal>;
+}
+
 /* ------------------------------------------------------------------- page */
 
 export function AdminApp() {
@@ -953,6 +988,7 @@ function AdminPanel() {
   const plansRes = useAdminResource<AdminPlan[]>("/admin/plans");
   const subscriptionsRes = useAdminResource<AdminSubscription[]>("/admin/subscriptions");
   const usersRes = useAdminResource<AdminUser[]>("/admin/users");
+  const transactionsRes = useAdminResource<AdminTransaction[]>("/admin/transactions");
   const smtpRes = useAdminResource<SmtpSettings>("/admin/smtp", SMTP_FALLBACK);
   const paymentRes = useAdminResource<PaymentSettings[]>("/admin/payment-settings");
   const settingsRes = useAdminResource<AppSetting[]>("/admin/settings");
@@ -982,6 +1018,7 @@ function AdminPanel() {
   const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>("all");
   const [userSort, setUserSort] = useState<{ key: UserSortKey; dir: SortDir }>({ key: "created", dir: "desc" });
   const [userPage, setUserPage] = useState(1);
+  const [viewUserId, setViewUserId] = useState<string | null>(null);
   const [purchaseQuery, setPurchaseQuery] = useState("");
   const [purchaseStatus, setPurchaseStatus] = useState("all");
   const [purchaseInterval, setPurchaseInterval] = useState("all");
@@ -1187,6 +1224,7 @@ function AdminPanel() {
     if (section === "users") {
       void usersRes.reload();
       void subscriptionsRes.reload();
+      void transactionsRes.reload();
       return;
     }
     void overviewRes.reload();
@@ -2189,9 +2227,25 @@ function AdminPanel() {
             <Receipt size={15} />
             <span>Purchase history</span>
           </button>
+          <button
+            aria-selected={userView === "transactions"}
+            className={cx("adm-segment", userView === "transactions" && "is-active")}
+            onClick={() => setUserView("transactions")}
+            role="tab"
+            type="button"
+          >
+            <CreditCard size={15} />
+            <span>Transactions</span>
+          </button>
         </div>
 
-        {userView === "history" ? (
+        {userView === "transactions" ? (
+          <div className="panel">
+            <div className="panel-header"><div><h2>Transaction ledger</h2><p>Subscription invoices and donations, including pending and failed attempts.</p></div><span className="adm-count">{transactionsRes.data?.length ?? 0} records</span></div>
+            {transactionsRes.error && <ErrorBanner message={transactionsRes.error} onRetry={transactionsRes.reload} retrying={transactionsRes.loading}/>}
+            {transactionsRes.loading && !transactionsRes.data ? <SkeletonRows rows={5}/> : (transactionsRes.data?.length ?? 0) === 0 ? <EmptyState body="Completed and attempted payments will appear here." icon={CreditCard} title="No transactions yet"/> : <div className="admin-table-wrap"><table className="admin-table adm-transactions"><thead><tr><th>User</th><th>Type</th><th>Description</th><th>Amount</th><th>Status</th><th>Provider</th><th>When</th></tr></thead><tbody>{transactionsRes.data!.map((transaction) => <tr key={`${transaction.kind}-${transaction.id}`}><th data-label="User"><span className="adm-table-identity"><strong>{transaction.userName || "Guest"}</strong><small>{transaction.email || transaction.organizationName || "No identity supplied"}</small></span></th><td data-label="Type">{transaction.kind}</td><td data-label="Description"><span>{transaction.description}{transaction.failureReason && <small>{transaction.failureReason}</small>}</span></td><td className="adm-money" data-label="Amount">{new Intl.NumberFormat(undefined, { style: "currency", currency: transaction.currency }).format(transaction.amountCents / 100)}</td><td data-label="Status"><span className={cx("adm-badge", /paid|succeed|complete/i.test(transaction.status) ? "green" : /fail|cancel/i.test(transaction.status) ? "rose" : "amber")}>{transaction.status.replaceAll("_", " ")}</span></td><td data-label="Provider"><span>{transaction.provider}<small className="adm-mono">{transaction.providerId?.slice(-12) ?? "—"}</small>{transaction.receiptUrl && <a href={transaction.receiptUrl} rel="noreferrer" target="_blank">Open receipt</a>}</span></td><td data-label="When">{formatDateTime(transaction.paidAt ?? transaction.createdAt)}</td></tr>)}</tbody></table></div>}
+          </div>
+        ) : userView === "history" ? (
           <>
             {subscriptionsRes.error && (
               <ErrorBanner message={subscriptionsRes.error} onRetry={subscriptionsRes.reload} retrying={subscriptionsRes.loading} />
@@ -2289,11 +2343,12 @@ function AdminPanel() {
                   <div className="admin-table">
                     <div className="adm-dir-row table-head">
                       {userSortHead("Name", "name")}
-                      {userSortHead("Email", "email")}
                       {userSortHead("Role", "role")}
+                      <span>Last login</span>
+                      <span>Hosts</span>
+                      <span>Package</span>
                       <span>Security</span>
-                      {userSortHead("Created", "created")}
-                      <span>Manage</span>
+                      <span>Actions</span>
                     </div>
                     {pagedUsers.map((user) => (
                       <div className="adm-dir-row" key={user.id}>
@@ -2308,12 +2363,10 @@ function AdminPanel() {
                           </span>
                           <div className="adm-dir-user-meta">
                             <strong>{user.name}</strong>
+                            <small>{user.email}</small>
                             <small>{user.organizationName ?? "No organization"}</small>
                           </div>
                         </div>
-                        <span className="adm-dir-email" data-label="Email">
-                          {user.email}
-                        </span>
                         <span className="adm-dir-badges" data-label="Role">
                           <span className="adm-badge">{user.role.replace(/_/g, " ")}</span>
                           {user.isPlatformAdmin && (
@@ -2323,6 +2376,9 @@ function AdminPanel() {
                             </span>
                           )}
                         </span>
+                        <span className="adm-dir-joined" data-label="Last login">{user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}</span>
+                        <span data-label="Hosts">{user.hostCount ?? 0}</span>
+                        <span data-label="Package"><strong>{user.packageName ?? "Free"}</strong></span>
                         <span className="adm-dir-badges" data-label="Security">
                           {user.twoFactorEnabled ? (
                             <span className="adm-badge green">
@@ -2344,18 +2400,7 @@ function AdminPanel() {
                             <span className="adm-badge rose">Unverified</span>
                           )}
                         </span>
-                        <span className="adm-dir-joined" data-label="Created">
-                          {formatDate(user.createdAt)}
-                        </span>
-                        <button
-                          aria-label={`Manage ${user.name}`}
-                          className="icon-button compact"
-                          onClick={() => openManageUser(user)}
-                          title={`Manage ${user.name}`}
-                          type="button"
-                        >
-                          <UserCog size={15} />
-                        </button>
+                        <div className="adm-dir-actions"><button aria-label={`View ${user.name}`} className="icon-button compact" onClick={() => setViewUserId(user.id)} title={`View ${user.name}`} type="button"><Eye size={15}/></button><button aria-label={`Manage ${user.name}`} className="icon-button compact" onClick={() => openManageUser(user)} title={`Manage ${user.name}`} type="button"><UserCog size={15}/></button></div>
                       </div>
                     ))}
                   </div>
@@ -2982,6 +3027,7 @@ function AdminPanel() {
       </section>
 
       <AnimatePresence>
+        {viewUserId && <UserDetailsModal key="user-details-modal" onClose={() => setViewUserId(null)} reduceMotion={reduceMotion} userId={viewUserId} />}
         {packageModalOpen && (
           <Modal
             className="adm-modal-wide"

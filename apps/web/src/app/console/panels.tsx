@@ -102,6 +102,9 @@ export function TasksView() {
     const stateMatches = filter === "all" || (filter === "completed" ? task.completed : !task.completed);
     return stateMatches && task.text.toLowerCase().includes(query.trim().toLowerCase());
   });
+  const completedCount = tasks.filter((task) => task.completed).length;
+  const activeCount = tasks.length - completedCount;
+  const completionRate = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -120,10 +123,16 @@ export function TasksView() {
     setTasks((current) => current.filter((item) => item.id !== task.id));
   }
   return <section className="panel tasks-view">
-    <div className="panel-header"><div><h2>Tasks</h2><p>Small things to remember, synced across web and desktop.</p></div></div>
-    <form className="task-compose" onSubmit={add}><ListTodo size={17}/><input name="task" maxLength={2000} placeholder="Add a task…" aria-label="New task"/><button className="primary-button" disabled={busy} type="submit"><Plus size={15}/>Add</button></form>
-    <div className="task-tools"><div className="search-field"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks…" aria-label="Search tasks"/></div><div className="task-filters">{(["active","all","completed"] as const).map((value) => <button key={value} className={filter === value ? "is-active" : ""} onClick={() => setFilter(value)} type="button">{value}</button>)}</div></div>
-    <div className="task-list">{visible.map((task) => <article className={task.completed ? "is-completed" : ""} key={task.id}><button className="task-check" aria-label={task.completed ? "Mark active" : "Mark complete"} onClick={() => void toggle(task)} type="button">{task.completed && <Check size={14}/>}</button><div><p>{task.text}</p><small>{task.completedAt ? `Completed ${relativeTime(task.completedAt)}` : `Added ${relativeTime(task.createdAt)}`}</small></div><button className="icon-button compact danger" aria-label="Delete task" onClick={() => void remove(task)} type="button"><Trash2 size={14}/></button></article>)}{visible.length === 0 && <EmptyState icon={<ListTodo size={22}/>} title="No tasks here" hint={query ? "Try another search." : "Add a task to get started."}/>}</div>
+    <header className="task-hero">
+      <div><span className="task-eyebrow"><ListTodo size={14}/>Workspace planner</span><h2>Keep operational work moving</h2><p>Capture follow-ups beside your infrastructure and keep the same list synced across web and desktop.</p></div>
+      <div className="task-progress" aria-label={`${completionRate}% of tasks completed`}><div><strong>{completionRate}%</strong><span>completed</span></div><span className="task-progress-track"><i style={{ width: `${completionRate}%` }}/></span></div>
+    </header>
+    <div className="task-summary" aria-label="Task summary"><article><strong>{activeCount}</strong><span>Open tasks</span></article><article><strong>{completedCount}</strong><span>Completed</span></article><article><strong>{tasks.length}</strong><span>Total captured</span></article></div>
+    <div className="task-workspace">
+      <form className="task-compose" onSubmit={add}><ListTodo size={18}/><input name="task" maxLength={2000} placeholder="What needs to get done?" aria-label="New task"/><button className="primary-button" disabled={busy} type="submit">{busy ? <Loader2 className="spin" size={15}/> : <Plus size={15}/>}Add task</button></form>
+      <div className="task-tools"><div className="search-field"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks…" aria-label="Search tasks"/></div><div className="task-filters">{(["active","all","completed"] as const).map((value) => <button key={value} className={filter === value ? "is-active" : ""} onClick={() => setFilter(value)} type="button">{value}<span>{value === "active" ? activeCount : value === "completed" ? completedCount : tasks.length}</span></button>)}</div></div>
+      <div className="task-list">{visible.map((task) => <article className={task.completed ? "is-completed" : ""} key={task.id}><button className="task-check" aria-label={task.completed ? "Mark active" : "Mark complete"} onClick={() => void toggle(task)} type="button">{task.completed && <Check size={14}/>}</button><div><p>{task.text}</p><small>{task.completedAt ? `Completed ${relativeTime(task.completedAt)}` : `Added ${relativeTime(task.createdAt)}`}</small></div><button className="icon-button compact danger" aria-label="Delete task" onClick={() => void remove(task)} type="button"><Trash2 size={14}/></button></article>)}{visible.length === 0 && <EmptyState icon={<ListTodo size={22}/>} title="No tasks here" hint={query ? "Try another search." : "Add a task to get started."}/>}</div>
+    </div>
   </section>;
 }
 import { HostTransferPanel } from "./host-transfer";

@@ -10,6 +10,7 @@ import {
   FileLock2,
   HeartHandshake,
   KeyRound,
+  ListTodo,
   MonitorUp,
   ScrollText,
   ShieldCheck,
@@ -118,6 +119,11 @@ const featureCards = [
     icon: ScrollText,
     title: "Complete audit trail",
     text: "Every session, transfer, and admin change recorded with actor, IP, and timestamp. Retention follows your plan."
+  },
+  {
+    icon: ListTodo,
+    title: "Workspace task manager",
+    text: "Capture maintenance follow-ups where the work happens, search and filter the queue, and keep progress synced across browser and desktop."
   }
 ];
 
@@ -691,7 +697,7 @@ export default function PublicPage() {
           <motion.div className="lp-heading" variants={motionVariants.fade}>
             <span className="lp-section-eyebrow">Everything in one workspace</span>
             <h2>A browser SSH client that replaces your whole access stack</h2>
-            <p>Eight capabilities that usually take six tools — behind one login, one policy, one audit trail.</p>
+            <p>Nine capabilities that usually take a stack of separate tools — behind one login, one policy, one audit trail.</p>
           </motion.div>
           <motion.div className="lp-feature-grid" variants={motionVariants.staggerTight}>
             {featureCards.map(({ icon: Icon, title, text }) => (
@@ -708,6 +714,35 @@ export default function PublicPage() {
                 <p>{text}</p>
               </motion.article>
             ))}
+          </motion.div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="lp-section lp-task-feature"
+        variants={motionVariants.stagger}
+        initial="hidden"
+        whileInView="show"
+        viewport={VIEWPORT}
+      >
+        <div className="lp-container lp-task-layout">
+          <motion.div className="lp-task-copy" variants={motionVariants.fade}>
+            <span className="lp-section-eyebrow">Operational follow-through</span>
+            <h2>Turn “we should fix that” into work that gets finished</h2>
+            <p>Keep the small but important jobs beside the hosts, credentials, and sessions they came from. Everyone sees one focused queue on web and desktop.</p>
+            <ul>
+              <li><Check size={16}/>Capture a follow-up in seconds</li>
+              <li><Check size={16}/>Filter open and completed work</li>
+              <li><Check size={16}/>Search the shared history anytime</li>
+            </ul>
+            <a className="secondary-button" href="/signup">Start organising free <ArrowRight size={16}/></a>
+          </motion.div>
+          <motion.div className="lp-task-preview" variants={motionVariants.item} aria-label="Task manager preview">
+            <header><span><ListTodo size={16}/>Workspace tasks</span><strong>67% complete</strong></header>
+            <div className="lp-task-preview-progress"><i/></div>
+            <article className="is-done"><Check size={14}/><div><strong>Rotate staging deploy key</strong><small>Completed today</small></div></article>
+            <article><span/><div><strong>Review production disk alert</strong><small>Added 18 minutes ago</small></div></article>
+            <article><span/><div><strong>Document backup restore steps</strong><small>Added yesterday</small></div></article>
           </motion.div>
         </div>
       </motion.section>

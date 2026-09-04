@@ -455,6 +455,33 @@ html {
 }
 
 /* ==========================================================================
+   Workspace tasks
+   ========================================================================== */
+
+.lp-task-feature { background: linear-gradient(180deg, transparent, var(--surface-2), transparent); }
+.lp-task-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(400px, 1.1fr); align-items: center; gap: clamp(38px, 7vw, 88px); }
+.lp-task-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.lp-task-copy h2 { margin: 0; color: var(--text); font-family: var(--font-display); font-size: clamp(1.85rem, 1.3rem + 1.9vw, 2.55rem); line-height: 1.12; letter-spacing: -.02em; }
+.lp-task-copy > p { margin: 0; color: var(--muted); font-size: 1.02rem; line-height: 1.65; }
+.lp-task-copy ul { display: grid; gap: 10px; margin: 2px 0 6px; padding: 0; list-style: none; }
+.lp-task-copy li { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: .94rem; }
+.lp-task-copy li svg { padding: 2px; border-radius: 50%; background: var(--accent-weak); color: var(--accent-text); }
+.lp-task-preview { position: relative; display: grid; gap: 10px; padding: clamp(20px, 3vw, 30px); border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-xl); }
+.lp-task-preview::before { content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; background: var(--brand-gradient); opacity: .18; filter: blur(20px); }
+.lp-task-preview header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 2px; }
+.lp-task-preview header span { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; }
+.lp-task-preview header strong { color: var(--accent-text); font-size: .76rem; }
+.lp-task-preview-progress { height: 6px; margin-bottom: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+.lp-task-preview-progress i { display: block; width: 67%; height: 100%; border-radius: inherit; background: var(--brand-gradient); }
+.lp-task-preview article { display: grid; grid-template-columns: 22px minmax(0,1fr); align-items: center; gap: 11px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; }
+.lp-task-preview article > span { width: 20px; height: 20px; border: 1px solid var(--border-strong); border-radius: 50%; }
+.lp-task-preview article > svg { display: grid; width: 20px; height: 20px; padding: 3px; border-radius: 50%; background: var(--accent); color: #fff; }
+.lp-task-preview article div { display: grid; gap: 3px; }
+.lp-task-preview article strong { color: var(--text); font-size: .86rem; }
+.lp-task-preview article small { color: var(--soft); font-size: .72rem; }
+.lp-task-preview article.is-done strong { color: var(--soft); text-decoration: line-through; }
+
+/* ==========================================================================
    How it works — steps
    ========================================================================== */
 
@@ -994,6 +1021,8 @@ html {
     align-items: flex-start;
   }
 
+  .lp-task-layout { grid-template-columns: minmax(0, 1fr); }
+
   .lp-billing-wrap {
     align-items: flex-start;
   }
@@ -1014,6 +1043,9 @@ html {
   .lp-pricing-grid {
     grid-template-columns: 1fr;
   }
+
+  .lp-task-layout { gap: 30px; }
+  .lp-task-preview { min-width: 0; padding: 16px; }
 
   .lp-checkout-fields {
     grid-template-columns: 1fr;

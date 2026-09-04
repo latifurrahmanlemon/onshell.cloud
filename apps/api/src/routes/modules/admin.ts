@@ -355,7 +355,10 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
     if (!actor) return reply.code(403).send({ error: "forbidden" });
 
     const users = await prisma.user.findMany({
-      include: { memberships: { ...membershipOrder, include: { organization: true } } },
+      include: {
+        memberships: { ...membershipOrder, include: { organization: { include: { _count: { select: { hosts: true, tasks: true } }, subscriptions: { orderBy: { createdAt: "desc" }, take: 1, include: { plan: true, invoices: true } } } } } },
+        authEvents: { where: { success: true }, orderBy: { createdAt: "desc" }, take: 1 }
+      },
       orderBy: { createdAt: "desc" }
     });
 
@@ -367,11 +370,69 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const publicUser = toPublicUser(user, user.lastActiveOrganizationId);
       return {
         ...publicUser,
+        lastLoginAt: user.authEvents[0]?.createdAt ?? null,
+        hostCount: user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization._count.hosts ?? 0,
+        taskCount: user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization._count.tasks ?? 0,
+        packageName: user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization.subscriptions[0]?.plan.name ?? "Free",
+        transactionCount: user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization.subscriptions[0]?.invoices.length ?? 0,
         organizationName:
           user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization
             ?.name ?? null
       };
     });
+  });
+
+  app.get("/admin/users/:userId/details", async (request, reply) => {
+    const actor = await requirePlatformAdmin(request, config);
+    if (!actor) return reply.code(403).send({ error: "forbidden" });
+    const { userId } = z.object({ userId: z.string() }).parse(request.params);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        memberships: {
+          include: {
+            organization: {
+              include: {
+                _count: { select: { hosts: true, tasks: true, sessions: true, credentials: true, snippets: true } },
+                subscriptions: {
+                  orderBy: { createdAt: "desc" },
+                  include: { plan: true, invoices: { orderBy: { createdAt: "desc" } } }
+                }
+              }
+            }
+          }
+        },
+        authEvents: { orderBy: { createdAt: "desc" }, take: 20 },
+        _count: { select: { tasks: true, snippets: true, sessions: true, aiThreads: true, desktopDevices: true } }
+      }
+    });
+    if (!user) return reply.code(404).send({ error: "user_not_found" });
+    return {
+      id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl,
+      isPlatformAdmin: user.isPlatformAdmin, twoFactorEnabled: user.twoFactorEnabled,
+      emailVerifiedAt: user.emailVerifiedAt, createdAt: user.createdAt, updatedAt: user.updatedAt,
+      lastLoginAt: user.authEvents.find((event) => event.success)?.createdAt ?? null,
+      counts: user._count,
+      memberships: user.memberships.map((membership) => ({
+        id: membership.id, role: membership.role.toLowerCase(), createdAt: membership.createdAt,
+        organization: { id: membership.organization.id, name: membership.organization.name, slug: membership.organization.slug, counts: membership.organization._count },
+        subscriptions: membership.organization.subscriptions.map((subscription) => ({ id: subscription.id, status: subscription.status, billingInterval: subscription.billingInterval, currentPeriodStart: subscription.currentPeriodStart, currentPeriodEnd: subscription.currentPeriodEnd, plan: { id: subscription.plan.id, name: subscription.plan.name, code: subscription.plan.code }, invoices: subscription.invoices }))
+      })),
+      authEvents: user.authEvents
+    };
+  });
+
+  app.get("/admin/transactions", async (request, reply) => {
+    const actor = await requirePlatformAdmin(request, config);
+    if (!actor) return reply.code(403).send({ error: "forbidden" });
+    const [invoices, donations] = await Promise.all([
+      prisma.invoice.findMany({ orderBy: { createdAt: "desc" }, take: 500, include: { subscription: { include: { organization: { include: { members: { where: { role: "OWNER" }, include: { user: true }, orderBy: { createdAt: "asc" }, take: 1 } } }, plan: true } } } }),
+      prisma.donation.findMany({ orderBy: { createdAt: "desc" }, take: 500 })
+    ]);
+    return [
+      ...invoices.map((invoice) => ({ id: invoice.id, kind: "subscription", userName: invoice.subscription.organization.members[0]?.user.name ?? null, email: invoice.subscription.organization.members[0]?.user.email ?? null, organizationName: invoice.subscription.organization.name, description: `${invoice.subscription.plan.name} plan`, amountCents: invoice.amountCents, currency: invoice.currency, status: invoice.status, provider: "stripe", providerId: invoice.providerInvoiceId, receiptUrl: invoice.hostedInvoiceUrl, paidAt: invoice.paidAt, createdAt: invoice.createdAt })),
+      ...donations.map((donation) => ({ id: donation.id, kind: "donation", userName: donation.donorName, email: donation.donorEmail, organizationName: null, description: "Onshell contribution", amountCents: donation.amountCents, currency: donation.currency, status: donation.status.toLowerCase(), provider: donation.provider.toLowerCase(), providerId: donation.providerPaymentId ?? donation.providerSessionId, paidAt: donation.paidAt, createdAt: donation.createdAt, failureReason: donation.failureReason }))
+    ].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
   });
 
   app.post("/admin/users", async (request, reply) => {
