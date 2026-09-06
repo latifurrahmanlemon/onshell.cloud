@@ -19,6 +19,7 @@ import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, HostsView, VaultView } from "./resource-view.js";
 import { Tasks } from "./tasks.js";
 import { beginWorkspaceHostDrag, Workspaces } from "./workspaces.js";
+import { CredentialDialog } from "./credential-dialog.js";
 
 interface Props {
   state: AppState;
@@ -79,6 +80,32 @@ export function Console({ state }: Props) {
   const [hostEditor, setHostEditor] = useState<Host | "new">();
   const [newTerminalOpen, setNewTerminalOpen] = useState(false);
   const [newTerminalQuery, setNewTerminalQuery] = useState("");
+  const [hostCredentialOpen, setHostCredentialOpen] = useState(false);
+  const [createdHostCredentialId, setCreatedHostCredentialId] = useState<string>();
+  useEffect(() => {
+    if (createdHostCredentialId && hostCredentialRef.current) hostCredentialRef.current.value = createdHostCredentialId;
+  }, [createdHostCredentialId]);
+  const hostCredentialRef = useRef<HTMLSelectElement>(null);
+  const newTerminalButtonRef = useRef<HTMLButtonElement>(null);
+  const newTerminalMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!newTerminalButtonRef.current?.contains(target) && !newTerminalMenuRef.current?.contains(target)) setNewTerminalOpen(false);
+      if (!accountMenuRef.current?.contains(target)) setProfileOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setNewTerminalOpen(false); setProfileOpen(false); }
+    };
+    document.addEventListener("pointerdown", dismiss, true);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true);
+      document.removeEventListener("keydown", escape);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -539,6 +566,7 @@ export function Console({ state }: Props) {
           {overlay.kind === "help" && <div className="tab tab--active"><button className="tab__select"><Icon name="help" size={14}/><span className="tab__title">Help</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Help"><Icon name="close" size={13}/></button></div>}
           <button
             className="tab tab--new"
+            ref={newTerminalButtonRef}
             aria-expanded={newTerminalOpen}
             aria-haspopup="menu"
             aria-label="Open a terminal"
@@ -562,7 +590,7 @@ export function Console({ state }: Props) {
         </div>
         {notificationsOpen && <div className="desktop-notifications" role="dialog" aria-label="Notifications"><header><strong>Notifications</strong><button className="icon" onClick={() => setNotificationsOpen(false)}><Icon name="close" size={13}/></button></header><div>{update?.available && <article className="is-unread"><strong>Onshell {update.latest} is available</strong><p>A new desktop release is ready to download.</p>{update.url && <button onClick={() => void bridge.openExternal(update.url!)}>Open release</button>}</article>}{notifications.map((item) => <article className={item.read ? "" : "is-unread"} key={item.id} onClick={() => { if (!item.read) { void bridge.console.markNotificationRead(item.id); setNotifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, read: true } : entry)); } }}><strong>{item.title}</strong><p>{item.message}</p>{item.actionUrl && <button onClick={() => void bridge.openExternal(item.actionUrl!)}>Learn more</button>}</article>)}{notifications.length === 0 && !update?.available && <p className="hint">You’re all caught up.</p>}</div></div>}
         {newTerminalOpen && (
-          <div className="new-terminal-menu" role="menu" aria-label="Open a terminal">
+          <div ref={newTerminalMenuRef} className="new-terminal-menu" role="menu" aria-label="Open a terminal">
             <div className="new-terminal-menu__search">
               <Icon name="search" size={14} />
               <input autoFocus value={newTerminalQuery} onChange={(event) => setNewTerminalQuery(event.target.value)} placeholder="Search hosts or shells" aria-label="Search hosts or shells" />
@@ -585,7 +613,7 @@ export function Console({ state }: Props) {
           </div>
         )}
       </header>
-      <nav className="activity-rail" aria-label="Workspace navigation">
+      <nav className="activity-rail" aria-label="Workspace navigation" onClick={(event) => { if ((event.target as HTMLElement).closest(".activity-button")) { setSidebarOpen(false); setProfileOpen(false); } }}>
         <button
           className="activity-rail__brand"
           aria-label={sidebarOpen ? "Hide hosts panel" : "Show hosts panel"}
@@ -646,7 +674,7 @@ export function Console({ state }: Props) {
         >
           <Icon name="gear" />
         </button>
-        <div className="account-menu">
+        <div className="account-menu" ref={accountMenuRef}>
           <button className="account-avatar" aria-expanded={profileOpen} aria-label="Open profile menu" onClick={() => setProfileOpen((open) => !open)} data-tooltip="Profile">
             {state.user?.avatarUrl ? <img alt="" src={state.user.avatarUrl} /> : (state.user?.name ?? state.user?.email ?? "U").slice(0, 1).toUpperCase()}
           </button>
@@ -871,18 +899,28 @@ export function Console({ state }: Props) {
         )}
         {hostEditor && (
           <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setHostEditor(undefined); }}>
-            <form className="snippet-modal" onSubmit={(event) => void saveHost(event)}>
+            <form className="snippet-modal" inert={hostCredentialOpen} onSubmit={(event) => void saveHost(event)}>
               <header><div><span className="snippet-emoji" aria-hidden="true"><Icon name="host" size={17} /></span><div><strong>{hostEditor === "new" ? "Add host" : "Edit host"}</strong><p>Changes sync with the web workspace immediately.</p></div></div><button className="icon" type="button" onClick={() => setHostEditor(undefined)} aria-label="Close"><Icon name="close" size={14} /></button></header>
               <label>Name<input name="name" required minLength={2} defaultValue={hostEditor === "new" ? "" : hostEditor.name} /></label>
               <div className="modal-fields"><label>Address<input name="address" required defaultValue={hostEditor === "new" ? "" : hostEditor.address} /></label><label>Port<input name="port" required type="number" min={1} max={65535} defaultValue={hostEditor === "new" ? 22 : hostEditor.port} /></label></div>
               <label>Username<input name="username" defaultValue={hostEditor === "new" ? "" : hostEditor.username} /></label>
               <label>Environment<select name="environment" defaultValue={hostEditor === "new" ? "development" : hostEditor.environment}><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></label>
-              <div className="host-auth-row"><label>Authentication<select name="credentialId" defaultValue={hostEditor === "new" ? "" : credentials.find((item) => item.attachedHostIds.includes(hostEditor.id))?.id ?? ""}><option value="">No credential</option>{credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name} · {credential.kind.replace("_", " ")}</option>)}</select></label><button className="button button--ghost" type="button" onClick={() => { setHostEditor(undefined); setOverlay({ kind: "vault", create: true }); }}>Create in Vault</button></div>
+              <div className="host-auth-row"><label>Authentication<select ref={hostCredentialRef} name="credentialId" defaultValue={hostEditor === "new" ? "" : credentials.find((item) => item.attachedHostIds.includes(hostEditor.id))?.id ?? ""}><option value="">No credential</option>{credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name} · {credential.kind.replace("_", " ")}</option>)}</select></label><button className="button button--ghost" type="button" onClick={() => setHostCredentialOpen(true)}>Create in Vault</button></div>
               <label>Tags<input name="tags" defaultValue={hostEditor === "new" ? "" : hostEditor.tags.join(", ")} placeholder="web, customer-a" /></label>
               <footer><button className="button button--ghost" type="button" onClick={() => setHostEditor(undefined)}>Cancel</button><button className="button button--primary" type="submit">Save host</button></footer>
             </form>
           </div>
         )}
+
+        {hostEditor && hostCredentialOpen && <CredentialDialog
+          onClose={() => setHostCredentialOpen(false)}
+          onCreated={(credential) => {
+            setCredentials((current) => [credential, ...current]);
+            setCreatedHostCredentialId(credential.id);
+            setHostCredentialOpen(false);
+            hostCredentialRef.current?.focus();
+          }}
+        />}
 
         {activeTab && overlay.kind === "none" && (
           <div className="terminal-toolbar" aria-label="Terminal actions">

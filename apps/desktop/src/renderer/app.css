@@ -518,7 +518,8 @@ kbd {
 }
 
 .console-titlebar__drag { min-width: 0; }
-.console-titlebar .tabs { min-width: 0; border: 0; background: transparent; padding-top: 5px; -webkit-app-region: no-drag; }
+.console-titlebar .tabs { min-width: 0; border: 0; background: transparent; padding-top: 5px; padding-right: 48px; -webkit-app-region: drag; }
+.console-titlebar .tab { -webkit-app-region: no-drag; }
 .console-titlebar__tools { display: flex; align-items: center; gap: 3px; padding: 0 9px; -webkit-app-region: no-drag; }
 .titlebar-tool, .titlebar-connection { position: relative; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; color: var(--text-muted); }
 .titlebar-tool:hover, .titlebar-tool--active { background: var(--bg-overlay); color: var(--text); }
@@ -890,9 +891,9 @@ kbd {
 .snippet-modal .vault-hosts__search input { padding-left: 30px; }
 .vault-hosts__list { max-height: 210px; overflow-y: auto; display: grid; gap: 3px; }
 .snippet-modal .vault-hosts__list > label { width: 100%; min-height: 45px; justify-content: flex-start; padding: 6px 8px; border-radius: 7px; }
-.snippet-modal .vault-hosts__list > label input { flex: 0 0 auto; margin: 0; }
+.snippet-modal .vault-hosts__list > label input { flex: 0 0 16px; width: 16px; height: 16px; padding: 0; margin: 0; }
 .snippet-modal .vault-hosts__list > label:hover { background: var(--bg-raised); }
-.vault-hosts__list label > span { min-width: 0; display: grid; gap: 2px; }
+.vault-hosts__list label > span { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .vault-hosts__list strong, .vault-hosts__list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-hosts__list small { color: var(--text-subtle); font-size: 10px; }
 .vault-hosts__list p { margin: 12px; color: var(--text-muted); text-align: center; }
