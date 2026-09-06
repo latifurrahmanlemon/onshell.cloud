@@ -105,6 +105,7 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
       // back through it the way the rest of the output does.
       if (event.type === "status") term.writeln(`\r\n\x1b[33m${event.message}\x1b[0m`);
       if (event.type === "exit") {
+        if (event.reason) term.writeln(`\r\n${event.reason.replace(/[\x00-\x1f\x7f-\x9f]/g, " ")}`);
         term.writeln(`\r\n\x1b[90m[session ended${event.code == null ? "" : ` — exit ${event.code}`}]\x1b[0m`);
       }
     });

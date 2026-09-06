@@ -13,6 +13,7 @@
  */
 import WebSocket from "ws";
 import { requireApi } from "./session.js";
+import { connectionFailure } from "./connection-errors.js";
 
 export interface RelaySession {
   sessionId: string;
@@ -42,23 +43,31 @@ export async function openRelaySession(options: OpenRelayOptions): Promise<Relay
 
   if (!websocketUrl) throw new Error("The server did not offer a terminal connection for that host.");
 
-  const socket = new WebSocket(websocketUrl);
+  const socket = new WebSocket(websocketUrl, { handshakeTimeout: 20_000 });
 
-  await new Promise<void>((resolve, reject) => {
+  try { await new Promise<void>((resolve, reject) => {
     const onOpen = () => {
       socket.off("error", onError);
+      socket.off("close", onClose);
       resolve();
     };
-    const onError = () => {
+    const onClose = () => onError(new Error("Gateway closed before connecting"));
+    const onError = (error: Error) => {
       socket.off("open", onOpen);
+      socket.off("close", onClose);
       // Deliberately not the underlying message: a failed WebSocket upgrade
       // reports as a bare status code that means nothing to the person reading
       // it, and the actionable part is which end could not be reached.
-      reject(new Error("Could not reach the Onshell gateway."));
+      reject(new Error(connectionFailure(error, "the Onshell gateway")));
     };
     socket.once("open", onOpen);
     socket.once("error", onError);
-  });
+    socket.once("close", onClose);
+  }); } catch (error) {
+    socket.terminate();
+    void client.closeSession(session.id).catch(() => undefined);
+    throw error;
+  }
 
   socket.on("message", (data: WebSocket.RawData) => {
     const text = data.toString("utf8");
@@ -77,8 +86,14 @@ export async function openRelaySession(options: OpenRelayOptions): Promise<Relay
     options.onData(text);
   });
 
-  socket.on("close", () => options.onExit());
-  socket.on("error", () => options.onExit("The connection to the gateway was lost."));
+  let ended = false;
+  const end = (reason?: string) => {
+    if (ended) return;
+    ended = true;
+    options.onExit(reason);
+  };
+  socket.on("close", (code) => end(code === 1000 ? undefined : `The gateway connection closed unexpectedly (code ${code}). Check your connection and reconnect.`));
+  socket.on("error", (error) => end(connectionFailure(error, "the Onshell gateway")));
 
   return {
     sessionId: session.id,

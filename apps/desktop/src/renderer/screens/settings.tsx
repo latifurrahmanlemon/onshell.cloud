@@ -145,6 +145,7 @@ export function Settings({ state, hosts, onClose }: Props) {
 
       <section className="settings__section">
         <h2>Share this computer</h2>
+        <p className="hint">Local shells, direct SSH and gateway connections do not need this sharing tunnel. Leave sharing off if another agent already provides remote access to this computer.</p>
         <p className="hint">
           Lets someone in your workspace open a terminal <em>on this machine</em> from a browser — the opposite
           direction from everything else here. It is off until you switch it on, the tray icon stays visible while it is

@@ -1376,6 +1376,9 @@ export function ConsoleApp() {
               <h2>Terminal</h2>
               <p>Live SSH over the Onshell gateway — every session is audited.</p>
             </div>
+            <a className="secondary-button" href="/download" target="_blank" rel="noreferrer" title="Use local shells and direct SSH with Onshell Desktop">
+              <Monitor size={15} /> Download desktop app
+            </a>
             {tabs.length > 0 && (
               <div className="terminal-controls">
                 <button

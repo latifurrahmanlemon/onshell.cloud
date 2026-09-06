@@ -1034,6 +1034,9 @@ export function HostsView({
           <p>Servers your team can reach through the gateway.</p>
         </div>
         <div className="table-tools">
+          <a className="secondary-button" href="/download" target="_blank" rel="noreferrer">
+            <Download size={15} /> Download desktop app
+          </a>
           <button
             aria-label="Refresh hosts"
             className="icon-button"

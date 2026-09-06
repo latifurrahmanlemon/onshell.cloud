@@ -17,6 +17,7 @@
 import { Client, type ClientChannel, type ConnectConfig } from "ssh2";
 import { requireApi } from "./session.js";
 import { deviceSecret } from "./device.js";
+import { connectionFailure } from "./connection-errors.js";
 
 export interface DirectLease {
   sessionId: string;
@@ -73,7 +74,17 @@ export async function leaseFor(
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
-    const message = error instanceof Error ? error.message : "Could not get a credential for that host.";
+    const reasons: Record<string, string> = {
+      unauthorized: "Your sign-in has expired. Sign in again to connect.",
+      forbidden: "Your workspace role does not allow opening sessions.",
+      device_not_enrolled: "This computer is not enrolled for direct connections. Sign in again to enroll it.",
+      host_access_denied: "You do not have access to this host. Ask a workspace administrator for access.",
+      host_not_found: "This host no longer exists in your workspace. Refresh the host list.",
+      credential_not_found: "The selected credential no longer exists. Choose another credential.",
+      no_credential_for_host: "This host has no saved SSH credential. Add a password or private key before connecting.",
+      concurrent_session_limit_reached: "Your workspace has reached its simultaneous session limit. Close a session and try again."
+    };
+    const message = (code && reasons[code]) || (error instanceof Error ? error.message : "Could not get a credential for that host.");
     throw new DirectUnavailableError(code ?? "lease_failed", message);
   }
 }
@@ -121,6 +132,14 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
 
   return new Promise<DirectSession>((resolve, reject) => {
     let settled = false;
+    let opened = false;
+    let ended = false;
+    const end = (code?: number, reason?: string) => {
+      if (ended) return;
+      ended = true;
+      reportState(lease.sessionId, "closed");
+      options.onExit(code, reason);
+    };
 
     const fail = (code: string, message: string) => {
       wipe();
@@ -136,17 +155,18 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
       wipe();
 
       client.shell({ term: "xterm-256color", cols: 80, rows: 24 }, (error, stream: ClientChannel) => {
+        if (settled) { stream?.end(); return; }
         if (error) return fail("shell_failed", "Connected, but the host refused to open a shell.");
 
         settled = true;
+        opened = true;
         reportState(lease.sessionId, "opened");
 
         stream.on("data", (chunk: Buffer) => options.onData(chunk));
         stream.stderr?.on("data", (chunk: Buffer) => options.onData(chunk));
         stream.on("close", (code?: number) => {
           client.end();
-          reportState(lease.sessionId, "closed");
-          options.onExit(code);
+          end(code);
         });
 
         resolve({
@@ -163,19 +183,25 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
     });
 
     client.on("error", (error: Error & { level?: string }) => {
+      const message = connectionFailure(error, `${lease.host.address}:${lease.host.port}`);
+      if (opened) { end(undefined, message); client.end(); return; }
       // ssh2's error carries the attempted key on some failures, so it is
       // classified rather than forwarded.
       if (error.level === "client-authentication") {
-        return fail("authentication_failed", "The host rejected that credential.");
+        return fail("authentication_failed", message);
       }
       if (error.level === "client-timeout") {
-        return fail("timeout", `${lease.host.address} did not answer in time.`);
+        return fail("timeout", message);
       }
-      fail("connect_failed", `Could not reach ${lease.host.address}:${lease.host.port} from this machine.`);
+      fail("connect_failed", message);
     });
 
     client.on("end", wipe);
-    client.on("close", wipe);
+    client.on("close", () => {
+      wipe();
+      if (!settled) fail("connection_closed", "The host closed the connection before a shell could be opened. Check the SSH server and access policy.");
+      else if (opened) end();
+    });
 
     try {
       client.connect(connectConfig);
