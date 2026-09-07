@@ -19,6 +19,7 @@ import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, HostsView, VaultView } from "./resource-view.js";
 import { Tasks } from "./tasks.js";
 import { beginWorkspaceHostDrag, Workspaces } from "./workspaces.js";
+import { retryConnection } from "../connection-retry.js";
 import { CredentialDialog } from "./credential-dialog.js";
 
 interface Props {
@@ -56,10 +57,13 @@ export function Console({ state }: Props) {
   const [query, setQuery] = useState("");
   const [overlay, setOverlay] = useState<Overlay>({ kind: "none" });
   const [error, setError] = useState<string>();
-  const [relayOffer, setRelayOffer] = useState<{
-    host: Host;
-    reason: string;
-  }>();
+  const [connectionJobs, setConnectionJobs] = useState<{ id: string; label: string; attempt: number; reason?: string; target: TerminalTarget; replaceId?: string }[]>([]);
+  const connectionControllers = useRef(new Map<string, AbortController>());
+  const reconnecting = useRef(new Set<string>());
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const reconnectRef = useRef<(tab: Tab) => Promise<void>>(async () => {});
+  useEffect(() => () => { for (const controller of connectionControllers.current.values()) controller.abort(); }, []);
   const [loading, setLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [secondaryId, setSecondaryId] = useState<string>();
@@ -204,6 +208,8 @@ export function Console({ state }: Props) {
     // reason you wanted the terminal in the first place.
     return bridge.terminals.onEvent((event) => {
       if (event.type !== "exit") return;
+      const tab = tabsRef.current.find((item) => item.terminalId === event.terminalId);
+      if (event.reason && tab && tab.target.kind !== "local" && !reconnecting.current.has(tab.terminalId)) void reconnectRef.current(tab);
       setTabs((current) =>
         current.map((tab) => (tab.terminalId === event.terminalId ? { ...tab, closed: true } : tab))
       );
@@ -319,7 +325,7 @@ export function Console({ state }: Props) {
     if (!result.ok) return false;
     workspaceTouchedRef.current = true;
     setTabs((current) => {
-      const next = [...current, { ...result.terminal, target }];
+      const next = [...current, { ...result.terminal, target: target.kind === "relay" ? { ...target, kind: "direct" as const } : target }];
       return next;
     });
     setActiveId(result.terminal.terminalId);
@@ -330,36 +336,49 @@ export function Console({ state }: Props) {
   async function openLocal(shellId?: string) {
     setError(undefined);
     const target: TerminalTarget = { kind: "local", shellId };
-    const result = await bridge.terminals.open(target);
+    const result = await openWithRetry(target);
     if (!accept(result, target) && !result.ok) setError(result.error);
+  }
+
+  async function openWithRetry(target: TerminalTarget, replaceId?: string) {
+    if (target.kind === "local") return bridge.terminals.open(target);
+    const direct: TerminalTarget = { ...target, kind: "direct" };
+    const id = crypto.randomUUID();
+    const controller = new AbortController();
+    connectionControllers.current.set(id, controller);
+    setConnectionJobs((jobs) => [...jobs, { id, label: hosts.find((host) => host.id === target.hostId)?.name ?? "SSH host", attempt: 1, target: direct, replaceId }]);
+    const result = await retryConnection({
+      target: direct, signal: controller.signal,
+      open: (next) => bridge.terminals.open(next),
+      close: (terminalId) => bridge.terminals.close(terminalId),
+      onAttempt: (attempt) => setConnectionJobs((jobs) => jobs.map((job) => job.id === id ? { ...job, attempt } : job))
+    });
+    connectionControllers.current.delete(id);
+    if (result.ok || controller.signal.aborted) setConnectionJobs((jobs) => jobs.filter((job) => job.id !== id));
+    else setConnectionJobs((jobs) => jobs.map((job) => job.id === id ? { ...job, reason: result.error } : job));
+    return result;
+  }
+
+  function cancelConnection(id: string) {
+    connectionControllers.current.get(id)?.abort();
+    setConnectionJobs((jobs) => jobs.filter((job) => job.id !== id));
+  }
+
+  async function retryFailedConnection(job: typeof connectionJobs[number]) {
+    cancelConnection(job.id);
+    if (job.replaceId) {
+      const tab = tabsRef.current.find((item) => item.terminalId === job.replaceId);
+      if (tab) await reconnectTab(tab);
+    } else {
+      const result = await openWithRetry(job.target);
+      accept(result, job.target);
+    }
   }
 
   async function openHost(host: Host) {
     setError(undefined);
-    setRelayOffer(undefined);
-    const target: TerminalTarget = {
-      kind: state.connectionMode === "direct" ? "direct" : "relay",
-      hostId: host.id
-    };
-    const result = await bridge.terminals.open(target);
-    if (result.ok) {
-      accept(result, target);
-      return;
-    }
-
-    // A direct connection that failed is a question, not just an error: going
-    // through the gateway would probably work, but it means Onshell is on the
-    // wire, and that is the user's call rather than a silent substitution.
-    if (result.canRelay) setRelayOffer({ host, reason: result.error });
-    else setError(result.error);
-  }
-
-  async function openThroughGateway(host: Host) {
-    setRelayOffer(undefined);
-    setError(undefined);
-    const target: TerminalTarget = { kind: "relay", hostId: host.id };
-    const result = await bridge.terminals.open(target);
-    if (!accept(result, target) && !result.ok) setError(result.error);
+    const target: TerminalTarget = { kind: "direct", hostId: host.id };
+    accept(await openWithRetry(target), target);
   }
 
   async function toggleFavorite(host: Host) {
@@ -379,6 +398,8 @@ export function Console({ state }: Props) {
   }
 
   async function closeTab(terminalId: string) {
+    reconnecting.current.add(terminalId);
+    for (const job of connectionJobs.filter((item) => item.replaceId === terminalId)) cancelConnection(job.id);
     await bridge.terminals.close(terminalId);
     workspaceTouchedRef.current = true;
     setTabs((current) => {
@@ -391,27 +412,27 @@ export function Console({ state }: Props) {
 
   async function duplicateTab(tab: Tab) {
     setError(undefined);
-    const result = await bridge.terminals.open(tab.target);
+    const result = await openWithRetry(tab.target);
     if (!accept(result, tab.target) && !result.ok) setError(result.error);
   }
 
   async function reconnectTab(tab: Tab) {
-    setError(undefined);
-    await bridge.terminals.close(tab.terminalId);
-    const result = await bridge.terminals.open(tab.target);
-    if (!result.ok) {
-      setTabs((current) =>
-        current.map((item) => (item.terminalId === tab.terminalId ? { ...item, closed: true } : item))
-      );
-      setError(result.error);
-      return;
-    }
-    setTabs((current) =>
-      current.map((item) => (item.terminalId === tab.terminalId ? { ...result.terminal, target: tab.target } : item))
-    );
-    setActiveId(result.terminal.terminalId);
-    setSecondaryId((current) => (current === tab.terminalId ? result.terminal.terminalId : current));
+    if (reconnecting.current.has(tab.terminalId)) return;
+    reconnecting.current.add(tab.terminalId);
+    try {
+      await bridge.terminals.close(tab.terminalId);
+      const result = await openWithRetry(tab.target, tab.terminalId);
+      if (!result.ok) {
+        setTabs((current) => current.map((item) => item.terminalId === tab.terminalId ? { ...item, closed: true } : item));
+        return;
+      }
+      const target: TerminalTarget = tab.target.kind === "relay" ? { ...tab.target, kind: "direct" } : tab.target;
+      setTabs((current) => current.map((item) => item.terminalId === tab.terminalId ? { ...result.terminal, target } : item));
+      setActiveId((current) => current === tab.terminalId ? result.terminal.terminalId : current);
+      setSecondaryId((current) => current === tab.terminalId ? result.terminal.terminalId : current);
+    } finally { reconnecting.current.delete(tab.terminalId); }
   }
+  reconnectRef.current = reconnectTab;
 
   async function restoreWorkspace() {
     if (restoring || savedTargets.length === 0) return;
@@ -421,7 +442,7 @@ export function Console({ state }: Props) {
     // Sequential on purpose: opening many SSH handshakes at once can trigger
     // host rate limits and makes individual authentication prompts unusable.
     for (const target of savedTargets) {
-      const result = await bridge.terminals.open(target);
+      const result = await openWithRetry(target);
       if (!accept(result, target)) failures += 1;
     }
     if (failures > 0) setError(`${failures} saved connection${failures === 1 ? "" : "s"} could not be restored.`);
@@ -435,8 +456,8 @@ export function Console({ state }: Props) {
     for (const hostId of hostIds.slice(0, 4)) {
       const host = hosts.find((item) => item.id === hostId);
       if (!host) { failures += 1; continue; }
-      const target: TerminalTarget = { kind: state.connectionMode === "direct" ? "direct" : "relay", hostId };
-      const result = await bridge.terminals.open(target);
+      const target: TerminalTarget = { kind: "direct", hostId };
+      const result = await openWithRetry(target);
       if (result.ok) { accept(result, target); opened.push(result.terminal.terminalId); }
       else failures += 1;
     }
@@ -584,7 +605,7 @@ export function Console({ state }: Props) {
             <Icon name="bell" size={15} />
             {(update?.available || notifications.some((item) => !item.read)) && <span className="notification-dot" />}
           </button>
-          <span className="titlebar-connection" data-tooltip={`${state.connectionMode} connection`}>
+          <span className="titlebar-connection" data-tooltip={"Direct SSH connection"}>
             <span className="connection-state__dot" />
           </span>
         </div>
@@ -798,7 +819,7 @@ export function Console({ state }: Props) {
                       kind: "files",
                       label: host.name,
                       target: {
-                        kind: state.connectionMode === "direct" ? "direct" : "relay",
+                        kind: "direct",
                         hostId: host.id
                       }
                     })
@@ -820,7 +841,7 @@ export function Console({ state }: Props) {
         <div className="sidebar__foot">
           <span className="connection-state">
             <span className="connection-state__dot" />
-            {state.connectionMode} connection
+            Direct SSH connection
           </span>
         </div>
         <div
@@ -964,21 +985,19 @@ export function Console({ state }: Props) {
           </div>
         )}
 
-        {relayOffer && (
-          <div className="banner">
-            <strong>{relayOffer.host.name}</strong> could not be reached directly from this machine —{" "}
-            {relayOffer.reason} Connecting through the Onshell gateway will work, but that traffic passes through our
-            servers rather than going straight to your host.
-            <span className="banner__actions">
-              <button className="button button--primary" onClick={() => void openThroughGateway(relayOffer.host)}>
-                Use the gateway
-              </button>
-              <button className="button button--ghost" onClick={() => setRelayOffer(undefined)}>
-                Cancel
-              </button>
-            </span>
-          </div>
-        )}
+        {connectionJobs[0] && (() => {
+          const job = connectionJobs[0];
+          return <div className="modal-backdrop">
+            <section className="snippet-modal" role="alertdialog" aria-modal="true" aria-labelledby="connection-title" aria-describedby="connection-reason" onKeyDown={(event) => { if (event.key === "Escape") cancelConnection(job.id); }}>
+              <header><strong id="connection-title">{job.reason ? "Could not connect" : job.replaceId ? "Reconnecting…" : "Connecting…"}</strong></header>
+              <strong>{job.label}</strong>
+              <p id="connection-reason" role="status">{job.reason ?? `Connecting directly over SSH. Attempt ${job.attempt} of 3.`}</p>
+              {job.reason && <p className="hint">All 3 attempts failed. Check the host address, SSH credentials and VPN or network access, then try again.</p>}
+              {job.replaceId && <p className="hint">Reconnecting opens a new shell. Commands from the previous shell are not replayed.</p>}
+              <footer><button autoFocus className="button button--ghost" onClick={() => cancelConnection(job.id)}>Cancel</button>{job.reason && <button className="button button--primary" onClick={() => void retryFailedConnection(job)}>Retry</button>}</footer>
+            </section>
+          </div>;
+        })()}
 
         <div className={`surface${secondaryTab && overlay.kind === "none" ? " surface--split" : ""}`}>
           {/* Terminals stay mounted underneath an overlay: unmounting one would
@@ -999,7 +1018,7 @@ export function Console({ state }: Props) {
           {overlay.kind === "settings" && <Settings state={state} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />}
 
           {overlay.kind === "files" && (
-            <Files remote={overlay.target} hostLabel={overlay.label} hosts={hosts} connectionMode={state.connectionMode} onClose={() => setOverlay({ kind: "none" })} />
+            <Files remote={overlay.target} hostLabel={overlay.label} hosts={hosts} connectionMode="direct" onClose={() => setOverlay({ kind: "none" })} />
           )}
 
           {overlay.kind === "vault" && (

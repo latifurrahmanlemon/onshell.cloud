@@ -79,7 +79,7 @@ export async function loadSettings(): Promise<DesktopSettings> {
     cache = {
       server: parsed.server,
       deviceFingerprint: parsed.deviceFingerprint,
-      connectionMode: parsed.connectionMode ?? DEFAULTS.connectionMode,
+      connectionMode: "direct",
       appearance: { ...DEFAULTS.appearance, ...parsed.appearance },
       sharing: { ...DEFAULTS.sharing, ...parsed.sharing },
       workspace: parsed.workspace
@@ -96,6 +96,7 @@ export async function saveSettings(patch: Partial<DesktopSettings>): Promise<Des
   const next: DesktopSettings = {
     ...current,
     ...patch,
+    connectionMode: "direct",
     appearance: { ...current.appearance, ...patch.appearance },
     sharing: { ...current.sharing, ...patch.sharing }
   };

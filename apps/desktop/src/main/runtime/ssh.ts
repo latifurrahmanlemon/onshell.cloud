@@ -34,7 +34,7 @@ export interface DirectSession {
   close(): void;
 }
 
-/** Errors the caller is expected to handle by offering the relay instead. */
+/** A direct connection refusal with an actionable reason. */
 export class DirectUnavailableError extends Error {
   code: string;
 
@@ -48,10 +48,7 @@ export class DirectUnavailableError extends Error {
 /**
  * Asks the server for material to open one connection.
  *
- * The refusals are told apart because they call for different things from the
- * user: a workspace that has switched direct mode off is a policy decision to
- * respect silently by relaying, while a revoked device is something they need to
- * know about.
+ * Refusals retain their reason so the desktop can explain what needs fixing.
  */
 export async function leaseFor(
   hostId: string,
@@ -82,6 +79,8 @@ export async function leaseFor(
       host_not_found: "This host no longer exists in your workspace. Refresh the host list.",
       credential_not_found: "The selected credential no longer exists. Choose another credential.",
       no_credential_for_host: "This host has no saved SSH credential. Add a password or private key before connecting.",
+      host_not_directly_reachable: "This entry is only available through an agent or server-local shell. Add a host with this machine's reachable SSH address, port and SSH credential for direct access.",
+      direct_connect_disabled: "Your workspace has disabled direct SSH. Ask a workspace administrator to enable direct connections.",
       concurrent_session_limit_reached: "Your workspace has reached its simultaneous session limit. Close a session and try again."
     };
     const message = (code && reasons[code]) || (error instanceof Error ? error.message : "Could not get a credential for that host.");
@@ -124,7 +123,8 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
     // A host that takes a long time to answer is common on a VPN; a host that
     // never answers must not leave a tab spinning for ever.
     readyTimeout: 20_000,
-    keepaliveInterval: 20_000
+    keepaliveInterval: 10_000,
+    keepaliveCountMax: 3
   };
 
   const client = new Client();
@@ -134,6 +134,9 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
     let settled = false;
     let opened = false;
     let ended = false;
+    let shellExited = false;
+    let intentionallyClosed = false;
+    const openingTimer = setTimeout(() => fail("timeout", "The host did not open an SSH shell within 25 seconds. Check the SSH service, VPN and firewall."), 25_000);
     const end = (code?: number, reason?: string) => {
       if (ended) return;
       ended = true;
@@ -142,6 +145,7 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
     };
 
     const fail = (code: string, message: string) => {
+      clearTimeout(openingTimer);
       wipe();
       if (settled) return;
       settled = true;
@@ -160,13 +164,15 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
 
         settled = true;
         opened = true;
+        clearTimeout(openingTimer);
         reportState(lease.sessionId, "opened");
 
         stream.on("data", (chunk: Buffer) => options.onData(chunk));
+        stream.on("exit", () => { shellExited = true; });
         stream.stderr?.on("data", (chunk: Buffer) => options.onData(chunk));
         stream.on("close", (code?: number) => {
           client.end();
-          end(code);
+          end(code, shellExited || intentionallyClosed ? undefined : "The SSH connection was interrupted before the shell exited.");
         });
 
         resolve({
@@ -175,6 +181,7 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
           write: (data) => stream.write(data),
           resize: (cols, rows) => stream.setWindow(rows, cols, 0, 0),
           close: () => {
+            intentionallyClosed = true;
             stream.end();
             client.end();
           }
@@ -200,7 +207,7 @@ export async function openDirectSession(options: OpenDirectOptions): Promise<Dir
     client.on("close", () => {
       wipe();
       if (!settled) fail("connection_closed", "The host closed the connection before a shell could be opened. Check the SSH server and access policy.");
-      else if (opened) end();
+      else if (opened) end(undefined, shellExited || intentionallyClosed ? undefined : "The SSH connection to the host was lost.");
     });
 
     try {

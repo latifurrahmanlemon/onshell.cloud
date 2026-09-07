@@ -76,28 +76,9 @@ export function Settings({ state, hosts, onClose }: Props) {
       </header>
 
       <section className="settings__section">
-        <h2>Connections</h2>
-        <p className="hint">
-          Direct connections go from this computer straight to your host — Onshell authorises and records them but is
-          not on the wire. Through the gateway is what the browser console does, and it is what reaches hosts this
-          machine has no route to.
-        </p>
-        <div className="settings__choices">
-          {(["direct", "relay"] as const).map((mode) => (
-            <button
-              key={mode}
-              className={`choice${state.connectionMode === mode ? " choice--active" : ""}`}
-              onClick={() => void bridge.settings.update({ connectionMode: mode })}
-            >
-              <strong>{mode === "direct" ? "Connect directly" : "Through the gateway"}</strong>
-              <span className="hint">
-                {mode === "direct"
-                  ? "Private by default. Falls back only when you say so."
-                  : "Every byte through Onshell, where your workspace can audit it."}
-              </span>
-            </button>
-          ))}
-        </div>
+        <h2>Direct SSH connections</h2>
+        <p className="hint">SSH goes straight from this computer to the host. Connect to the required VPN for private addresses. Onshell still authorises access to saved credentials; terminal traffic does not use its gateway.</p>
+        <p className="hint">Interrupted connections retry up to 3 times. If they fail, you can review the reason and choose Retry or Cancel. Hosts available only through an agent tunnel need a reachable SSH address and saved SSH credentials to connect from this app.</p>
       </section>
 
       <section className="settings__section">

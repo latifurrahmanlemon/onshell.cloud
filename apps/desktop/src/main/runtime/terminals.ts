@@ -1,18 +1,4 @@
-/**
- * Open terminals, and the three ways of getting one.
- *
- * A terminal is a stream of bytes with a way to write back, a way to resize, and
- * a way to end. Where those bytes come from — a process on this machine, an SSH
- * connection this machine opened, or a WebSocket to the gateway — is this file's
- * only real subject, and the renderer is told which it got rather than left to
- * assume.
- *
- * When a direct connection cannot be made, this does not quietly relay instead.
- * The whole promise of direct mode is that Onshell is not on the wire, and a
- * session that silently stopped being end-to-end would make that promise
- * worthless. The failure is reported with the reason, and choosing the relay is
- * something the person does.
- */
+/** Desktop terminals use local shells or direct SSH, including saved legacy relay targets. */
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { discoverShells, spawnPty, type AgentPty, type ResolvedShell } from "@onshell/agent";
@@ -24,8 +10,6 @@ import type {
   TerminalTarget
 } from "../../shared/ipc.js";
 import { DirectUnavailableError, openDirectSession } from "./ssh.js";
-import { openRelaySession } from "./relay.js";
-import { requireApi } from "./session.js";
 
 interface OpenTerminal {
   id: string;
@@ -117,14 +101,6 @@ async function openLocal(
   return { terminalId: id, mode: "local", title: shell.label };
 }
 
-/** The saved host, for a title and for the relay's own bookkeeping. */
-async function describeHost(hostId: string) {
-  const hosts = await requireApi().hosts();
-  const host = hosts.find((candidate) => candidate.id === hostId);
-  if (!host) throw new Error("That host is no longer in your workspace.");
-  return host;
-}
-
 /** Dials the host from this machine. Onshell is not on the wire. */
 async function openDirect(
   target: Extract<TerminalTarget, { kind: "direct" }>,
@@ -160,38 +136,6 @@ async function openDirect(
   return { terminalId: id, mode: "direct", title: session.title, sessionId: session.sessionId };
 }
 
-/** Through the gateway, exactly as the browser console does it. */
-async function openRelay(
-  target: Extract<TerminalTarget, { kind: "relay" }>,
-  emit: TerminalEmitter
-): Promise<TerminalOpened> {
-  const host = await describeHost(target.hostId);
-  const id = randomUUID();
-  const session = await openRelaySession({
-    hostId: target.hostId,
-    credentialId: target.credentialId,
-    shell: target.shell,
-    title: host.name,
-    onData: (chunk) => emit({ terminalId: id, type: "data", data: chunk }),
-    onExit: (reason) => {
-      terminals.delete(id);
-      emit({ terminalId: id, type: "exit", reason });
-    }
-  });
-
-  terminals.set(id, {
-    id,
-    mode: "relay",
-    title: session.title,
-    sessionId: session.sessionId,
-    write: (data) => session.write(data),
-    resize: (cols, rows) => session.resize(cols, rows),
-    close: () => session.close()
-  });
-
-  return { terminalId: id, mode: "relay", title: session.title, sessionId: session.sessionId };
-}
-
 export async function openTerminal(target: TerminalTarget, emit: TerminalEmitter): Promise<TerminalOpenResult> {
   try {
     switch (target.kind) {
@@ -200,7 +144,7 @@ export async function openTerminal(target: TerminalTarget, emit: TerminalEmitter
       case "direct":
         return { ok: true, terminal: await openDirect(target, emit) };
       case "relay":
-        return { ok: true, terminal: await openRelay(target, emit) };
+        return { ok: true, terminal: await openDirect({ ...target, kind: "direct" }, emit) };
       default: {
         // A target the renderer invented. Refusing beats guessing.
         const unknown = target as { kind?: unknown };
@@ -208,13 +152,8 @@ export async function openTerminal(target: TerminalTarget, emit: TerminalEmitter
       }
     }
   } catch (error) {
-    // A direct connection that could not be made is reported *as* a direct
-    // failure, with the offer to relay attached. It is never relayed here: the
-    // whole promise of direct mode is that Onshell is not on the wire, and
-    // silently substituting the relay would break that promise in the one place
-    // nobody would look.
     if (error instanceof DirectUnavailableError) {
-      return { ok: false, error: error.message, code: error.code, canRelay: true };
+      return { ok: false, error: error.message, code: error.code };
     }
     return { ok: false, error: error instanceof Error ? error.message : "Could not open that terminal." };
   }
