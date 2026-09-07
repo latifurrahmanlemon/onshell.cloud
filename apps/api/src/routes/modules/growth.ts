@@ -48,7 +48,7 @@ function toConsolePlan(plan: Plan) {
     currency: plan.currency,
     maxUsers: plan.maxUsers,
     maxHosts: plan.maxHosts,
-    maxConcurrentSessions: plan.maxConcurrentSessions,
+    maxConcurrentSessions: null,
     monthlyAiMessages: plan.monthlyAiMessages,
     auditRetentionDays: plan.auditRetentionDays,
     trialDays: plan.trialDays,
@@ -101,7 +101,7 @@ export async function registerGrowthRoutes(app: FastifyInstance, config: Runtime
       const usage = {
         members: usageEntry(memberCount, plan?.maxUsers ?? null),
         hosts: usageEntry(hostCount, plan?.maxHosts ?? null),
-        concurrentSessions: usageEntry(activeSessionCount, plan?.maxConcurrentSessions ?? null),
+        concurrentSessions: usageEntry(activeSessionCount, null),
         aiMessages: usageEntry(aiMessagesUsed, plan?.monthlyAiMessages ?? null)
       };
 

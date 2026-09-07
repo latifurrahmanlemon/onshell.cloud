@@ -10,7 +10,7 @@
  * That is the whole security question in this file, so it is worth stating what
  * a lease is and is not. It is *not* a new authorisation: it is only ever issued
  * for a host the caller could already open a relayed shell on, using the same
- * role check, the same per-host grant, and the same plan limits. What it changes
+ * role check and the same per-host grant. What it changes
  * is where the plaintext lives — the user's own machine instead of the gateway
  * — and who is on the wire between them and their server, which is nobody.
  *
@@ -570,23 +570,10 @@ export async function registerDesktopRoutes(app: FastifyInstance, config: Runtim
           : reply.code(400).send({ error: "no_credential_for_host" });
       }
 
-      const subscription = await prisma.subscription.findFirst({
-        where: { organizationId: actor.organizationId, status: { in: ["ACTIVE", "TRIALING"] } },
-        include: { plan: true },
-        orderBy: { createdAt: "desc" }
-      });
-      const maxConcurrentSessions = subscription?.plan.maxConcurrentSessions;
-      if (maxConcurrentSessions != null) {
-        const activeSessions = await prisma.session.count({
-          where: { organizationId: actor.organizationId, status: { in: ["PENDING", "ACTIVE"] } }
-        });
-        if (activeSessions >= maxConcurrentSessions) {
-          return reply.code(403).send({ error: "concurrent_session_limit_reached", limit: maxConcurrentSessions });
-        }
-      }
+      // Concurrent sessions are unlimited on every plan.
 
       // A session row for a connection this service will never see the bytes of.
-      // It exists so the workspace's session list, concurrency limits, and audit
+      // It exists so the workspace's session list and audit
       // trail cover direct connections exactly as they cover relayed ones — an
       // invisible session would be worse than no feature.
       const session = await prisma.session.create({

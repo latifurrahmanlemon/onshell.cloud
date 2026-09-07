@@ -30,9 +30,9 @@ The desktop app never silently substitutes one path for another. If a direct con
 
 Freemium, billed per workspace rather than per seat on paid tiers. Yearly billing includes two months free.
 
-- **Free** — $0/month, free forever. 1 user, up to 3 hosts, 1 concurrent session, browser SSH, SFTP, encrypted vault, 25 AI assistant messages per month, 7-day audit history. No credit card required.
-- **Team** — $19/month or $190/year. Up to 10 users, 50 hosts, 10 concurrent sessions. Adds browser RDP, shared team snippets, role-based host permissions, 500 AI messages per month, 90-day audit retention. 14-day free trial.
-- **Business** — $49/month or $490/year. Up to 50 users, 300 hosts, 50 concurrent sessions. Adds unlimited AI messages, 365-day audit retention, SAML/OIDC readiness, session recording exports, and priority support. 14-day free trial.
+- **Free** — $0/month, free forever. 1 user, up to 3 hosts, unlimited concurrent sessions, browser SSH, SFTP, encrypted vault, 25 AI assistant messages per month, 7-day audit history. No credit card required.
+- **Team** — $19/month or $190/year. Up to 10 users, 50 hosts, unlimited concurrent sessions. Adds browser RDP, shared team snippets, role-based host permissions, 500 AI messages per month, 90-day audit retention. 14-day free trial.
+- **Business** — $49/month or $490/year. Up to 50 users, 300 hosts, unlimited concurrent sessions. Adds unlimited AI messages, 365-day audit retention, SAML/OIDC readiness, session recording exports, and priority support. 14-day free trial.
 - **Enterprise** — custom. Larger limits, custom retention, and dedicated support, arranged via https://onshell.cloud/contact.
 
 ## Security

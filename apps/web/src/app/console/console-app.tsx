@@ -167,8 +167,6 @@ function sessionErrorMessage(error: unknown): string {
       return "The selected credential no longer exists. Pick another one in the Vault.";
     case "host_not_found":
       return "That host no longer exists. Refresh the hosts list.";
-    case "concurrent_session_limit_reached":
-      return "You've reached your plan's limit of concurrent sessions. Close an open session or upgrade your plan.";
     case "forbidden":
       return "Your role can't open sessions. Ask an admin for access.";
     case "host_access_denied":
@@ -650,9 +648,8 @@ export function ConsoleApp() {
   /**
    * Opens a terminal on every host in a saved workspace.
    *
-   * Sequential on purpose: the plan's concurrent-session limit is checked per
-   * request, so firing them in parallel would fail the tail of the list with an
-   * error that looks random. Failures are collected and reported once.
+   * Open sequentially to avoid a burst of host handshakes.
+   * Failures are collected and reported once.
    */
   const openWorkspaceTerminals = useCallback(
     async (hostIds: string[]) => {

@@ -236,7 +236,6 @@ interface PackageForm {
   currency: string;
   maxUsers: string;
   maxHosts: string;
-  maxConcurrentSessions: string;
   auditRetentionDays: string;
   /** Blank means unlimited AI assistant messages. */
   monthlyAiMessages: string;
@@ -472,7 +471,6 @@ function emptyPackageForm(displayOrder = "0"): PackageForm {
     currency: "USD",
     maxUsers: "",
     maxHosts: "",
-    maxConcurrentSessions: "",
     auditRetentionDays: "90",
     monthlyAiMessages: "",
     trialDays: "14",
@@ -497,7 +495,6 @@ function planToForm(plan: AdminPlan): PackageForm {
     currency: plan.currency,
     maxUsers: plan.maxUsers?.toString() ?? "",
     maxHosts: plan.maxHosts?.toString() ?? "",
-    maxConcurrentSessions: plan.maxConcurrentSessions?.toString() ?? "",
     auditRetentionDays: plan.auditRetentionDays.toString(),
     monthlyAiMessages: plan.monthlyAiMessages?.toString() ?? "",
     trialDays: (plan.trialDays ?? 0).toString(),
@@ -1288,7 +1285,7 @@ function AdminPanel() {
           currency: packageForm.currency.trim().toUpperCase() || "USD",
           maxUsers: optionalPositiveInt(packageForm.maxUsers),
           maxHosts: optionalPositiveInt(packageForm.maxHosts),
-          maxConcurrentSessions: optionalPositiveInt(packageForm.maxConcurrentSessions),
+          maxConcurrentSessions: null,
           auditRetentionDays: requiredPositiveInt(packageForm.auditRetentionDays, 30),
           // Blank means unlimited, which the API models as null.
           monthlyAiMessages: packageForm.monthlyAiMessages.trim() === ""
@@ -3094,15 +3091,6 @@ function AdminPanel() {
                   onChange={(event) => updatePackageForm("maxHosts", event.target.value)}
                   placeholder="Blank for custom"
                   value={packageForm.maxHosts}
-                />
-              </label>
-              <label>
-                Concurrent Sessions
-                <input
-                  inputMode="numeric"
-                  onChange={(event) => updatePackageForm("maxConcurrentSessions", event.target.value)}
-                  placeholder="Blank for custom"
-                  value={packageForm.maxConcurrentSessions}
                 />
               </label>
               <label>

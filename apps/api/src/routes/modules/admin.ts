@@ -37,7 +37,7 @@ const planSchema = z.object({
   currency: z.string().min(3).max(3).default("USD"),
   maxUsers: z.number().int().positive().nullable().optional(),
   maxHosts: z.number().int().positive().nullable().optional(),
-  maxConcurrentSessions: z.number().int().positive().nullable().optional(),
+  maxConcurrentSessions: z.number().int().positive().nullable().optional().transform(() => null),
   auditRetentionDays: z.number().int().positive(),
   monthlyAiMessages: z.number().int().min(0).nullable().optional(),
   features: z.array(z.string().max(120)).max(20).default([]),

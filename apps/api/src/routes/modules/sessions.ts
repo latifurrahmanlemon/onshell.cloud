@@ -314,34 +314,7 @@ export async function registerSessionRoutes(app: FastifyInstance, config: Runtim
           .catch(() => undefined);
       }
 
-      const subscription = await prisma.subscription.findFirst({
-        where: {
-          organizationId: actor.organizationId,
-          status: { in: ["ACTIVE", "TRIALING"] }
-        },
-        include: { plan: true },
-        orderBy: { createdAt: "desc" }
-      });
-      const maxConcurrentSessions = subscription?.plan.maxConcurrentSessions;
-      if (maxConcurrentSessions != null) {
-        // Ask the gateway what is really running before counting. Rows are left
-        // ACTIVE by every browser that closes without pressing the close button,
-        // and counting those would refuse a session on behalf of terminals that
-        // stopped existing days ago — see `reconcileSessions`.
-        await reconcileSessions(actor.organizationId);
-        const activeSessions = await prisma.session.count({
-          where: {
-            organizationId: actor.organizationId,
-            status: { in: ["PENDING", "ACTIVE"] }
-          }
-        });
-        if (activeSessions >= maxConcurrentSessions) {
-          return reply.code(403).send({
-            error: "concurrent_session_limit_reached",
-            limit: maxConcurrentSessions
-          });
-        }
-      }
+      // Concurrent sessions are unlimited on every plan.
 
       const secret = credential
         ? decryptSecret(

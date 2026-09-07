@@ -236,7 +236,7 @@ function PlanCard({
       <ul className="gr-card-limits">
         <li>{formatLimit(plan.maxUsers, "team member")}</li>
         <li>{formatLimit(plan.maxHosts, "host")}</li>
-        <li>{formatLimit(plan.maxConcurrentSessions, "concurrent session")}</li>
+        <li>Unlimited concurrent sessions</li>
         <li>{formatLimit(plan.monthlyAiMessages, "AI message")} / month</li>
         <li>{plan.auditRetentionDays} days of audit history</li>
       </ul>
