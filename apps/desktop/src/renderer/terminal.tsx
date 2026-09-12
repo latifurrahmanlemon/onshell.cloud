@@ -18,6 +18,7 @@ import { terminalClipboardAction } from "./terminal-clipboard.js";
 
 interface Props {
   terminalId: string;
+  focusRequest?: number;
   appearance: AppearanceSettings;
   visible: boolean;
   position?: "primary" | "secondary";
@@ -32,12 +33,18 @@ const THEMES: Record<AppearanceSettings["terminalTheme"], NonNullable<Constructo
   paper: { background: "#fbfaf7", foreground: "#253044", cursor: "#1f7a55", selectionBackground: "#dbeafe", black: "#253044", red: "#b42318", green: "#157f3d", yellow: "#9a6700", blue: "#175cd3", magenta: "#9e4784", cyan: "#087f8c", white: "#f2f4f7", brightBlack: "#667085" }
 };
 
-export function TerminalPane({ terminalId, appearance, visible, position = "primary" }: Props) {
+export function TerminalPane({ terminalId, appearance, visible, position = "primary", focusRequest = 0 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal>(null);
   const fitRef = useRef<FitAddon>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number }>();
+
+  useEffect(() => {
+    if (!visible || !focusRequest) return;
+    const frame = requestAnimationFrame(() => termRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, visible]);
 
   async function copySelection() {
     const selection = termRef.current?.getSelection();

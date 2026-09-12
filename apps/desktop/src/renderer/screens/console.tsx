@@ -28,6 +28,7 @@ interface Props {
 
 interface Tab extends TerminalOpened {
   closed?: boolean;
+  pending?: boolean;
   target: TerminalTarget;
 }
 
@@ -54,12 +55,33 @@ export function Console({ state }: Props) {
   const [shells, setShells] = useState<LocalShell[]>([]);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>();
+  const [terminalFocus, setTerminalFocus] = useState(0);
+  function focusTerminal() { setOverlay({ kind: "none" }); setTerminalFocus((value) => value + 1); }
   const [query, setQuery] = useState("");
-  const [overlay, setOverlay] = useState<Overlay>({ kind: "none" });
+  const [sidebarFavorites, setSidebarFavorites] = useState(false);
+  const [sidebarEnvironment, setSidebarEnvironment] = useState("all");
+  const [overlay, selectOverlay] = useState<Overlay>({ kind: "none" });
+  const [pageTabs, setPageTabs] = useState<Overlay[]>([]);
+  const pageKey = (page: Overlay) => page.kind === "files" ? `files:${JSON.stringify(page.target)}` : page.kind;
+  function setOverlay(page: Overlay) {
+    if (page.kind !== "none") setPageTabs((current) => current.some((item) => pageKey(item) === pageKey(page)) ? current : [...current, page]);
+    selectOverlay(page);
+  }
+  function closePage(page: Overlay) {
+    setPageTabs((current) => current.filter((item) => pageKey(item) !== pageKey(page)));
+    if (pageKey(overlay) === pageKey(page)) selectOverlay({ kind: "none" });
+  }
+  const pageLabel = (page: Overlay) => page.kind === "files" ? `Files · ${page.label}` : page.kind.charAt(0).toUpperCase() + page.kind.slice(1);
+  function tabTitle(tab: Tab) {
+    const target = tab.target;
+    const host = target.kind === "local" ? undefined : hosts.find((item) => item.id === target.hostId);
+    return host ? `${host.name} · ${host.address}:${host.port}` : tab.title;
+  }
   const [error, setError] = useState<string>();
   const [connectionJobs, setConnectionJobs] = useState<{ id: string; label: string; attempt: number; reason?: string; target: TerminalTarget; replaceId?: string }[]>([]);
   const connectionControllers = useRef(new Map<string, AbortController>());
   const reconnecting = useRef(new Set<string>());
+  const acceptedConnections = useRef(new Set<string>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const reconnectRef = useRef<(tab: Tab) => Promise<void>>(async () => {});
@@ -76,6 +98,22 @@ export function Console({ state }: Props) {
   const [update, setUpdate] = useState<UpdateStatus>();
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippetQuery, setSnippetQuery] = useState("");
+  const snippetOrderKey = `onshell:snippet-order:${state.server?.apiBaseUrl}:${state.user?.id}`;
+  const [snippetOrder, setSnippetOrder] = useState<string[]>(() => {
+    try { const saved = JSON.parse(localStorage.getItem(snippetOrderKey) ?? "[]"); return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []; } catch { return []; }
+  });
+  const orderedSnippets = [...snippets].sort((a, b) => {
+    const rank = (id: string) => snippetOrder.includes(id) ? snippetOrder.indexOf(id) : Number.MAX_SAFE_INTEGER;
+    return rank(a.id) - rank(b.id);
+  });
+  function moveSnippet(id: string, direction: number) {
+    const order = orderedSnippets.map((item) => item.id);
+    const from = order.indexOf(id), to = from + direction;
+    if (from < 0 || to < 0 || to >= order.length) return;
+    [order[from], order[to]] = [order[to]!, order[from]!];
+    setSnippetOrder(order);
+    try { localStorage.setItem(snippetOrderKey, JSON.stringify(order)); } catch { setError("Snippet order could not be saved on this computer."); }
+  }
   const [snippetCreateOpen, setSnippetCreateOpen] = useState(false);
   const [snippetEditing, setSnippetEditing] = useState<Snippet>();
   const [snippetPosition, setSnippetPosition] = useState({ x: 0, y: 0 });
@@ -176,9 +214,10 @@ export function Console({ state }: Props) {
         event.preventDefault();
         void openLocal();
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "w" && activeId) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "w" && (activeId || overlay.kind !== "none")) {
         event.preventDefault();
-        void closeTab(activeId);
+        if (overlay.kind !== "none") closePage(overlay);
+        else if (activeId) void closeTab(activeId);
       }
       if (event.ctrlKey && event.key === "Tab" && tabs.length > 1) {
         event.preventDefault();
@@ -228,12 +267,13 @@ export function Console({ state }: Props) {
     // Pinned hosts first, then alphabetical — the order someone who pinned
     // anything is expecting to see.
     return matches
+      .filter((host) => (!sidebarFavorites || host.isFavorite) && (sidebarEnvironment === "all" || host.environment === sidebarEnvironment))
       .slice()
       .sort((a, b) => Number(Boolean(b.isFavorite)) - Number(Boolean(a.isFavorite)) || a.name.localeCompare(b.name));
-  }, [hosts, query]);
+  }, [hosts, query, sidebarFavorites, sidebarEnvironment]);
 
   const activeTab = tabs.find((tab) => tab.terminalId === activeId);
-  const visibleSnippets = snippets.filter((snippet) =>
+  const visibleSnippets = orderedSnippets.filter((snippet) =>
     `${snippet.name} ${snippet.command}`.toLowerCase().includes(snippetQuery.trim().toLowerCase())
   );
   const newTerminalHosts = hosts.filter((host) =>
@@ -323,6 +363,7 @@ export function Console({ state }: Props) {
 
   function accept(result: Awaited<ReturnType<typeof bridge.terminals.open>>, target: TerminalTarget) {
     if (!result.ok) return false;
+    if (acceptedConnections.current.delete(result.terminal.terminalId)) return true;
     workspaceTouchedRef.current = true;
     setTabs((current) => {
       const next = [...current, { ...result.terminal, target: target.kind === "relay" ? { ...target, kind: "direct" as const } : target }];
@@ -346,6 +387,11 @@ export function Console({ state }: Props) {
     const id = crypto.randomUUID();
     const controller = new AbortController();
     connectionControllers.current.set(id, controller);
+    if (!replaceId) {
+      setTabs((current) => [...current, { terminalId: id, mode: "direct", title: "Connecting…", target: direct, pending: true }]);
+      setActiveId(id);
+      setOverlay({ kind: "none" });
+    }
     setConnectionJobs((jobs) => [...jobs, { id, label: hosts.find((host) => host.id === target.hostId)?.name ?? "SSH host", attempt: 1, target: direct, replaceId }]);
     const result = await retryConnection({
       target: direct, signal: controller.signal,
@@ -354,6 +400,13 @@ export function Console({ state }: Props) {
       onAttempt: (attempt) => setConnectionJobs((jobs) => jobs.map((job) => job.id === id ? { ...job, attempt } : job))
     });
     connectionControllers.current.delete(id);
+    if (!replaceId && result.ok) {
+      const opened = result.terminal;
+      acceptedConnections.current.add(opened.terminalId);
+      workspaceTouchedRef.current = true;
+      setTabs((current) => current.map((tab) => tab.terminalId === id ? { ...opened, target: direct } : tab));
+      setActiveId((current) => current === id ? opened.terminalId : current);
+    } else if (!replaceId && controller.signal.aborted) setTabs((current) => current.filter((tab) => tab.terminalId !== id));
     if (result.ok || controller.signal.aborted) setConnectionJobs((jobs) => jobs.filter((job) => job.id !== id));
     else setConnectionJobs((jobs) => jobs.map((job) => job.id === id ? { ...job, reason: result.error } : job));
     return result;
@@ -361,6 +414,7 @@ export function Console({ state }: Props) {
 
   function cancelConnection(id: string) {
     connectionControllers.current.get(id)?.abort();
+    setTabs((current) => current.filter((tab) => !(tab.terminalId === id && tab.pending)));
     setConnectionJobs((jobs) => jobs.filter((job) => job.id !== id));
   }
 
@@ -399,7 +453,7 @@ export function Console({ state }: Props) {
 
   async function closeTab(terminalId: string) {
     reconnecting.current.add(terminalId);
-    for (const job of connectionJobs.filter((item) => item.replaceId === terminalId)) cancelConnection(job.id);
+    for (const job of connectionJobs.filter((item) => (item.replaceId ?? item.id) === terminalId)) cancelConnection(job.id);
     await bridge.terminals.close(terminalId);
     workspaceTouchedRef.current = true;
     setTabs((current) => {
@@ -467,13 +521,14 @@ export function Console({ state }: Props) {
 
   /** Pastes a snippet into the focused terminal, without pressing return. */
   function sendSnippet(snippet: Snippet) {
-    if (!activeId) {
-      setError("Open a terminal first, then send a snippet to it.");
+    if (!activeId || !activeTab || activeTab.pending || activeTab.closed) {
+      setError("Connect a terminal first, then send a snippet to it.");
       return;
     }
     // Deliberately not newline-terminated: a snippet that ran the moment it was
     // clicked would be a one-click way to execute something on production.
     bridge.terminals.write(activeId, snippet.command);
+    focusTerminal();
   }
 
   const secondaryTab = tabs.find((tab) => tab.terminalId === secondaryId && tab.terminalId !== activeId);
@@ -569,22 +624,22 @@ export function Console({ state }: Props) {
                   }
                   beginWorkspaceHostDrag(event.dataTransfer, hostId);
                 }}
-                title={hostId ? "Drag this terminal into Workspaces" : undefined}
+                title={`${tabTitle(tab)}${hostId ? " — Drag into Workspaces" : ""}`}
               >
                 <button className="tab__select" type="button" onClick={() => { setActiveId(tab.terminalId); setOverlay({ kind: "none" }); }}>
                   <span className={`tab__status tab__status--${tab.mode}`} />
-                  <span className="tab__title">{tab.title}{tab.closed ? " (ended)" : ""}</span>
+                  <span className="tab__title">{tabTitle(tab)}{tab.closed ? " (ended)" : ""}</span>
                 </button>
-                <button className="tab__close" onClick={() => void closeTab(tab.terminalId)} aria-label={`Close ${tab.title}`}>
+                <button className="tab__close" onClick={() => void closeTab(tab.terminalId)} aria-label={`Close ${tabTitle(tab)}`}>
                   <Icon name="close" size={13} />
                 </button>
               </div>
             );
           })}
-          {overlay.kind === "hosts" && <div className="tab tab--active"><button className="tab__select"><Icon name="host" size={14}/><span className="tab__title">Hosts</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Hosts"><Icon name="close" size={13}/></button></div>}
-          {overlay.kind === "tasks" && <div className="tab tab--active"><button className="tab__select"><Icon name="tasks" size={14}/><span className="tab__title">Tasks</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Tasks"><Icon name="close" size={13}/></button></div>}
-          {overlay.kind === "workspaces" && <div className="tab tab--active"><button className="tab__select"><Icon name="split" size={14}/><span className="tab__title">Workspaces</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Workspaces"><Icon name="close" size={13}/></button></div>}
-          {overlay.kind === "help" && <div className="tab tab--active"><button className="tab__select"><Icon name="help" size={14}/><span className="tab__title">Help</span></button><button className="tab__close" onClick={() => setOverlay({ kind: "none" })} aria-label="Close Help"><Icon name="close" size={13}/></button></div>}
+          {pageTabs.map((page) => <div key={pageKey(page)} className={`tab${pageKey(overlay) === pageKey(page) ? " tab--active" : ""}`}>
+            <button className="tab__select" onClick={() => setOverlay(page)}><span className="tab__title">{pageLabel(page)}</span></button>
+            <button className="tab__close" onClick={() => closePage(page)} aria-label={`Close ${pageLabel(page)}`}><Icon name="close" size={13}/></button>
+          </div>)}
           <button
             className="tab tab--new"
             ref={newTerminalButtonRef}
@@ -739,6 +794,7 @@ export function Console({ state }: Props) {
           </button>
         </div>
 
+        <div className="sidebar-filters"><button className="button" aria-pressed={sidebarFavorites} onClick={() => setSidebarFavorites((value) => !value)}>★ Favorites</button><select aria-label="Sidebar environment" value={sidebarEnvironment} onChange={(event) => setSidebarEnvironment(event.target.value)}><option value="all">All environments</option>{[...new Set(hosts.map((host) => host.environment))].map((value) => <option key={value}>{value}</option>)}</select></div>
         <div className="sidebar__scroll">
           <div className="sidebar__section">
             <span>This computer</span>
@@ -883,12 +939,14 @@ export function Console({ state }: Props) {
             <div className="floating-snippets__list">
               {visibleSnippets.map((snippet) => (
                 <article key={snippet.id}>
-                  <div><strong>{snippet.name}</strong><code className="selectable">{snippet.command}</code></div>
+                  <button className="snippet-command" title={snippet.command} onClick={() => sendSnippet(snippet)} aria-label={`Insert ${snippet.name}`}><strong>{snippet.name}</strong><code>{snippet.command}</code></button>
                   <div>
-                    <button className="icon icon--framed" aria-label={`Copy ${snippet.name}`} title="Copy" onClick={() => void navigator.clipboard.writeText(snippet.command)}><Icon name="copy" size={13}/></button>
+                    <button className="icon icon--framed" disabled={orderedSnippets[0]?.id === snippet.id} aria-label={`Move ${snippet.name} up`} title="Move up" onClick={() => moveSnippet(snippet.id, -1)}>↑</button>
+                    <button className="icon icon--framed" disabled={orderedSnippets.at(-1)?.id === snippet.id} aria-label={`Move ${snippet.name} down`} title="Move down" onClick={() => moveSnippet(snippet.id, 1)}>↓</button>
+                    <button className="icon icon--framed" aria-label={`Copy ${snippet.name}`} title="Copy" onClick={() => { void bridge.clipboard.writeText(snippet.command); if (activeId) focusTerminal(); }}><Icon name="copy" size={13}/></button>
                     <button className="icon icon--framed" aria-label={`Paste ${snippet.name}`} title="Paste" onClick={() => sendSnippet(snippet)}><Icon name="code" size={13}/></button>
                     <button className="icon icon--framed" aria-label={`Edit ${snippet.name}`} title="Edit" onClick={() => setSnippetEditing(snippet)}><Icon name="gear" size={13}/></button>
-                    <button className="icon icon--framed icon--accent" aria-label={`Run ${snippet.name}`} title="Run" onClick={() => { if (!activeId) return setError("Open a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); }}><Icon name="play" size={13}/></button>
+                    <button className="icon icon--framed icon--accent" aria-label={`Run ${snippet.name}`} title="Run" onClick={() => { if (!activeId || !activeTab || activeTab.pending || activeTab.closed) return setError("Connect a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); focusTerminal(); }}><Icon name="play" size={13}/></button>
                   </div>
                 </article>
               ))}
@@ -947,7 +1005,7 @@ export function Console({ state }: Props) {
           <div className="terminal-toolbar" aria-label="Terminal actions">
             <div className="terminal-toolbar__session">
               <span className={`tab__status tab__status--${activeTab.mode}`} />
-              <strong>{activeTab.title}</strong>
+              <strong>{tabTitle(activeTab)}</strong>
               <span>
                 {activeTab.mode} session{activeTab.closed ? " · ended" : ""}
               </span>
@@ -985,53 +1043,54 @@ export function Console({ state }: Props) {
           </div>
         )}
 
-        {connectionJobs[0] && (() => {
-          const job = connectionJobs[0];
-          return <div className="modal-backdrop">
-            <section className="snippet-modal" role="alertdialog" aria-modal="true" aria-labelledby="connection-title" aria-describedby="connection-reason" onKeyDown={(event) => { if (event.key === "Escape") cancelConnection(job.id); }}>
-              <header><strong id="connection-title">{job.reason ? "Could not connect" : job.replaceId ? "Reconnecting…" : "Connecting…"}</strong></header>
-              <strong>{job.label}</strong>
-              <p id="connection-reason" role="status">{job.reason ?? `Connecting directly over SSH. Attempt ${job.attempt} of 3.`}</p>
-              {job.reason && <p className="hint">All 3 attempts failed. Check the host address, SSH credentials and VPN or network access, then try again.</p>}
-              {job.replaceId && <p className="hint">Reconnecting opens a new shell. Commands from the previous shell are not replayed.</p>}
-              <footer><button autoFocus className="button button--ghost" onClick={() => cancelConnection(job.id)}>Cancel</button>{job.reason && <button className="button button--primary" onClick={() => void retryFailedConnection(job)}>Retry</button>}</footer>
-            </section>
-          </div>;
-        })()}
-
         <div className={`surface${secondaryTab && overlay.kind === "none" ? " surface--split" : ""}`}>
           {/* Terminals stay mounted underneath an overlay: unmounting one would
               throw away its scrollback, and a shell whose history vanishes when
               you glance at the file browser is not a terminal anyone wants. */}
           {tabs.map((tab) => (
-            <TerminalPane
+            <div key={tab.terminalId} className={`terminal-slot terminal-slot--${tab.terminalId === secondaryTab?.terminalId ? "secondary" : "primary"}`} hidden={overlay.kind !== "none" || (tab.terminalId !== activeId && tab.terminalId !== secondaryTab?.terminalId)}>
+            {!tab.pending && <TerminalPane
               key={tab.terminalId}
               terminalId={tab.terminalId}
+              focusRequest={tab.terminalId === activeId ? terminalFocus : 0}
               appearance={{ ...state.appearance, terminalTheme: tab.target.kind !== "local" && tab.target.hostId ? state.appearance.hostThemes[tab.target.hostId] ?? state.appearance.terminalTheme : state.appearance.terminalTheme }}
               visible={
                 overlay.kind === "none" && (tab.terminalId === activeId || tab.terminalId === secondaryTab?.terminalId)
               }
               position={tab.terminalId === secondaryTab?.terminalId ? "secondary" : "primary"}
-            />
+            />}
+            {connectionJobs.filter((job) => (job.replaceId ?? job.id) === tab.terminalId).map((job) => <div className="connection-notice" key={job.id}>
+              <section className="snippet-modal" role="alertdialog" aria-label={`Connection to ${job.label}`}>
+                <header><strong>{job.reason ? "Could not connect" : job.replaceId ? "Reconnecting…" : "Connecting…"}</strong></header>
+                <strong>{tabTitle(tab)}</strong>
+                <p role="status">{job.reason ?? `Direct SSH · Attempt ${job.attempt} of 3`}</p>
+                {job.reason && <p className="hint">Check the host address, credentials and network, then retry.</p>}
+                <footer><button className="button button--ghost" onClick={() => cancelConnection(job.id)}>Cancel</button>{job.reason && <button className="button button--primary" onClick={() => void retryFailedConnection(job)}>Retry</button>}</footer>
+              </section>
+            </div>)}
+            </div>
           ))}
 
-          {overlay.kind === "settings" && <Settings state={state} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />}
+          {pageTabs.map((page) => <div className="page-slot" hidden={pageKey(overlay) !== pageKey(page)} key={pageKey(page)}>
+          {page.kind === "settings" && <Settings state={state} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />}
 
-          {overlay.kind === "files" && (
-            <Files remote={overlay.target} hostLabel={overlay.label} hosts={hosts} connectionMode="direct" onClose={() => setOverlay({ kind: "none" })} />
+          {page.kind === "files" && (
+            <Files remote={page.target} hostLabel={page.label} hosts={hosts} connectionMode="direct" onClose={() => setOverlay({ kind: "none" })} />
           )}
 
-          {overlay.kind === "vault" && (
-            <VaultView credentials={credentials} hosts={hosts} openCreateOnMount={overlay.create} onClose={() => setOverlay({ kind: "none" })} />
+          {page.kind === "vault" && (
+            <VaultView credentials={credentials} hosts={hosts} openCreateOnMount={page.create} onClose={() => setOverlay({ kind: "none" })} />
           )}
-          {overlay.kind === "hosts" && <HostsView hosts={hosts} onClose={() => setOverlay({ kind: "none" })} onOpen={(host) => void openHost(host)} onEdit={setHostEditor} />}
+          {page.kind === "hosts" && <HostsView hosts={hosts} onClose={() => setOverlay({ kind: "none" })} onOpen={(host) => void openHost(host)} onEdit={setHostEditor} onFavorite={(host) => void toggleFavorite(host)} />}
 
-          {overlay.kind === "history" && (
+          {page.kind === "history" && (
             <HistoryView sessions={sessions} audit={audit} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />
           )}
-          {overlay.kind === "tasks" && <Tasks initial={tasks} />}
-          {overlay.kind === "workspaces" && <Workspaces hosts={hosts} currentHostIds={tabs.map((tab) => tab.target.kind === "local" ? undefined : tab.target.hostId).filter((id): id is string => Boolean(id))} onOpen={(ids) => void openNamedWorkspace(ids)} />}
-          {overlay.kind === "help" && <Help version={state.version} onClose={() => setOverlay({ kind: "none" })} />}
+          {page.kind === "tasks" && <Tasks initial={tasks} />}
+          {page.kind === "workspaces" && <Workspaces hosts={hosts} currentHostIds={tabs.map((tab) => tab.target.kind === "local" ? undefined : tab.target.hostId).filter((id): id is string => Boolean(id))} onOpen={(ids) => void openNamedWorkspace(ids)} />}
+          {page.kind === "help" && <Help version={state.version} onClose={() => setOverlay({ kind: "none" })} />}
+
+          </div>)}
 
           {overlay.kind === "none" && !activeTab && (
             <div className="empty">

@@ -29,6 +29,7 @@ function when(value?: string) {
 }
 
 export function Settings({ state, hosts, onClose }: Props) {
+  const [section, setSection] = useState("connections");
   const [devices, setDevices] = useState<DesktopDeviceSummary[]>([]);
   const [sharing, setSharing] = useState<SharingState>();
   const [sharingBusy, setSharingBusy] = useState(false);
@@ -75,13 +76,14 @@ export function Settings({ state, hosts, onClose }: Props) {
         </button>
       </header>
 
-      <section className="settings__section">
+      <nav className="settings-menu" aria-label="Settings sections">{["connections", "appearance", "sharing", "devices", "support", "server"].map((item) => <button className="button" aria-pressed={section === item} key={item} onClick={() => setSection(item)}>{item.charAt(0).toUpperCase() + item.slice(1)}</button>)}</nav>
+      <section hidden={section !== "connections"} className="settings__section">
         <h2>Direct SSH connections</h2>
         <p className="hint">SSH goes straight from this computer to the host. Connect to the required VPN for private addresses. Onshell still authorises access to saved credentials; terminal traffic does not use its gateway.</p>
         <p className="hint">Interrupted connections retry up to 3 times. If they fail, you can review the reason and choose Retry or Cancel. Hosts available only through an agent tunnel need a reachable SSH address and saved SSH credentials to connect from this app.</p>
       </section>
 
-      <section className="settings__section">
+      <section hidden={section !== "appearance"} className="settings__section">
         <h2>Appearance</h2>
         <div className="settings__choices">
           {(["system", "dark", "light"] as const).map((theme) => (
@@ -124,7 +126,7 @@ export function Settings({ state, hosts, onClose }: Props) {
         </div>
       </section>
 
-      <section className="settings__section">
+      <section hidden={section !== "sharing"} className="settings__section">
         <h2>Share this computer</h2>
         <p className="hint">Local shells, direct SSH and gateway connections do not need this sharing tunnel. Leave sharing off if another agent already provides remote access to this computer.</p>
         <p className="hint">
@@ -191,7 +193,7 @@ export function Settings({ state, hosts, onClose }: Props) {
         )}
       </section>
 
-      <section className="settings__section">
+      <section hidden={section !== "devices"} className="settings__section">
         <h2>Your machines</h2>
         <p className="hint">
           Machines you have signed in on that can be handed credential material for direct connections. Revoking one
@@ -222,7 +224,7 @@ export function Settings({ state, hosts, onClose }: Props) {
         </ul>
       </section>
 
-      <section className="settings__section">
+      <section hidden={section !== "support"} className="settings__section">
         <h2>Help &amp; support</h2>
         <p className="hint">Read the website for guides and project details, or make a one-time contribution to support open-source development.</p>
         <div className="settings__support-actions">
@@ -231,7 +233,7 @@ export function Settings({ state, hosts, onClose }: Props) {
         </div>
       </section>
 
-      <section className="settings__section">
+      <section hidden={section !== "server"} className="settings__section">
         <h2>Server</h2>
         <p className="hint selectable">{state.server?.apiBaseUrl}</p>
         <p className="hint">
