@@ -12,8 +12,9 @@
  *
  *   Prereqs (run once):
  *     yarn install
- *     yarn build          # builds packages + apps (creates the dist folders and apps/web/.next)
+ *     yarn db:generate    # refresh Prisma Client before compiling
  *     yarn db:deploy      # apply MySQL migrations
+ *     yarn build          # builds packages + apps (creates the dist folders and apps/web/.next)
  *     yarn db:seed        # seed admin/plans/settings
  *
  *   Start:

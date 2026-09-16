@@ -259,9 +259,9 @@ ln -sf ../../.env apps/api/.env
 
 corepack enable
 yarn install --immutable
+yarn db:generate                      # Prisma client (MySQL), before compiling API
+yarn db:deploy                        # apply production migrations
 yarn build                            # packages + api/gateway dist + web .next
-yarn db:generate                      # Prisma client (MySQL)
-yarn db:deploy                        # apply migrations
 yarn db:seed                          # admin, plans, settings
 ```
 
@@ -439,13 +439,28 @@ Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` i
 ```bash
 cd ~/htdocs/onshell.cloud
 set -a && source .env && set +a
-git pull
+git pull --ff-only origin master
 yarn install --immutable
+yarn db:generate       # required before build after Prisma schema changes
+yarn db:deploy         # run every deploy; applies only pending migrations
 yarn build
-yarn db:deploy         # if there are new migrations
-pm2 reload ecosystem.config.cjs   # near-zero-downtime restart
+pm2 reload ecosystem.config.cjs --update-env
+pm2 status
 pm2 logs
 ```
+
+Run these commands as the same deployment user that owns the PM2 processes.
+Back up MySQL before migrations. Stop on any failure and reload only after the
+migration and build have succeeded. `db:generate` updates Prisma Client and its
+TypeScript types; `db:deploy` updates the database. Neither replaces the other.
+A desktop app release does not run these server steps automatically.
+
+**Build says `Property 'sortOrder' does not exist`?** The generated Prisma Client
+is stale. Run `yarn db:generate`, `yarn db:deploy`, then `yarn build`, in that order,
+and reload PM2 after success. This is required for snippet order sync. See the
+[Prisma build troubleshooting](deployment.md#troubleshooting-prisma-field-missing-during-build)
+for details. The desktop chunk-size warning is not the cause of this error.
+Do not run `db:reset` on production.
 
 > Changing any `NEXT_PUBLIC_*` value requires a fresh `yarn build` — otherwise the
 > old URL stays baked into the bundle.
@@ -539,7 +554,8 @@ those columns are never created.
 **Step 4 — restart the services**
 
 ```bash
-yarn install                   # includes node-pty's postinstall chmod
+yarn install --immutable       # includes node-pty's postinstall chmod
+yarn db:generate               # refresh client types before compiling
 yarn build
 pm2 restart ecosystem.config.cjs --update-env
 ```

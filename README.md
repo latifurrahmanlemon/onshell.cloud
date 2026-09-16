@@ -220,17 +220,25 @@ CNAME   www.onshell.cloud  -> onshell.cloud
 3. Set production environment variables (see `.env.example`; `SITE_URL`,
    `API_BASE_URL`, `GATEWAY_BASE_URL`, and `CORS_ORIGINS` all default to the
    `onshell.cloud` values when `NODE_ENV=production`).
-4. Build services:
+4. Install dependencies and generate Prisma Client before compiling:
 
 ```bash
-yarn build
+yarn install --immutable
+yarn db:generate
 ```
 
-5. Apply migrations:
+5. Apply production migrations, then build:
 
 ```bash
 yarn db:deploy
+yarn build
 ```
+
+Repeat these steps after pulling updates. `db:generate` refreshes client types;
+`db:deploy` changes the database. Skipping generation after a schema change can
+cause errors such as `Property 'sortOrder' does not exist`. Stop if any step fails.
+See the [deployment update checklist](docs/deployment.md#deploy-checklist) for
+backup, environment loading, restart commands and troubleshooting.
 
 6. Seed platform defaults once:
 
