@@ -552,6 +552,7 @@ model Snippet {
   hostId         String?
   name           String
   command        String       @db.Text
+  sortOrder      Int          @default(0)
   scope          String
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

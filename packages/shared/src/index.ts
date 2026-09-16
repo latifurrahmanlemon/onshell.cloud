@@ -206,6 +206,7 @@ export interface Snippet {
   ownerId: string;
   name: string;
   command: string;
+  sortOrder?: number;
   scope: "personal" | "team" | "host";
   hostId?: string;
   createdAt: string;

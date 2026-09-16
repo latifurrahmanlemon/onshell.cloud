@@ -276,8 +276,8 @@ export interface OnshellBridge {
     updateHost(hostId: string, input: Record<string, unknown>): Promise<Host>;
     deleteHost(hostId: string): Promise<void>;
     snippets(): Promise<Snippet[]>;
-    createSnippet(input: { name: string; command: string; scope: "personal" | "team" }): Promise<Snippet>;
-    updateSnippet(snippetId: string, input: { name: string; command: string; scope: "personal" | "team" }): Promise<Snippet>;
+    createSnippet(input: { name: string; command: string; scope: "personal" | "team"; sortOrder?: number }): Promise<Snippet>;
+    updateSnippet(snippetId: string, input: { name: string; command: string; scope: "personal" | "team"; sortOrder?: number }): Promise<Snippet>;
     tasks(): Promise<TaskItem[]>;
     createTask(text: string): Promise<TaskItem>;
     updateTask(taskId: string, patch: { text?: string; completed?: boolean }): Promise<TaskItem>;

@@ -222,6 +222,7 @@ export function toSnippet(snippet: PrismaSnippet): Snippet {
     ownerId: snippet.ownerId,
     name: snippet.name,
     command: snippet.command,
+    sortOrder: snippet.sortOrder,
     scope: snippet.scope as Snippet["scope"],
     hostId: snippet.hostId ?? undefined,
     createdAt: snippet.createdAt.toISOString(),

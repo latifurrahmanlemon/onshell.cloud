@@ -10,6 +10,7 @@ import { handleRouteError } from "../../lib/reply.js";
 const snippetSchema = z.object({
   name: z.string().min(2),
   command: z.string().min(1),
+  sortOrder: z.number().int().min(0).max(999999).default(0),
   scope: z.enum(["personal", "team", "host"]).default("personal"),
   hostId: z.string().optional()
 });
@@ -46,7 +47,7 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
             { OR: [{ hostId: null }, { host: accessFilter }] }
           ]
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }, { id: "asc" }]
       });
 
       return snippets.map(toSnippet);
@@ -71,6 +72,7 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
           ownerId: actor.id,
           name: body.name,
           command: body.command,
+          sortOrder: body.sortOrder,
           scope: body.scope,
           hostId: body.hostId
         }
@@ -116,6 +118,7 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
         where: { id: existing.id },
         data: {
           ...(body.name !== undefined && { name: body.name }),
+          ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
           ...(body.command !== undefined && { command: body.command }),
           ...(body.scope !== undefined && { scope: body.scope }),
           ...(body.hostId !== undefined && { hostId: body.hostId })

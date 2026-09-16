@@ -367,20 +367,22 @@ function registerHandlers() {
   });
   ipcMain.handle(CHANNELS.consoleSnippets, () => requireApi().snippets());
   ipcMain.handle(CHANNELS.consoleCreateSnippet, async (_event, input: unknown) => {
-    const body = input as { name?: unknown; command?: unknown; scope?: unknown };
+    const body = input as { name?: unknown; command?: unknown; scope?: unknown; sortOrder?: unknown };
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     const command = typeof body?.command === "string" ? body.command : "";
     const scope = body?.scope === "team" ? "team" : "personal";
     if (name.length < 2 || command.length < 1) throw new Error("Name and command are required.");
-    return requireApi().createSnippet({ name, command, scope });
+    const sortOrder = snippetOrderNumber(body.sortOrder);
+    return requireApi().createSnippet({ name, command, scope, sortOrder });
   });
   ipcMain.handle(CHANNELS.consoleUpdateSnippet, async (_event, snippetId: string, input: unknown) => {
-    const body = input as { name?: unknown; command?: unknown; scope?: unknown };
+    const body = input as { name?: unknown; command?: unknown; scope?: unknown; sortOrder?: unknown };
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     const command = typeof body?.command === "string" ? body.command : "";
     const scope = body?.scope === "team" ? "team" : "personal";
     if (name.length < 2 || command.length < 1) throw new Error("Name and command are required.");
-    return requireApi().updateSnippet(snippetId, { name, command, scope });
+    const sortOrder = snippetOrderNumber(body.sortOrder);
+    return requireApi().updateSnippet(snippetId, { name, command, scope, sortOrder });
   });
   ipcMain.handle(CHANNELS.consoleTasks, () => requireApi().tasks());
   ipcMain.handle(CHANNELS.consoleCreateTask, (_event, text: string) => requireApi().createTask(text));
@@ -555,4 +557,10 @@ if (!app.requestSingleInstanceLock()) {
     cancelBrowserSignIn();
     shutdownSharing();
   });
+}
+
+function snippetOrderNumber(value: unknown): number {
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 999999) throw new Error("Order must be a whole number between 0 and 999999.");
+  return value;
 }

@@ -98,22 +98,7 @@ export function Console({ state }: Props) {
   const [update, setUpdate] = useState<UpdateStatus>();
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippetQuery, setSnippetQuery] = useState("");
-  const snippetOrderKey = `onshell:snippet-order:${state.server?.apiBaseUrl}:${state.user?.id}`;
-  const [snippetOrder, setSnippetOrder] = useState<string[]>(() => {
-    try { const saved = JSON.parse(localStorage.getItem(snippetOrderKey) ?? "[]"); return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []; } catch { return []; }
-  });
-  const orderedSnippets = [...snippets].sort((a, b) => {
-    const rank = (id: string) => snippetOrder.includes(id) ? snippetOrder.indexOf(id) : Number.MAX_SAFE_INTEGER;
-    return rank(a.id) - rank(b.id);
-  });
-  function moveSnippet(id: string, direction: number) {
-    const order = orderedSnippets.map((item) => item.id);
-    const from = order.indexOf(id), to = from + direction;
-    if (from < 0 || to < 0 || to >= order.length) return;
-    [order[from], order[to]] = [order[to]!, order[from]!];
-    setSnippetOrder(order);
-    try { localStorage.setItem(snippetOrderKey, JSON.stringify(order)); } catch { setError("Snippet order could not be saved on this computer."); }
-  }
+  const orderedSnippets = [...snippets].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (b.createdAt ?? "").localeCompare(a.createdAt ?? "") || a.id.localeCompare(b.id));
   const [snippetCreateOpen, setSnippetCreateOpen] = useState(false);
   const [snippetEditing, setSnippetEditing] = useState<Snippet>();
   const [snippetPosition, setSnippetPosition] = useState({ x: 0, y: 0 });
@@ -290,6 +275,7 @@ export function Console({ state }: Props) {
       const snippet = await bridge.console.createSnippet({
         name: String(data.get("name") ?? ""),
         command: String(data.get("command") ?? ""),
+        sortOrder: Number(data.get("sortOrder") ?? 0),
         scope: data.get("scope") === "team" ? "team" : "personal"
       });
       setSnippets((current) => [snippet, ...current]);
@@ -307,6 +293,7 @@ export function Console({ state }: Props) {
       const snippet = await bridge.console.updateSnippet(snippetEditing.id, {
         name: String(data.get("name") ?? ""),
         command: String(data.get("command") ?? ""),
+        sortOrder: Number(data.get("sortOrder") ?? 0),
         scope: data.get("scope") === "team" ? "team" : "personal"
       });
       setSnippets((current) => current.map((item) => item.id === snippet.id ? snippet : item));
@@ -935,16 +922,32 @@ export function Console({ state }: Props) {
               <strong>Snippets</strong>
               <div><button className="icon" onClick={() => setSnippetCreateOpen(true)} aria-label="Create snippet" data-tooltip="New snippet"><Icon name="plus" size={13} /></button><button className="icon" onClick={() => setSnippetsOpen(false)} aria-label="Hide snippets"><Icon name="close" size={13} /></button></div>
             </div>
+            <button className="snippet-resize" aria-label="Resize snippets panel" title="Drag to resize; arrow keys adjust size" onKeyDown={(event) => {
+              const panel = event.currentTarget.parentElement!;
+              const box = panel.getBoundingClientRect();
+              if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+              event.preventDefault();
+              panel.style.width = `${Math.max(280, Math.min(box.right - 8, box.width + (event.key === "ArrowLeft" ? 20 : event.key === "ArrowRight" ? -20 : 0)))}px`;
+              panel.style.height = `${Math.max(220, Math.min(window.innerHeight - box.top - 8, box.height + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0)))}px`;
+            }} onPointerDown={(event) => {
+              event.preventDefault();
+              const grip = event.currentTarget, panel = grip.parentElement!;
+              const box = panel.getBoundingClientRect(), x = event.clientX, y = event.clientY;
+              grip.setPointerCapture(event.pointerId);
+              const move = (next: PointerEvent) => {
+                panel.style.width = `${Math.max(280, Math.min(box.right - 8, box.width + x - next.clientX))}px`;
+                panel.style.height = `${Math.max(220, Math.min(window.innerHeight - box.top - 8, box.height + next.clientY - y))}px`;
+              };
+              const end = () => { grip.removeEventListener("pointermove", move); grip.removeEventListener("lostpointercapture", end); };
+              grip.addEventListener("pointermove", move); grip.addEventListener("lostpointercapture", end);
+            }}>◢</button>
             <div className="floating-snippets__search"><Icon name="search" size={14} /><input value={snippetQuery} onChange={(event) => setSnippetQuery(event.target.value)} placeholder="Search snippets" aria-label="Search snippets" /></div>
             <div className="floating-snippets__list">
               {visibleSnippets.map((snippet) => (
                 <article key={snippet.id}>
-                  <button className="snippet-command" title={snippet.command} onClick={() => sendSnippet(snippet)} aria-label={`Insert ${snippet.name}`}><strong>{snippet.name}</strong><code>{snippet.command}</code></button>
+                  <button className="snippet-command" title={snippet.command} onClick={() => sendSnippet(snippet)} aria-label={`Insert ${snippet.name}`}><strong><span className="snippet-order">{snippet.sortOrder ?? 0}.</span> {snippet.name}</strong><code>{snippet.command}</code></button>
                   <div>
-                    <button className="icon icon--framed" disabled={orderedSnippets[0]?.id === snippet.id} aria-label={`Move ${snippet.name} up`} title="Move up" onClick={() => moveSnippet(snippet.id, -1)}>↑</button>
-                    <button className="icon icon--framed" disabled={orderedSnippets.at(-1)?.id === snippet.id} aria-label={`Move ${snippet.name} down`} title="Move down" onClick={() => moveSnippet(snippet.id, 1)}>↓</button>
                     <button className="icon icon--framed" aria-label={`Copy ${snippet.name}`} title="Copy" onClick={() => { void bridge.clipboard.writeText(snippet.command); if (activeId) focusTerminal(); }}><Icon name="copy" size={13}/></button>
-                    <button className="icon icon--framed" aria-label={`Paste ${snippet.name}`} title="Paste" onClick={() => sendSnippet(snippet)}><Icon name="code" size={13}/></button>
                     <button className="icon icon--framed" aria-label={`Edit ${snippet.name}`} title="Edit" onClick={() => setSnippetEditing(snippet)}><Icon name="gear" size={13}/></button>
                     <button className="icon icon--framed icon--accent" aria-label={`Run ${snippet.name}`} title="Run" onClick={() => { if (!activeId || !activeTab || activeTab.pending || activeTab.closed) return setError("Connect a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); focusTerminal(); }}><Icon name="play" size={13}/></button>
                   </div>
@@ -959,6 +962,7 @@ export function Console({ state }: Props) {
             <form className="snippet-modal" onSubmit={(event) => void createSnippet(event)}>
               <header><div><span className="snippet-emoji" aria-hidden="true">⌘</span><div><strong>New snippet</strong><p>Save a command for quick paste or run.</p></div></div><button className="icon" type="button" onClick={() => setSnippetCreateOpen(false)} aria-label="Close"><Icon name="close" size={14} /></button></header>
               <label>Name<input name="name" required minLength={2} autoFocus placeholder="Restart service" /></label>
+              <label>Order number<input name="sortOrder" type="number" min={0} max={999999} step={1} defaultValue={0} required /></label>
               <label>Command<textarea name="command" required rows={4} placeholder="sudo systemctl restart…" /></label>
               <label>Visibility<select name="scope"><option value="personal">Only me</option><option value="team">Workspace team</option></select></label>
               <footer><button className="button button--ghost" type="button" onClick={() => setSnippetCreateOpen(false)}>Cancel</button><button className="button button--primary" type="submit">Create snippet</button></footer>
@@ -970,6 +974,7 @@ export function Console({ state }: Props) {
             <form className="snippet-modal" onSubmit={(event) => void updateSnippet(event)}>
               <header><div><span className="snippet-emoji"><Icon name="code" size={16}/></span><div><strong>Edit snippet</strong><p>Update the command or its visibility.</p></div></div><button className="icon" type="button" onClick={() => setSnippetEditing(undefined)} aria-label="Close"><Icon name="close" size={14}/></button></header>
               <label>Name<input name="name" required minLength={2} defaultValue={snippetEditing.name}/></label>
+              <label>Order number<input name="sortOrder" type="number" min={0} max={999999} step={1} defaultValue={snippetEditing.sortOrder ?? 0} required /><span className="hint">Lower numbers appear first. Saved with the snippet and synced across devices.</span></label>
               <label>Command<textarea name="command" required rows={4} defaultValue={snippetEditing.command}/></label>
               <label>Visibility<select name="scope" defaultValue={snippetEditing.scope}><option value="personal">Only me</option><option value="team">Workspace team</option></select></label>
               <footer><button className="button button--ghost" type="button" onClick={() => setSnippetEditing(undefined)}>Cancel</button><button className="button button--primary" type="submit">Save changes</button></footer>
@@ -1039,7 +1044,7 @@ export function Console({ state }: Props) {
 
         {error && (
           <div className="banner" role="alert">
-            {error}
+            <span>{error}</span><button className="icon" aria-label="Dismiss error" title="Dismiss error" onClick={() => setError(undefined)}><Icon name="close" size={14}/></button>
           </div>
         )}
 
