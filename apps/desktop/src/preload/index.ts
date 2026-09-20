@@ -44,6 +44,8 @@ const bridge: OnshellBridge = {
 
   console: {
     load: () => ipcRenderer.invoke(CHANNELS.consoleLoad),
+    sync: () => ipcRenderer.invoke(CHANNELS.consoleSync),
+    deleteSnippet: (id) => ipcRenderer.invoke(CHANNELS.consoleDeleteSnippet, id),
     hosts: () => ipcRenderer.invoke(CHANNELS.consoleHosts),
     createHost: (input) => ipcRenderer.invoke(CHANNELS.consoleCreateHost, input),
     updateHost: (hostId, input) => ipcRenderer.invoke(CHANNELS.consoleUpdateHost, hostId, input),

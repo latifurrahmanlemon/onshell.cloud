@@ -1,3 +1,4 @@
+import { useLiveRefresh } from "../live-refresh.js";
 /**
  * Settings, and the device list.
  *
@@ -44,6 +45,8 @@ export function Settings({ state, hosts, onClose }: Props) {
       .catch(() => setError("Could not load your devices."));
     void bridge.sharing.state().then(setSharing, () => undefined);
   }, []);
+
+  useLiveRefresh(async () => { setDevices(await bridge.devices.list()); });
 
   async function runSharing(action: () => Promise<SharingState>) {
     setSharingBusy(true);

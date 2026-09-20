@@ -340,6 +340,8 @@ function registerHandlers() {
     await publishState();
   });
 
+  ipcMain.handle(CHANNELS.consoleSync, () => requireApi().transport.request("/sync"));
+  ipcMain.handle(CHANNELS.consoleDeleteSnippet, (_event, id: string) => requireApi().deleteSnippet(id));
   ipcMain.handle(CHANNELS.consoleLoad, async () => {
     const client = requireApi();
     // Fetched together because the console is unusable with a partial picture,

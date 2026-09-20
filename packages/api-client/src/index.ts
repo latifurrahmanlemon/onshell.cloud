@@ -13,3 +13,5 @@ export type { ApiClient, ApiClientOptions } from "./client.js";
 
 export { MAX_EDITABLE_FILE_BYTES } from "./types.js";
 export type * from "./types.js";
+
+export { startLiveSync } from "./live-sync.js";

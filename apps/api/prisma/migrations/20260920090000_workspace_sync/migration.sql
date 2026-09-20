@@ -1,0 +1,1 @@
+ALTER TABLE `Organization` ADD COLUMN `syncRevision` INTEGER NOT NULL DEFAULT 0;

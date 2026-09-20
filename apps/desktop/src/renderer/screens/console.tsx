@@ -1,3 +1,5 @@
+import { startLiveSync } from "@onshell/api-client";
+import { useLiveRefresh } from "../live-refresh.js";
 /**
  * The signed-in workspace: this machine on the left with the saved hosts, and
  * terminal tabs across the top.
@@ -133,6 +135,25 @@ export function Console({ state }: Props) {
       document.removeEventListener("keydown", escape);
     };
   }, []);
+
+  useLiveRefresh(async () => {
+    const data = await bridge.console.load();
+    setHosts(data.hosts); setSnippets(data.snippets); setCredentials(data.credentials);
+    setSessions(data.sessions); setAudit(data.audit); setTasks(data.tasks); setNotifications(data.notifications);
+  });
+  useEffect(() => startLiveSync(() => bridge.console.sync(), () => window.dispatchEvent(new Event("onshell:sync"))), []);
+  const [deletingSnippet, setDeletingSnippet] = useState<Snippet>();
+  const [deleteSnippetBusy, setDeleteSnippetBusy] = useState(false);
+  async function deleteSnippet() {
+    if (!deletingSnippet || deleteSnippetBusy) return;
+    setDeleteSnippetBusy(true);
+    try {
+      await bridge.console.deleteSnippet(deletingSnippet.id);
+      setSnippets((items) => items.filter((item) => item.id !== deletingSnippet.id));
+      setDeletingSnippet(undefined);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete snippet."); }
+    finally { setDeleteSnippetBusy(false); }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -948,6 +969,7 @@ export function Console({ state }: Props) {
                   <button className="snippet-command" title={snippet.command} onClick={() => sendSnippet(snippet)} aria-label={`Insert ${snippet.name}`}><strong><span className="snippet-order">{snippet.sortOrder ?? 0}.</span> {snippet.name}</strong><code>{snippet.command}</code></button>
                   <div>
                     <button className="icon icon--framed" aria-label={`Copy ${snippet.name}`} title="Copy" onClick={() => { void bridge.clipboard.writeText(snippet.command); if (activeId) focusTerminal(); }}><Icon name="copy" size={13}/></button>
+                    <button className="icon icon--danger" title="Delete snippet" aria-label={`Delete ${snippet.name}`} onClick={() => setDeletingSnippet(snippet)}><Icon name="close" size={12}/></button>
                     <button className="icon icon--framed" aria-label={`Edit ${snippet.name}`} title="Edit" onClick={() => setSnippetEditing(snippet)}><Icon name="gear" size={13}/></button>
                     <button className="icon icon--framed icon--accent" aria-label={`Run ${snippet.name}`} title="Run" onClick={() => { if (!activeId || !activeTab || activeTab.pending || activeTab.closed) return setError("Connect a terminal first."); bridge.terminals.write(activeId, `${snippet.command}\n`); focusTerminal(); }}><Icon name="play" size={13}/></button>
                   </div>
@@ -957,6 +979,7 @@ export function Console({ state }: Props) {
             </div>
           </div>
         )}
+        {deletingSnippet && <div className="modal-backdrop"><section className="snippet-modal" role="dialog" aria-modal="true" aria-label="Delete snippet"><h2>Delete {deletingSnippet.name}?</h2>{error && <p role="alert">{error}</p>}<p>This removes the saved command from your workspace and other synced clients.</p><footer><button className="button" disabled={deleteSnippetBusy} onClick={() => setDeletingSnippet(undefined)}>Cancel</button><button className="button button--primary" disabled={deleteSnippetBusy} onClick={() => void deleteSnippet()}>{deleteSnippetBusy ? "Deleting…" : "Delete snippet"}</button></footer></section></div>}
         {snippetCreateOpen && (
           <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSnippetCreateOpen(false); }}>
             <form className="snippet-modal" onSubmit={(event) => void createSnippet(event)}>

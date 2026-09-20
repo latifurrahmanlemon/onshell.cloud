@@ -173,6 +173,7 @@ model User {
 }
 
 model Organization {
+  syncRevision Int @default(0)
   id                 String               @id @default(cuid())
   name               String
   slug               String               @unique

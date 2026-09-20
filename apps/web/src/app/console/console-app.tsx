@@ -1,5 +1,7 @@
 "use client";
 
+import { startLiveSync } from "@onshell/api-client";
+import { useLiveRefresh } from "./live-refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -491,9 +493,11 @@ export function ConsoleApp() {
       consoleApi.audit(80),
       consoleApi.organization(),
       consoleApi.invitations().catch(() => [] as PendingInvitation[]),
-      consoleApi.agents()
+      consoleApi.agents(),
+      consoleApi.notifications()
     ]);
-    const [hostsR, credentialsR, sessionsR, snippetsR, auditR, orgR, invitationsR, agentsR] = results;
+    const [hostsR, credentialsR, sessionsR, snippetsR, auditR, orgR, invitationsR, agentsR, notificationsR] = results;
+    if (notificationsR.status === "fulfilled") setNotifications(notificationsR.value);
     if (hostsR.status === "fulfilled") setHosts(hostsR.value);
     if (credentialsR.status === "fulfilled") setCredentials(credentialsR.value);
     if (sessionsR.status === "fulfilled") setSessions(sessionsR.value);
@@ -517,6 +521,12 @@ export function ConsoleApp() {
     }
     setLoading(false);
   }, []);
+
+  useLiveRefresh(refreshAll, Boolean(identity));
+  useEffect(() => {
+    if (!identity) return;
+    return startLiveSync(() => consoleApi.transport.request<{ revision: string }>("/sync"), () => window.dispatchEvent(new Event("onshell:sync")));
+  }, [identity]);
 
   /**
    * Establishes who is signed in and which workspace they are reading, then

@@ -1,5 +1,6 @@
 "use client";
 
+import { useLiveRefresh } from "./live-refresh";
 import {
   ChangeEvent,
   CSSProperties,
@@ -94,47 +95,51 @@ import { consoleApi } from "./api";
 export function TasksView() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const [filter, setFilter] = useState<"active" | "all" | "completed">("active");
+  const [sort, setSort] = useState("newest");
+  const [text, setText] = useState("");
+  const [editing, setEditing] = useState<string>();
+  const [draft, setDraft] = useState("");
+  const [deleting, setDeleting] = useState<TaskItem>();
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => consoleApi.tasks().then(setTasks), []);
-  useEffect(() => { void load(); }, [load]);
-  const visible = tasks.filter((task) => {
-    const stateMatches = filter === "all" || (filter === "completed" ? task.completed : !task.completed);
-    return stateMatches && task.text.toLowerCase().includes(query.trim().toLowerCase());
-  });
-  const completedCount = tasks.filter((task) => task.completed).length;
-  const activeCount = tasks.length - completedCount;
-  const completionRate = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
-  async function add(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const text = String(new FormData(form).get("task") ?? "").trim();
-    if (!text) return;
-    setBusy(true);
-    try { const task = await consoleApi.createTask(text); setTasks((current) => [task, ...current]); form.reset(); }
-    finally { setBusy(false); }
+  const busyRef = useRef(false);
+  const generation = useRef(0);
+  const [error, setError] = useState<string>();
+  const load = async () => {
+    const version = generation.current;
+    const next = await consoleApi.tasks();
+    if (!busyRef.current && version === generation.current) setTasks(next);
+  };
+  useEffect(() => { void load().catch(() => setError("Could not load tasks. Check your connection.")); }, []);
+  useLiveRefresh(load);
+  const done = tasks.filter((item) => item.completed).length;
+  const visible = tasks.filter((item) => (filter === "all" || (filter === "completed" ? item.completed : !item.completed)) && item.text.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => sort === "name" ? a.text.localeCompare(b.text) : sort === "oldest" ? a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt));
+  async function mutate(action: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true; generation.current++; setBusy(true); setError(undefined);
+    try { await action(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the task. Try again."); }
+    finally { busyRef.current = false; generation.current++; setBusy(false); }
   }
-  async function toggle(task: TaskItem) {
+  const toggle = (task: TaskItem) => mutate(async () => {
     const next = await consoleApi.updateTask(task.id, { completed: !task.completed });
-    setTasks((current) => current.map((item) => item.id === next.id ? next : item));
-  }
-  async function remove(task: TaskItem) {
-    await consoleApi.deleteTask(task.id);
-    setTasks((current) => current.filter((item) => item.id !== task.id));
-  }
+    setTasks((items) => items.map((item) => item.id === next.id ? next : item));
+  });
   return <section className="panel tasks-view">
-    <header className="task-hero">
-      <div className="task-hero-copy"><span className="task-eyebrow"><ListTodo size={13}/>Workspace planner</span><h2>Tasks</h2><p>Capture follow-ups and keep the same focused queue synced across web and desktop.</p></div>
-      <div className="task-overview">
-        <div className="task-summary" aria-label="Task summary"><article><strong>{activeCount}</strong><span>Open</span></article><article><strong>{completedCount}</strong><span>Done</span></article><article><strong>{tasks.length}</strong><span>Total</span></article></div>
-        <div className="task-progress" aria-label={`${completionRate}% of tasks completed`}><div><strong>{completionRate}%</strong><span>completed</span></div><span className="task-progress-track"><i style={{ width: `${completionRate}%` }}/></span></div>
-      </div>
-    </header>
-    <div className="task-workspace">
-      <form className="task-compose" onSubmit={add}><ListTodo size={18}/><input name="task" maxLength={2000} placeholder="What needs to get done?" aria-label="New task"/><button className="primary-button" disabled={busy} type="submit">{busy ? <Loader2 className="spin" size={15}/> : <Plus size={15}/>}Add task</button></form>
-      <div className="task-tools"><div className="search-field"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks…" aria-label="Search tasks"/></div><div className="task-filters">{(["active","all","completed"] as const).map((value) => <button key={value} className={filter === value ? "is-active" : ""} onClick={() => setFilter(value)} type="button">{value}<span>{value === "active" ? activeCount : value === "completed" ? completedCount : tasks.length}</span></button>)}</div></div>
-      <div className="task-list">{visible.map((task) => <article className={task.completed ? "is-completed" : ""} key={task.id}><button className="task-check" aria-label={task.completed ? "Mark active" : "Mark complete"} onClick={() => void toggle(task)} type="button">{task.completed && <Check size={14}/>}</button><div><p>{task.text}</p><small>{task.completedAt ? `Completed ${relativeTime(task.completedAt)}` : `Added ${relativeTime(task.createdAt)}`}</small></div><button className="icon-button compact danger" aria-label="Delete task" onClick={() => void remove(task)} type="button"><Trash2 size={14}/></button></article>)}{visible.length === 0 && <EmptyState icon={<ListTodo size={22}/>} title="No tasks here" hint={query ? "Try another search." : "Add a task to get started."}/>}</div>
-    </div>
+    <header><div><p>Workspace planner</p><h1>Tasks</h1><span>Your personal task queue, synced across web and desktop.</span></div></header>
+    <div className="task-summary"><span><strong>{tasks.length - done}</strong> Open</span><span><strong>{done}</strong> Done</span><span><strong>{tasks.length}</strong> Total</span></div>
+    <progress className="task-completion" max={Math.max(tasks.length, 1)} value={done} aria-label="Task completion"/>
+    {error && <div role="alert" className="task-error"><span>{error}</span><button type="button" onClick={() => setError(undefined)} aria-label="Dismiss task error">×</button></div>}
+    <form className="task-compose desktop-task-compose" onSubmit={(event) => { event.preventDefault(); const submitted = text.trim(); if (!submitted) return; void mutate(async () => { const task = await consoleApi.createTask(submitted); setTasks((items) => [task, ...items]); setText((current) => current.trim() === submitted ? "" : current); }); }}>
+      <input value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} placeholder="What needs to get done?" aria-label="New task"/><button className="primary-button" disabled={busy || !text.trim()} type="submit">Add task</button>
+    </form>
+    <div className="task-tools desktop-task-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks"/><div className="task-filters">{(["active", "all", "completed"] as const).map((value) => <button type="button" className={filter === value ? "is-active" : ""} aria-pressed={filter === value} onClick={() => setFilter(value)} key={value}>{value} ({value === "active" ? tasks.length - done : value === "completed" ? done : tasks.length})</button>)}</div><select aria-label="Sort tasks" value={sort} onChange={(event) => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Alphabetical</option></select></div>
+    <div className="task-list desktop-task-list">{visible.map((task) => <article className={task.completed ? "is-completed" : ""} key={task.id}>
+      <button type="button" className="task-check desktop-task-check" disabled={busy} aria-label={task.completed ? "Mark active" : "Mark complete"} aria-pressed={task.completed} onClick={() => void toggle(task)}>{task.completed ? "✓" : ""}</button>
+      {editing === task.id ? <form className="task-inline-edit" onSubmit={(event) => { event.preventDefault(); if (!draft.trim()) return; void mutate(async () => { const next = await consoleApi.updateTask(task.id, { text: draft.trim() }); setTasks((items) => items.map((item) => item.id === task.id ? next : item)); setEditing(undefined); }); }}><input autoFocus aria-label="Edit task text" maxLength={2000} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditing(undefined); }}/><button disabled={busy || !draft.trim()} type="submit">Save</button><button type="button" disabled={busy} onClick={() => setEditing(undefined)}>Cancel</button></form> : <div className="task-text"><p>{task.text}</p><small>{task.completed ? "Completed" : "Added"} {new Date(task.completedAt ?? task.createdAt).toLocaleDateString()}</small></div>}
+      <button type="button" disabled={busy} aria-label={`Edit ${task.text}`} onClick={() => { setEditing(task.id); setDraft(task.text); }}>Edit</button><button type="button" disabled={busy} aria-label={`Delete ${task.text}`} onClick={() => setDeleting(task)}>Delete</button>
+    </article>)}{!visible.length && <div className="resource-empty"><strong>{query ? "No matching tasks" : filter === "completed" ? "No completed tasks yet" : "Your queue is clear"}</strong><p>{query ? "Try another search or filter." : "Add a task above when something needs your attention."}</p></div>}</div>
+    {deleting && <div className="task-delete-confirm" role="dialog" aria-modal="true" aria-label="Delete task"><div><h2>Delete task?</h2><p>{deleting.text}</p>{error && <p role="alert">{error}</p>}<button type="button" disabled={busy} onClick={() => setDeleting(undefined)}>Cancel</button><button type="button" disabled={busy} onClick={() => void mutate(async () => { await consoleApi.deleteTask(deleting.id); setTasks((items) => items.filter((item) => item.id !== deleting.id)); setDeleting(undefined); })}>Delete task</button></div></div>}
   </section>;
 }
 import { HostTransferPanel } from "./host-transfer";
@@ -1718,6 +1723,7 @@ export function WorkspacesView({
   useEffect(() => {
     void load();
   }, [load]);
+  useLiveRefresh(load);
 
   const hostIdSet = useMemo(() => new Set(hosts.map((host) => host.id)), [hosts]);
   const hostName = (id: string) => hosts.find((host) => host.id === id)?.name ?? "unknown";
@@ -4906,6 +4912,7 @@ function SignedInDevices({
   useEffect(() => {
     void load();
   }, [load]);
+  useLiveRefresh(load);
 
   async function revokeOne(session: AccountSession) {
     setBusy(true);

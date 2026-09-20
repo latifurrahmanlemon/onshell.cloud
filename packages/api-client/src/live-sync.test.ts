@@ -1,0 +1,40 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { startLiveSync } from "./live-sync.js";
+afterEach(() => vi.useRealTimers());
+it("refreshes only when the shared revision changes and stops on disposal", async () => {
+  vi.useFakeTimers();
+  let revision = "org:1";
+  const changed = vi.fn(), read = vi.fn(async () => ({ revision }));
+  const stop = startLiveSync(read, changed);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(changed).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(changed).toHaveBeenCalledTimes(1);
+  revision = "org:2";
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(changed).toHaveBeenCalledTimes(2);
+  stop();
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(read).toHaveBeenCalledTimes(3);
+});
+it("does not overlap slow requests or publish after unmount", async () => {
+  vi.useFakeTimers();
+  let complete!: (value: { revision: string }) => void;
+  const read = vi.fn(() => new Promise<{ revision: string }>((resolve) => { complete = resolve; }));
+  const changed = vi.fn();
+  const stop = startLiveSync(read, changed);
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(read).toHaveBeenCalledTimes(1);
+  stop(); complete({ revision: "org:2" });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(changed).not.toHaveBeenCalled();
+});
+it("recovers from offline failures", async () => {
+  vi.useFakeTimers();
+  const read = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ revision: "org:3" });
+  const changed = vi.fn();
+  const stop = startLiveSync(read, changed);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(changed).toHaveBeenCalledTimes(1);
+  stop();
+});

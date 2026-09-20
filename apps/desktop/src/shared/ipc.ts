@@ -276,6 +276,8 @@ export interface OnshellBridge {
     updateHost(hostId: string, input: Record<string, unknown>): Promise<Host>;
     deleteHost(hostId: string): Promise<void>;
     snippets(): Promise<Snippet[]>;
+    sync(): Promise<{ revision: string }>;
+    deleteSnippet(snippetId: string): Promise<void>;
     createSnippet(input: { name: string; command: string; scope: "personal" | "team"; sortOrder?: number }): Promise<Snippet>;
     updateSnippet(snippetId: string, input: { name: string; command: string; scope: "personal" | "team"; sortOrder?: number }): Promise<Snippet>;
     tasks(): Promise<TaskItem[]>;
@@ -381,6 +383,8 @@ export const CHANNELS = {
   browserSignInCancel: "auth:browser-cancel",
 
   consoleLoad: "console:load",
+  consoleSync: "console:sync",
+  consoleDeleteSnippet: "console:delete-snippet",
   consoleHosts: "console:hosts",
   consoleCreateHost: "console:create-host",
   consoleUpdateHost: "console:update-host",

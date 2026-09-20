@@ -1,3 +1,4 @@
+import { registerSyncRoutes } from "./modules/sync.js";
 import type { FastifyInstance } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { registerAdminRoutes } from "./modules/admin.js";
@@ -25,6 +26,7 @@ import { registerTaskRoutes } from "./modules/tasks.js";
 import { registerNotificationRoutes } from "./modules/notifications.js";
 
 export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig) {
+  await registerSyncRoutes(app);
   await registerHealthRoutes(app, config);
   await registerPublicRoutes(app, config);
   await registerBillingRoutes(app, config);

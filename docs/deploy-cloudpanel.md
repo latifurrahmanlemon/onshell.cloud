@@ -601,3 +601,8 @@ For most deployments the single-domain approach above is simpler and enough.
 
 **Do not give the gateway a public subdomain unless you have set
 `GATEWAY_SHARED_SECRET`.** It authorises nothing on its own.
+
+Desktop 0.4.12 workspace synchronization also requires the API/web update and
+`20260920090000_workspace_sync` migration. Follow the redeployment commands above;
+see [automatic workspace updates](deployment.md#desktop-0412-automatic-workspace-updates)
+for behavior and verification.

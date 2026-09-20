@@ -131,3 +131,23 @@ migration has not been applied to the database used by the API.
 The desktop Vite chunk-size warning is unrelated and does not fail the build.
 Do not use `yarn db:reset` or `prisma migrate reset` on production; those commands
 delete data. Use `yarn db:deploy`, not the development-only `yarn db:migrate`.
+
+## Desktop 0.4.12: automatic workspace updates
+
+Deploy the API and web changes as well as the desktop release. The
+`20260920090000_workspace_sync` migration adds `Organization.syncRevision`.
+Run the update procedure above, including `yarn db:generate`, `yarn db:deploy`,
+`yarn build`, and the service reload. A desktop release alone cannot apply it.
+
+Visible web and desktop clients check the workspace revision every five seconds
+and refresh changed data automatically. Focus and network recovery trigger a
+check; a periodic reconciliation also catches changes made outside API routes.
+The revision lives in MySQL, so multiple API workers share it without Redis.
+Tasks retain their existing personal ownership and organization permissions.
+Background refresh preserves unsaved task text and does not restart terminals.
+
+After deploying, open Tasks in the web console and desktop with the same account
+and workspace. Add, edit, or complete a task and verify the other visible client
+updates within a few seconds. Delete a snippet from desktop and verify it
+vanishes in the other client. If data stays stale, check authenticated `/sync`
+responses, API logs, and `yarn db:status` for the migration above.

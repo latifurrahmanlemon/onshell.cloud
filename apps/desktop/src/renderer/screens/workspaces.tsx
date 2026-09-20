@@ -1,3 +1,4 @@
+import { useLiveRefresh } from "../live-refresh.js";
 import { useEffect, useState, type DragEvent } from "react";
 import type { Host, HostWorkspace } from "@onshell/api-client";
 import { bridge } from "../bridge.js";
@@ -37,6 +38,8 @@ export function Workspaces({ hosts, currentHostIds, onOpen }: Props) {
       .then(setItems)
       .catch(() => setMessage("Saved workspaces could not be loaded."));
   }, []);
+
+  useLiveRefresh(async () => { setItems(await bridge.console.workspaces()); });
 
   function add(hostId: string, at = draft.length) {
     if (!hosts.some((host) => host.id === hostId)) return;
