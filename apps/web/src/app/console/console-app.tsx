@@ -1,5 +1,6 @@
 "use client";
 
+import { useTablePreferences } from "../../components/table-preferences";
 import { startLiveSync } from "@onshell/api-client";
 import { useLiveRefresh } from "./live-refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -179,6 +180,7 @@ function sessionErrorMessage(error: unknown): string {
 }
 
 export function ConsoleApp() {
+  useTablePreferences("console");
   const reduceMotion = useReducedMotion();
   const [identity, setIdentity] = useState<{ user: User; organization?: Organization } | null>(null);
   /**

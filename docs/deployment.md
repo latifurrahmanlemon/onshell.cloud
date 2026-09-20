@@ -151,3 +151,21 @@ and workspace. Add, edit, or complete a task and verify the other visible client
 updates within a few seconds. Delete a snippet from desktop and verify it
 vanishes in the other client. If data stays stale, check authenticated `/sync`
 responses, API logs, and `yarn db:status` for the migration above.
+
+## Web table customization
+
+Admin and user-console tables support draggable column edges, a Columns menu,
+and Reset table. Focus an edge and use Left/Right to resize with the keyboard;
+Shift adjusts in larger steps and Home resets that column. Widths and visible
+columns are saved per table in this browser. Table content continues to use the
+existing server permissions; hiding a column does not change access to its data.
+
+Admin Users includes registration date filters, 2FA, last-login activity, package,
+organization, and sign-in methods, with selectable page sizes and additional
+account/activity columns. Native tables also offer Search displayed rows; this
+search only covers rows loaded on the current page.
+
+Deploy both API and web for the additional user counts and sign-in methods.
+These table changes require no new database migration. Follow the normal server
+update procedure above, then verify resizing and column selection survive a page
+reload and registration-date filters update the displayed user count.

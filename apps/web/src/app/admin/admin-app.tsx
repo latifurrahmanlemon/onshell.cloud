@@ -1,6 +1,7 @@
 "use client";
 
 import "./admin.css";
+import { useTablePreferences } from "../../components/table-preferences";
 
 import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -143,6 +144,13 @@ interface AdminUser {
   taskCount?: number;
   packageName?: string;
   transactionCount?: number;
+  updatedAt?: string;
+  membershipCount?: number;
+  snippetCount?: number;
+  sessionCount?: number;
+  desktopDeviceCount?: number;
+  personalTaskCount?: number;
+  signInMethods?: string[];
 }
 
 interface AdminTransaction {
@@ -262,12 +270,11 @@ interface NewSettingForm {
 type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "donations" | "logs" | "settings";
 type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "notifications" | "general";
 
-type UserSortKey = "name" | "email" | "role" | "created";
+type UserSortKey = "name" | "email" | "role" | "created" | "login" | "hosts" | "tasks" | "package";
 type UserRoleFilter = "all" | "platform" | "owner" | "admin" | "devops" | "developer" | "auditor";
 type UserStatusFilter = "all" | "verified" | "unverified";
 type UserView = "directory" | "history" | "transactions";
 
-const USERS_PAGE_SIZE = 8;
 const PURCHASE_PAGE_SIZES = [10, 25, 50] as const;
 
 const USER_ROLE_OPTIONS: Array<{ value: "owner" | "admin" | "devops" | "developer" | "auditor"; label: string }> = [
@@ -452,6 +459,10 @@ function compareUsers(left: AdminUser, right: AdminUser, key: UserSortKey): numb
       return left.email.localeCompare(right.email);
     case "role":
       return left.role.localeCompare(right.role);
+    case "login": return new Date(left.lastLoginAt ?? 0).getTime() - new Date(right.lastLoginAt ?? 0).getTime();
+    case "hosts": return (left.hostCount ?? 0) - (right.hostCount ?? 0);
+    case "tasks": return (left.personalTaskCount ?? 0) - (right.personalTaskCount ?? 0);
+    case "package": return (left.packageName ?? "Free").localeCompare(right.packageName ?? "Free");
     case "created":
       return new Date(left.createdAt ?? 0).getTime() - new Date(right.createdAt ?? 0).getTime();
     default:
@@ -940,6 +951,7 @@ export function AdminApp() {
 }
 
 function AdminPanel() {
+  useTablePreferences("admin");
   const reduceMotionPreference = useReducedMotion();
   const reduceMotion = reduceMotionPreference ?? false;
 
@@ -1015,6 +1027,19 @@ function AdminPanel() {
   const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>("all");
   const [userSort, setUserSort] = useState<{ key: UserSortKey; dir: SortDir }>({ key: "created", dir: "desc" });
   const [userPage, setUserPage] = useState(1);
+  const [userPageSize, setUserPageSize] = useState(25);
+  const [userFrom, setUserFrom] = useState("");
+  const [userTo, setUserTo] = useState("");
+  const [userTwoFactor, setUserTwoFactor] = useState("all");
+  const [userActivity, setUserActivity] = useState("all");
+  const [userPackage, setUserPackage] = useState("all");
+  const [userOrganization, setUserOrganization] = useState("all");
+  const [userSignIn, setUserSignIn] = useState("all");
+  function clearUserFilters() {
+    setUserQuery(""); setUserRoleFilter("all"); setUserStatusFilter("all");
+    setUserFrom(""); setUserTo(""); setUserTwoFactor("all"); setUserActivity("all");
+    setUserPackage("all"); setUserOrganization("all"); setUserSignIn("all");
+  }
   const [viewUserId, setViewUserId] = useState<string | null>(null);
   const [purchaseQuery, setPurchaseQuery] = useState("");
   const [purchaseStatus, setPurchaseStatus] = useState("all");
@@ -1142,25 +1167,36 @@ function AdminPanel() {
       } else if (userRoleFilter !== "all") {
         if (user.role !== userRoleFilter) return false;
       }
+      const registered = user.createdAt ? new Date(user.createdAt) : undefined;
+      if (userFrom && (!registered || registered < new Date(`${userFrom}T00:00:00`))) return false;
+      if (userTo && (!registered || registered > new Date(`${userTo}T23:59:59.999`))) return false;
+      if (userTwoFactor !== "all" && user.twoFactorEnabled !== (userTwoFactor === "enabled")) return false;
+      if (userPackage !== "all" && (user.packageName ?? "Free") !== userPackage) return false;
+      if (userOrganization !== "all" && (user.organizationId ?? "none") !== userOrganization) return false;
+      if (userSignIn !== "all" && !user.signInMethods?.includes(userSignIn)) return false;
+      const loginAge = user.lastLoginAt ? Date.now() - new Date(user.lastLoginAt).getTime() : Infinity;
+      if (userActivity === "never" && user.lastLoginAt) return false;
+      if (userActivity === "recent" && loginAge > 7 * 86400000) return false;
+      if (userActivity === "inactive" && loginAge <= 30 * 86400000) return false;
       if (userStatusFilter === "verified" && !user.emailVerifiedAt) return false;
       if (userStatusFilter === "unverified" && user.emailVerifiedAt) return false;
       return true;
     });
     const factor = userSort.dir === "asc" ? 1 : -1;
     return [...matched].sort((left, right) => factor * compareUsers(left, right, userSort.key));
-  }, [usersRes.data, userQuery, userRoleFilter, userStatusFilter, userSort]);
+  }, [usersRes.data, userQuery, userRoleFilter, userStatusFilter, userSort, userFrom, userTo, userTwoFactor, userActivity, userPackage, userOrganization, userSignIn, userPageSize]);
 
-  const userTotalPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE));
+  const userTotalPages = Math.max(1, Math.ceil(filteredUsers.length / userPageSize));
   const userPageSafe = Math.min(userPage, userTotalPages);
   const pagedUsers = useMemo(
-    () => filteredUsers.slice((userPageSafe - 1) * USERS_PAGE_SIZE, userPageSafe * USERS_PAGE_SIZE),
-    [filteredUsers, userPageSafe]
+    () => filteredUsers.slice((userPageSafe - 1) * userPageSize, userPageSafe * userPageSize),
+    [filteredUsers, userPageSafe, userPageSize]
   );
 
   /* keep the current page in range as filters/sort narrow the list */
   useEffect(() => {
     setUserPage(1);
-  }, [userQuery, userRoleFilter, userStatusFilter, userSort]);
+  }, [userQuery, userRoleFilter, userStatusFilter, userSort, userFrom, userTo, userTwoFactor, userActivity, userPackage, userOrganization, userSignIn, userPageSize]);
 
   useEffect(() => {
     setPurchasePage(1);
@@ -2200,7 +2236,7 @@ function AdminPanel() {
 
   function renderUsers() {
     const total = usersRes.data?.length ?? 0;
-    const filtersActive = userQuery.trim() !== "" || userRoleFilter !== "all" || userStatusFilter !== "all";
+    const filtersActive = userQuery.trim() !== "" || userRoleFilter !== "all" || userStatusFilter !== "all" || Boolean(userFrom || userTo) || [userTwoFactor, userActivity, userPackage, userOrganization, userSignIn].some(value => value !== "all");
     return (
       <div className="adm-stack">
         <div aria-label="Users views" className="adm-segmented" role="tablist">
@@ -2300,6 +2336,18 @@ function AdminPanel() {
                 </div>
               </div>
 
+              <div className="adm-directory-filters">
+                <label>Registered from<input type="date" aria-label="Registered from" value={userFrom} max={userTo || undefined} onChange={event => setUserFrom(event.target.value)} /></label>
+                <label>Registered through<input type="date" aria-label="Registered through" value={userTo} min={userFrom || undefined} onChange={event => setUserTo(event.target.value)} /></label>
+                <label>Two-factor<select aria-label="Two-factor" value={userTwoFactor} onChange={event => setUserTwoFactor(event.target.value)}><option value="all">Any security</option><option value="enabled">2FA enabled</option><option value="disabled">2FA disabled</option></select></label>
+                <label>Last login<select aria-label="Last login" value={userActivity} onChange={event => setUserActivity(event.target.value)}><option value="all">Any activity</option><option value="recent">Last 7 days</option><option value="inactive">Inactive 30+ days</option><option value="never">Never signed in</option></select></label>
+                <label>Package<select aria-label="Package" value={userPackage} onChange={event => setUserPackage(event.target.value)}><option value="all">All packages</option>{Array.from(new Set((usersRes.data ?? []).map(user => user.packageName ?? "Free"))).sort().map(name => <option key={name}>{name}</option>)}</select></label>
+                <label>Organization<select aria-label="Organization" value={userOrganization} onChange={event => setUserOrganization(event.target.value)}><option value="all">All organizations</option><option value="none">No organization</option>{Array.from(new Map((usersRes.data ?? []).filter(user => user.organizationId).map(user => [user.organizationId!, user.organizationName ?? user.organizationId!])).entries()).sort((a,b) => a[1].localeCompare(b[1])).map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+                <label>Sign-in method<select aria-label="Sign-in method" value={userSignIn} onChange={event => setUserSignIn(event.target.value)}><option value="all">All methods</option><option value="PASSWORD">Password</option><option value="GOOGLE">Google</option></select></label>
+                <label>Sort by<select aria-label="Sort users" value={`${userSort.key}:${userSort.dir}`} onChange={event => { const [key,dir] = event.target.value.split(":"); setUserSort({ key: key as UserSortKey, dir: dir as SortDir }); }}><option value="created:desc">Newest registered</option><option value="created:asc">Oldest registered</option><option value="name:asc">Name A–Z</option><option value="name:desc">Name Z–A</option><option value="email:asc">Email A–Z</option><option value="email:desc">Email Z–A</option><option value="role:asc">Role A–Z</option><option value="role:desc">Role Z–A</option><option value="login:desc">Latest login</option><option value="hosts:desc">Most hosts</option><option value="tasks:desc">Most tasks</option><option value="package:asc">Package A–Z</option></select></label>
+                <label>Rows per page<select aria-label="Rows per page" value={userPageSize} onChange={event => setUserPageSize(Number(event.target.value))}>{[10,25,50,100].map(size => <option key={size}>{size}</option>)}</select></label>
+                {filtersActive && <button type="button" className="secondary-button" onClick={clearUserFilters}>Clear filters</button>}
+              </div>
               {usersRes.loading && !usersRes.data ? (
                 <SkeletonRows rows={4} />
               ) : total === 0 ? (
@@ -2323,11 +2371,7 @@ function AdminPanel() {
                     filtersActive ? (
                       <button
                         className="adm-link-button"
-                        onClick={() => {
-                          setUserQuery("");
-                          setUserRoleFilter("all");
-                          setUserStatusFilter("all");
-                        }}
+                        onClick={clearUserFilters}
                         type="button"
                       >
                         Clear filters
@@ -2337,7 +2381,7 @@ function AdminPanel() {
                 />
               ) : (
                 <>
-                  <div className="admin-table">
+                  <div className="admin-table" data-table-id="users-directory">
                     <div className="adm-dir-row table-head">
                       {userSortHead("Name", "name")}
                       {userSortHead("Role", "role")}
@@ -2346,6 +2390,8 @@ function AdminPanel() {
                       <span>Package</span>
                       <span>Security</span>
                       <span>Actions</span>
+                      <span>Registered</span>
+                      {['Email','Organization','User ID','Organization ID','Updated','Verified at','Workspaces','Personal tasks','Snippets','Sessions','Desktop devices','Sign-in methods','Workspace invoices'].map(label => <span key={label} data-default-hidden="true">{label}</span>)}
                     </div>
                     {pagedUsers.map((user) => (
                       <div className="adm-dir-row" key={user.id}>
@@ -2398,6 +2444,20 @@ function AdminPanel() {
                           )}
                         </span>
                         <div className="adm-dir-actions"><button aria-label={`View ${user.name}`} className="icon-button compact" onClick={() => setViewUserId(user.id)} title={`View ${user.name}`} type="button"><Eye size={15}/></button><button aria-label={`Manage ${user.name}`} className="icon-button compact" onClick={() => openManageUser(user)} title={`Manage ${user.name}`} type="button"><UserCog size={15}/></button></div>
+                        <span data-label="Registered">{user.createdAt ? formatDateTime(user.createdAt) : "—"}</span>
+                        <span data-label="Email">{user.email}</span>
+                        <span data-label="Organization">{user.organizationName ?? "—"}</span>
+                        <span data-label="User ID" className="adm-mono">{user.id}</span>
+                        <span data-label="Organization ID" className="adm-mono">{user.organizationId ?? "—"}</span>
+                        <span data-label="Updated">{user.updatedAt ? formatDateTime(user.updatedAt) : "—"}</span>
+                        <span data-label="Verified at">{user.emailVerifiedAt ? formatDateTime(user.emailVerifiedAt) : "Not verified"}</span>
+                        <span data-label="Workspaces">{user.membershipCount ?? "—"}</span>
+                        <span data-label="Personal tasks">{user.personalTaskCount ?? "—"}</span>
+                        <span data-label="Snippets">{user.snippetCount ?? "—"}</span>
+                        <span data-label="Sessions">{user.sessionCount ?? "—"}</span>
+                        <span data-label="Desktop devices">{user.desktopDeviceCount ?? "—"}</span>
+                        <span data-label="Sign-in methods">{user.signInMethods?.join(", ") || "—"}</span>
+                        <span data-label="Workspace invoices" title="Invoices on the latest subscription of this workspace">{user.transactionCount ?? "—"}</span>
                       </div>
                     ))}
                   </div>

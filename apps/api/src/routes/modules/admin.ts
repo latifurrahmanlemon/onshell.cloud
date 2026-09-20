@@ -356,8 +356,10 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
 
     const users = await prisma.user.findMany({
       include: {
+        _count: { select: { tasks: true, snippets: true, sessions: true, desktopDevices: true } },
+        oauthAccounts: { select: { provider: true } },
         memberships: { ...membershipOrder, include: { organization: { include: { _count: { select: { hosts: true, tasks: true } }, subscriptions: { orderBy: { createdAt: "desc" }, take: 1, include: { plan: true, invoices: true } } } } } },
-        authEvents: { where: { success: true }, orderBy: { createdAt: "desc" }, take: 1 }
+        authEvents: { where: { success: true, event: { in: ["LOGIN", "TWO_FACTOR_COMPLETED"] } }, orderBy: { createdAt: "desc" }, take: 1 }
       },
       orderBy: { createdAt: "desc" }
     });
@@ -370,6 +372,13 @@ export async function registerAdminRoutes(app: FastifyInstance, config: RuntimeC
       const publicUser = toPublicUser(user, user.lastActiveOrganizationId);
       return {
         ...publicUser,
+        updatedAt: user.updatedAt.toISOString(),
+        membershipCount: user.memberships.length,
+        personalTaskCount: user._count.tasks,
+        snippetCount: user._count.snippets,
+        sessionCount: user._count.sessions,
+        desktopDeviceCount: user._count.desktopDevices,
+        signInMethods: [...(user.passwordHash ? ["PASSWORD"] : []), ...user.oauthAccounts.map(account => account.provider)],
         lastLoginAt: user.authEvents[0]?.createdAt ?? null,
         hostCount: user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization._count.hosts ?? 0,
         taskCount: user.memberships.find((membership) => membership.organizationId === publicUser.organizationId)?.organization._count.tasks ?? 0,

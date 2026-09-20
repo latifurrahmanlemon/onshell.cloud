@@ -3172,3 +3172,7 @@ table.admin-table {
 .donation-empty svg { color: var(--accent-text); }
 .donation-empty strong, .donation-error strong { color: var(--text); }
 @media (max-width: 720px) { .donation-summary-grid { grid-template-columns: 1fr; } .donation-tools { width: 100%; } .donation-tools .search-field { flex: 1 1 100%; } }
+.adm-directory-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.adm-directory-filters label { display: grid; gap: 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.adm-directory-filters input, .adm-directory-filters select { min-height: 36px; max-width: 240px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; }
+.adm-dir-row { grid-template-columns: minmax(230px, 1.7fr) 120px 130px 80px 110px 150px 80px 180px repeat(13, 160px); }
