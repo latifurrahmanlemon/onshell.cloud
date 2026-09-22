@@ -4096,7 +4096,7 @@ const modeSwatches: Record<ThemeMode, string[]> = {
 const AVATAR_SIZE = 256;
 
 /** Read an image file and return a centered-square 256px JPEG data URL. */
-async function fileToAvatarDataUrl(file: File): Promise<string> {
+async function fileToAvatarDataUrl(file: File, contain = false): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -4115,6 +4115,12 @@ async function fileToAvatarDataUrl(file: File): Promise<string> {
   const ctx = canvas.getContext("2d");
   if (!ctx)
     throw new Error("Image processing is not available in this browser.");
+  if (contain) {
+    const ratio = Math.min(AVATAR_SIZE / image.width, AVATAR_SIZE / image.height);
+    const width = image.width * ratio, height = image.height * ratio;
+    ctx.drawImage(image, (AVATAR_SIZE - width) / 2, (AVATAR_SIZE - height) / 2, width, height);
+    return canvas.toDataURL("image/png");
+  }
   const side = Math.min(image.width, image.height);
   const sx = (image.width - side) / 2;
   const sy = (image.height - side) / 2;
@@ -4227,17 +4233,32 @@ export function SettingsView({
   const currentOrgName = organization?.name ?? organizationName ?? "";
   const [orgName, setOrgName] = useState(currentOrgName);
   const [savingOrg, setSavingOrg] = useState(false);
+  const [orgLogo, setOrgLogo] = useState<string | null>(organization?.logoUrl ?? null);
+  const [processingLogo, setProcessingLogo] = useState(false);
+  const logoEdited = useRef(false);
+  const logoInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (!logoEdited.current) setOrgLogo(organization?.logoUrl ?? null); }, [organization?.logoUrl]);
+  async function pickOrgLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]; event.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) { notify("Choose a PNG, JPEG or WebP image under 5 MB.", "error"); return; }
+    setProcessingLogo(true);
+    try { const logo = await fileToAvatarDataUrl(file, true); logoEdited.current = true; setOrgLogo(logo); }
+    catch (error) { notify(error instanceof Error ? error.message : "Could not read the logo.", "error"); }
+    finally { setProcessingLogo(false); }
+  }
   useEffect(() => {
     setOrgName(currentOrgName);
   }, [currentOrgName]);
   const canEditOrg = canManageUsers(user.role);
-  const orgDirty = orgName.trim().length >= 2 && orgName.trim() !== currentOrgName.trim();
+  const orgDirty = orgName.trim().length >= 2 && (orgName.trim() !== currentOrgName.trim() || orgLogo !== (organization?.logoUrl ?? null));
 
   async function saveOrganization() {
     if (!orgDirty) return;
     setSavingOrg(true);
     try {
-      const { organization: updated } = await consoleApi.updateOrganization({ name: orgName.trim() });
+      const { organization: updated } = await consoleApi.updateOrganization({ name: orgName.trim(), ...(logoEdited.current && { logoUrl: orgLogo }) });
+      logoEdited.current = false;
       onOrgUpdated?.(updated);
       notify("Organization updated.", "success");
     } catch (error) {
@@ -4531,7 +4552,7 @@ export function SettingsView({
             <div className="settings-block">
               <div className="org-summary">
                 <span className="org-summary-mark">
-                  <Building2 size={20} />
+                  {orgLogo ? <img src={orgLogo} alt="Organization logo" /> : <Building2 size={20} />}
                 </span>
                 <div className="org-summary-meta">
                   <strong>{currentOrgName || "Workspace"}</strong>
@@ -4539,6 +4560,12 @@ export function SettingsView({
                 </div>
                 <span className="org-summary-role">{user.role}</span>
               </div>
+              {canEditOrg && <div className="org-logo-controls">
+                <input ref={logoInput} type="file" hidden accept="image/png,image/jpeg,image/webp" aria-label="Organization logo file" onChange={event => void pickOrgLogo(event)} disabled={savingOrg || processingLogo}/>
+                <button className="secondary-button" type="button" disabled={savingOrg || processingLogo} onClick={() => logoInput.current?.click()}><Camera size={16}/>{processingLogo ? "Preparing logo…" : orgLogo ? "Change logo" : "Upload logo"}</button>
+                {orgLogo && <button className="secondary-button" type="button" disabled={savingOrg || processingLogo} onClick={() => { logoEdited.current = true; setOrgLogo(null); }}>Remove logo</button>}
+                <p>PNG, JPEG or WebP, up to 5 MB. Save organization to apply your changes.</p>
+              </div>}
               <label className="field">
                 <span>Organization name</span>
                 <input
@@ -4558,7 +4585,7 @@ export function SettingsView({
               {canEditOrg ? (
                 <button
                   className="primary-button"
-                  disabled={savingOrg || !orgDirty}
+                  disabled={savingOrg || processingLogo || !orgDirty}
                   onClick={saveOrganization}
                   type="button"
                 >

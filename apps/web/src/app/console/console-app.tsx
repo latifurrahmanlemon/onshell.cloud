@@ -31,6 +31,7 @@ import {
   Loader2,
   LogOut,
   Maximize2,
+  Menu,
   Minimize2,
   Monitor,
   Moon,
@@ -193,6 +194,13 @@ export function ConsoleApp() {
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [view, setView] = useState<ViewKey>("overview");
+  const mobileNavigation = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 861px)");
+    const close = () => { if (desktop.matches) mobileNavigation.current?.close(); };
+    desktop.addEventListener("change", close);
+    return () => desktop.removeEventListener("change", close);
+  }, []);
   const { mode, accent, setMode, setAccent } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -510,6 +518,11 @@ export function ConsoleApp() {
     if (orgR.status === "fulfilled") {
       const payload = orgR.value as Record<string, unknown>;
       const nested = payload.organization as Record<string, unknown> | undefined;
+      if (nested && typeof nested.id === "string") {
+        const updated = nested as unknown as Organization;
+        setIdentity(current => current?.organization?.id === updated.id && (current.organization.name !== updated.name || current.organization.logoUrl !== updated.logoUrl) ? { ...current, organization: updated } : current);
+        setOrganizations(current => current.map(item => item.id === updated.id ? { ...item, name: updated.name, logoUrl: updated.logoUrl } : item));
+      }
       const rawMembers = Array.isArray(payload.members)
         ? payload.members
         : nested && Array.isArray(nested.members)
@@ -984,10 +997,17 @@ export function ConsoleApp() {
 
   return (
     <div className={cx("app-shell console-page", collapsed && "is-collapsed")}>
+      <dialog ref={mobileNavigation} className="console-mobile-nav" aria-labelledby="mobile-navigation-title" onClick={event => { if (event.target === event.currentTarget) mobileNavigation.current?.close(); }}>
+        <div className="console-mobile-nav-content">
+          <header>{identity.organization?.logoUrl ? <img className="organization-brand-logo" src={identity.organization.logoUrl} alt="Organization logo"/> : <OnshellMark size={32}/>}<div><strong id="mobile-navigation-title">Workspace</strong><small>{identity.organization?.name ?? "Onshell.cloud"}</small></div><button type="button" aria-label="Close navigation" onClick={() => mobileNavigation.current?.close()}><X size={20}/></button></header>
+          {organizations.length > 1 && <WorkspaceSwitcher activeName={identity.organization?.name ?? "Workspace"} collapsed={false} onSelect={target => { mobileNavigation.current?.close(); void switchOrganization(target); }} organizations={organizations} reduceMotion={Boolean(reduceMotion)} switchingTo={switchingTo}/>}
+          <nav aria-label="Mobile console navigation">{navItems.map(item => <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} onClick={() => { setView(item.key); mobileNavigation.current?.close(); }}><item.icon size={19}/><span>{item.label}</span>{item.key === "terminal" && tabs.length > 0 && <small>{tabs.length}</small>}</button>)}</nav>
+        </div>
+      </dialog>
       <aside className="sidebar">
         <div className="brand-row">
           <button className="brand-link" onClick={() => setView("overview")} type="button" title="Onshell.cloud">
-            <OnshellMark size={34} />
+            {identity.organization?.logoUrl ? <img className="organization-brand-logo" src={identity.organization.logoUrl} alt="Organization logo"/> : <OnshellMark size={34} />}
             <span className="brand-copy">
               <span className="brand-name">Onshell.cloud</span>
               <span className="brand-domain">{identity.organization?.name ?? "Workspace"}</span>
@@ -1036,6 +1056,8 @@ export function ConsoleApp() {
 
       <main className="workspace">
         <div className="console-topright">
+          <button type="button" className="console-mobile-menu" aria-label="Open navigation" aria-haspopup="dialog" onClick={() => mobileNavigation.current?.showModal()}><Menu size={21}/></button>
+          <span className="console-mobile-title">{navItems.find(item => item.key === view)?.label ?? "Workspace"}</span>
           <div className="web-notification-anchor">
             <button aria-label="Notifications" className={cx("console-topright-btn", notificationsOpen && "is-active")} data-tooltip="Notifications" onClick={() => setNotificationsOpen((open) => !open)} type="button"><Bell size={16}/>{notifications.some((item) => !item.read) && <span className="console-topright-badge">{notifications.filter((item) => !item.read).length}</span>}</button>
             {notificationsOpen && <div className="web-notifications" role="dialog" aria-label="Notifications"><header><strong>Notifications</strong></header><div>{notifications.map((item) => <article className={item.read ? "" : "is-unread"} key={item.id} onClick={() => { if (!item.read) { void consoleApi.markNotificationRead(item.id); setNotifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, read: true } : entry)); } }}><strong>{item.title}</strong><p>{item.message}</p>{item.actionUrl && <a href={item.actionUrl} target="_blank" rel="noreferrer">Learn more</a>}</article>)}{notifications.length === 0 && <p className="web-notifications-empty">You’re all caught up.</p>}</div></div>}
@@ -1785,6 +1807,7 @@ function WorkspaceSwitcher({
                 role="menuitem"
                 type="button"
               >
+                {organization.logoUrl && <img className="organization-switch-logo" src={organization.logoUrl} alt=""/>}
                 <span className="workspace-switch-item-copy">
                   <strong>{organization.name}</strong>
                   <small>{organization.role}</small>

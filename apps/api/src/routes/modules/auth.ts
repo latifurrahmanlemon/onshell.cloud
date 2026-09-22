@@ -624,6 +624,7 @@ async function upsertGoogleUser(rawProfile: GoogleProfile) {
 }
 
 function toPublicOrganization(organization: {
+  logoUrl?: string | null;
   id: string;
   name: string;
   slug: string;
@@ -633,6 +634,7 @@ function toPublicOrganization(organization: {
     id: organization.id,
     name: organization.name,
     slug: organization.slug,
+    logoUrl: organization.logoUrl ?? null,
     createdAt: organization.createdAt.toISOString()
   };
 }
@@ -656,6 +658,7 @@ async function listMemberships(userId: string, activeOrganizationId: string) {
     id: membership.organizationId,
     name: membership.organization.name,
     slug: membership.organization.slug,
+    logoUrl: membership.organization.logoUrl ?? null,
     role: roleFromPrisma[membership.role],
     isActive: membership.organizationId === activeOrganizationId,
     joinedAt: membership.createdAt.toISOString()

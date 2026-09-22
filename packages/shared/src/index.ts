@@ -66,6 +66,7 @@ export interface User {
 }
 
 export interface Organization {
+  logoUrl?: string | null;
   id: string;
   name: string;
   slug: string;

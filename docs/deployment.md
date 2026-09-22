@@ -169,3 +169,19 @@ Deploy both API and web for the additional user counts and sign-in methods.
 These table changes require no new database migration. Follow the normal server
 update procedure above, then verify resizing and column selection survive a page
 reload and registration-date filters update the displayed user count.
+
+## Organization logos and mobile console
+
+Organization owners/admins can upload, preview, replace or remove a logo in
+Settings > Organization, then choose Save organization. PNG, JPEG and WebP files
+up to 5 MB are resized to 256px with their aspect ratio preserved. The saved logo
+appears in workspace navigation and is refreshed in other open web clients.
+
+This release adds the `20260920120000_organization_logo` migration. Deploy API
+and web together using the update procedure above: generate Prisma Client,
+apply production migrations, build, then reload services. Verify logo upload,
+removal and reload after deploying. Without this migration, organization reads
+and updates can fail because the new column is missing.
+
+On mobile, use the top-left menu to switch sections. Table controls are the
+icons at the right; action columns stay visible at the right while data scrolls.

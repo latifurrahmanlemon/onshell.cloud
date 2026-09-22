@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { organizationLogo } from "../../lib/organization-logo.js";
 import type { FastifyInstance } from "fastify";
 import { loadConfig, type RuntimeConfig } from "@onshell/config";
 import { canManageUsers, validatePassword } from "@onshell/shared";
@@ -88,8 +89,9 @@ const updateMemberSchema = z.object({
 });
 
 const updateOrganizationSchema = z.object({
-  name: z.string().trim().min(2).max(120)
-});
+  name: z.string().trim().min(2).max(120).optional(),
+  logoUrl: organizationLogo.optional()
+}).refine(body => body.name !== undefined || body.logoUrl !== undefined, "no_changes");
 
 const hostAccessSchema = z
   .object({
@@ -161,6 +163,7 @@ export async function registerOrganizationRoutes(
           id: organization.id,
           name: organization.name,
           slug: organization.slug,
+          logoUrl: organization.logoUrl,
           createdAt: organization.createdAt.toISOString()
         },
         members: memberships.map((membership) => ({
@@ -192,7 +195,7 @@ export async function registerOrganizationRoutes(
       const body = updateOrganizationSchema.parse(request.body);
       const organization = await prisma.organization.update({
         where: { id: actor.organizationId },
-        data: { name: body.name }
+        data: { ...(body.name !== undefined && { name: body.name }), ...(body.logoUrl !== undefined && { logoUrl: body.logoUrl }) }
       });
 
       await createAudit({
@@ -202,7 +205,7 @@ export async function registerOrganizationRoutes(
         targetType: "organization",
         targetId: organization.id,
         ipAddress: request.ip,
-        metadata: { name: body.name }
+        metadata: { fields: Object.keys(body) }
       });
 
       return {
@@ -210,6 +213,7 @@ export async function registerOrganizationRoutes(
           id: organization.id,
           name: organization.name,
           slug: organization.slug,
+          logoUrl: organization.logoUrl,
           createdAt: organization.createdAt.toISOString()
         }
       };

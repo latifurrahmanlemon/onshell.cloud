@@ -47,6 +47,7 @@ export type {
  * the user the wrong thing about what they are about to be able to do.
  */
 export interface MembershipSummary {
+  logoUrl?: string | null;
   id: string;
   name: string;
   slug: string;

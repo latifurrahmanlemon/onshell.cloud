@@ -1,14 +1,23 @@
-.table-preferences { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
-.table-preferences > span { margin-left: auto; font-size: 11px; }
-.table-preferences summary, .table-preferences > button { cursor: pointer; border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; background: var(--surface); color: var(--text); font: inherit; }
+.table-preferences { position: sticky; left: 0; display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--muted); background: var(--surface); z-index: 10; }
+.table-preferences > span { margin-right: auto; font-size: 11px; white-space: nowrap; }
+.table-preferences details { margin-left: auto; }
+.table-preferences summary, .table-preferences > button { display: grid; place-items: center; width: 32px; height: 32px; cursor: pointer; border: 1px solid transparent; border-radius: 7px; padding: 0; background: transparent; color: var(--muted); }
+.table-preferences summary { list-style: none; }
+.table-preferences summary::-webkit-details-marker { display: none; }
+.table-preferences summary:hover, .table-preferences > button:hover, .table-preferences details[open] summary { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.table-preferences summary:focus-visible, .table-preferences > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .table-preferences details { position: relative; }
 .table-preferences > input { min-width: 150px; max-width: 240px; border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; background: var(--surface); color: var(--text); font: inherit; }
 .table-column-choices { position: fixed; z-index: 160; min-width: 220px; max-height: 360px; overflow: auto; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px #0003; }
 .table-column-choices label { display: flex; align-items: center; gap: 9px; padding: 7px; color: var(--text); cursor: pointer; white-space: nowrap; }
 .table-column-choices input { width: 16px; height: 16px; accent-color: var(--accent); }
 .resizable-table-scroll { overflow-x: auto; max-width: 100%; }
+.data-grid.resizable-table, .host-table.resizable-table { display: block; width: 100%; min-width: 0; }
 .resizable-table th, .resizable-table td { overflow-wrap: anywhere; }
 .resizable-table > div > * { min-width: 0; overflow-wrap: anywhere; }
+.resizable-table .table-actions-pinned { position: sticky !important; right: 0; z-index: 3; align-self: stretch; align-content: center; padding-left: 10px; padding-right: 10px; background: var(--surface); box-shadow: -1px 0 var(--border), -6px 0 10px -8px #0005; }
+.resizable-table .table-head .table-actions-pinned, .resizable-table .is-head .table-actions-pinned, .resizable-table thead .table-actions-pinned { z-index: 4; background: var(--surface-2); }
+.resizable-table .table-actions-pinned button { flex-shrink: 0; }
 .resizable-table .table-resizable-heading { position: relative; padding-right: 18px; }
 .table-resize-handle { position: absolute; right: 0; top: 0; bottom: 0; width: 12px; cursor: col-resize; touch-action: none; user-select: none; z-index: 2; }
 .table-resize-handle::after { content: ''; position: absolute; top: 20%; bottom: 20%; right: 4px; width: 2px; background: var(--border); }
@@ -18,3 +27,9 @@
 .resizable-table .table-row-filtered { display: none !important; }
 .table-resizing, .table-resizing * { cursor: col-resize !important; user-select: none !important; }
 @media (max-width: 800px) { .resizable-table thead { display: table-header-group !important; } .resizable-table tbody { display: table-row-group !important; } .resizable-table tr { display: table-row !important; } .resizable-table th, .resizable-table td { display: table-cell; } .resizable-table [data-label]::before { display: none !important; } .table-preferences > span { display: none; } }
+@media (max-width: 860px) {
+  .table-preferences { padding: 4px 8px; }
+  .table-preferences summary, .table-preferences > button { width: 40px; height: 40px; }
+  .table-preferences > input { width: 0; flex: 1; min-width: 100px; }
+  .resizable-table .table-actions-pinned { padding-left: 6px; padding-right: 6px; }
+}

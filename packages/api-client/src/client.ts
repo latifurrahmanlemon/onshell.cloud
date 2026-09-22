@@ -246,7 +246,7 @@ export function createApiClient(options: ApiClientOptions) {
     },
 
     organization: () => request<Record<string, unknown>>("/organizations/current"),
-    updateOrganization: (body: { name: string }) =>
+    updateOrganization: (body: { name?: string; logoUrl?: string | null }) =>
       request<{ organization: Organization }>("/organizations/current", {
         method: "PATCH",
         body: JSON.stringify(body)
