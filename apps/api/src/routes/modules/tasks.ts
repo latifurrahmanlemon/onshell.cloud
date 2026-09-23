@@ -1,3 +1,4 @@
+import { offlineEntityId } from "../../lib/offline-id.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { getAuthenticatedUser } from "../../lib/current-user.js";
@@ -31,7 +32,12 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const actor = await getAuthenticatedUser(request);
       if (!actor) return reply.code(401).send({ error: "unauthorized" });
       const body = createSchema.parse(request.body);
-      const task = await prisma.taskItem.create({ data: { organizationId: actor.organizationId, ownerId: actor.id, text: body.text } });
+      const offlineId = offlineEntityId(request, actor);
+      if (offlineId) {
+        const existing = await prisma.taskItem.findFirst({ where: { id: offlineId, organizationId: actor.organizationId } });
+        if (existing) return reply.code(200).send(payload(existing));
+      }
+      const task = await prisma.taskItem.create({ data: { id: offlineId, organizationId: actor.organizationId, ownerId: actor.id, text: body.text } });
       return reply.code(201).send(payload(task));
     } catch (error) { return handleRouteError(reply, error); }
   });

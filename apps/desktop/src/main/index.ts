@@ -1,3 +1,4 @@
+import { requireLocalApi, localSync } from "./runtime/local-data.js";
 /**
  * Onshell Desktop — main process.
  *
@@ -265,6 +266,8 @@ function registerHandlers() {
     const probe = await probeServer(config);
     if (!probe.ok) return { ok: false, message: probe.message };
 
+    if (localSync().pending && currentServer()?.apiBaseUrl !== config.apiBaseUrl) return { ok: false, message: "Sync or discard pending changes before switching servers." };
+    if (currentServer()?.apiBaseUrl !== config.apiBaseUrl) { closeAllTerminals(); files.closeAll(); await signOut(); await forgetDevice(); }
     await saveSettings({ server: config });
     useServer(config);
     await restoreSession();
@@ -275,6 +278,8 @@ function registerHandlers() {
   ipcMain.handle(CHANNELS.serverUseLocal, async () => {
     const probe = await probeServer(LOCAL_DEV_SERVER);
     if (!probe.ok) return { ok: false, message: probe.message };
+    if (localSync().pending && currentServer()?.apiBaseUrl !== LOCAL_DEV_SERVER.apiBaseUrl) return { ok: false, message: "Sync or discard pending changes before switching servers." };
+    if (currentServer()?.apiBaseUrl !== LOCAL_DEV_SERVER.apiBaseUrl) { closeAllTerminals(); files.closeAll(); await signOut(); await forgetDevice(); }
     await saveSettings({ server: LOCAL_DEV_SERVER });
     useServer(LOCAL_DEV_SERVER);
     await restoreSession();
@@ -340,10 +345,10 @@ function registerHandlers() {
     await publishState();
   });
 
-  ipcMain.handle(CHANNELS.consoleSync, () => requireApi().transport.request("/sync"));
-  ipcMain.handle(CHANNELS.consoleDeleteSnippet, (_event, id: string) => requireApi().deleteSnippet(id));
+  ipcMain.handle(CHANNELS.consoleSync, async (_event, action?: "retry" | "discard") => { if (!currentUser()) await publishState(); return localSync(action); });
+  ipcMain.handle(CHANNELS.consoleDeleteSnippet, (_event, id: string) => requireLocalApi().deleteSnippet(id));
   ipcMain.handle(CHANNELS.consoleLoad, async () => {
-    const client = requireApi();
+    const client = requireLocalApi();
     // Fetched together because the console is unusable with a partial picture,
     // and six sequential round trips over a slow link is a visible stall.
     const [identity, hosts, credentials, snippets, tasks, notifications, sessions, audit] = await Promise.all([
@@ -359,15 +364,15 @@ function registerHandlers() {
     return { identity, hosts, credentials, snippets, tasks, notifications, sessions, audit };
   });
 
-  ipcMain.handle(CHANNELS.consoleHosts, () => requireApi().hosts());
-  ipcMain.handle(CHANNELS.consoleCreateHost, (_event, input: Record<string, unknown>) => requireApi().createHost(input));
+  ipcMain.handle(CHANNELS.consoleHosts, () => requireLocalApi().hosts());
+  ipcMain.handle(CHANNELS.consoleCreateHost, (_event, input: Record<string, unknown>) => requireLocalApi().createHost(input));
   ipcMain.handle(CHANNELS.consoleUpdateHost, (_event, hostId: string, input: Record<string, unknown>) =>
-    requireApi().updateHost(hostId, input)
+    requireLocalApi().updateHost(hostId, input)
   );
   ipcMain.handle(CHANNELS.consoleDeleteHost, async (_event, hostId: string) => {
-    await requireApi().deleteHost(hostId);
+    await requireLocalApi().deleteHost(hostId);
   });
-  ipcMain.handle(CHANNELS.consoleSnippets, () => requireApi().snippets());
+  ipcMain.handle(CHANNELS.consoleSnippets, () => requireLocalApi().snippets());
   ipcMain.handle(CHANNELS.consoleCreateSnippet, async (_event, input: unknown) => {
     const body = input as { name?: unknown; command?: unknown; scope?: unknown; sortOrder?: unknown };
     const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -375,7 +380,7 @@ function registerHandlers() {
     const scope = body?.scope === "team" ? "team" : "personal";
     if (name.length < 2 || command.length < 1) throw new Error("Name and command are required.");
     const sortOrder = snippetOrderNumber(body.sortOrder);
-    return requireApi().createSnippet({ name, command, scope, sortOrder });
+    return requireLocalApi().createSnippet({ name, command, scope, sortOrder });
   });
   ipcMain.handle(CHANNELS.consoleUpdateSnippet, async (_event, snippetId: string, input: unknown) => {
     const body = input as { name?: unknown; command?: unknown; scope?: unknown; sortOrder?: unknown };
@@ -384,23 +389,23 @@ function registerHandlers() {
     const scope = body?.scope === "team" ? "team" : "personal";
     if (name.length < 2 || command.length < 1) throw new Error("Name and command are required.");
     const sortOrder = snippetOrderNumber(body.sortOrder);
-    return requireApi().updateSnippet(snippetId, { name, command, scope, sortOrder });
+    return requireLocalApi().updateSnippet(snippetId, { name, command, scope, sortOrder });
   });
-  ipcMain.handle(CHANNELS.consoleTasks, () => requireApi().tasks());
-  ipcMain.handle(CHANNELS.consoleCreateTask, (_event, text: string) => requireApi().createTask(text));
-  ipcMain.handle(CHANNELS.consoleUpdateTask, (_event, taskId: string, patch: { text?: string; completed?: boolean }) => requireApi().updateTask(taskId, patch));
-  ipcMain.handle(CHANNELS.consoleDeleteTask, async (_event, taskId: string) => { await requireApi().deleteTask(taskId); });
-  ipcMain.handle(CHANNELS.consoleNotifications, () => requireApi().notifications());
-  ipcMain.handle(CHANNELS.consoleReadNotification, async (_event, notificationId: string) => { await requireApi().markNotificationRead(notificationId); });
-  ipcMain.handle(CHANNELS.consoleCreateCredential, (_event, input: { name: string; kind: "password" | "ssh_key" | "rdp_password"; secret: string; attachedHostIds: string[] }) => requireApi().createCredential(input));
-  ipcMain.handle(CHANNELS.consoleUpdateCredential, (_event, credentialId: string, input: { name?: string; attachedHostIds?: string[] }) => requireApi().updateCredential(credentialId, input));
-  ipcMain.handle(CHANNELS.consoleRotateCredential, (_event, credentialId: string, secret: string) => requireApi().rotateCredential(credentialId, secret));
-  ipcMain.handle(CHANNELS.consoleDeleteCredential, async (_event, credentialId: string) => { await requireApi().deleteCredential(credentialId); });
-  ipcMain.handle(CHANNELS.consoleWorkspaces, () => requireApi().workspaces());
-  ipcMain.handle(CHANNELS.consoleCreateWorkspace, (_event, input: { name: string; description?: string; hostIds: string[] }) => requireApi().createWorkspace(input));
-  ipcMain.handle(CHANNELS.consoleDeleteWorkspace, async (_event, workspaceId: string) => { await requireApi().deleteWorkspace(workspaceId); });
+  ipcMain.handle(CHANNELS.consoleTasks, () => requireLocalApi().tasks());
+  ipcMain.handle(CHANNELS.consoleCreateTask, (_event, text: string) => requireLocalApi().createTask(text));
+  ipcMain.handle(CHANNELS.consoleUpdateTask, (_event, taskId: string, patch: { text?: string; completed?: boolean }) => requireLocalApi().updateTask(taskId, patch));
+  ipcMain.handle(CHANNELS.consoleDeleteTask, async (_event, taskId: string) => { await requireLocalApi().deleteTask(taskId); });
+  ipcMain.handle(CHANNELS.consoleNotifications, () => requireLocalApi().notifications());
+  ipcMain.handle(CHANNELS.consoleReadNotification, async (_event, notificationId: string) => { await requireLocalApi().markNotificationRead(notificationId); });
+  ipcMain.handle(CHANNELS.consoleCreateCredential, (_event, input: { name: string; kind: "password" | "ssh_key" | "rdp_password"; secret: string; attachedHostIds: string[] }) => requireLocalApi().createCredential(input));
+  ipcMain.handle(CHANNELS.consoleUpdateCredential, (_event, credentialId: string, input: { name?: string; attachedHostIds?: string[] }) => requireLocalApi().updateCredential(credentialId, input));
+  ipcMain.handle(CHANNELS.consoleRotateCredential, (_event, credentialId: string, secret: string) => requireLocalApi().rotateCredential(credentialId, secret));
+  ipcMain.handle(CHANNELS.consoleDeleteCredential, async (_event, credentialId: string) => { await requireLocalApi().deleteCredential(credentialId); });
+  ipcMain.handle(CHANNELS.consoleWorkspaces, () => requireLocalApi().workspaces());
+  ipcMain.handle(CHANNELS.consoleCreateWorkspace, (_event, input: { name: string; description?: string; hostIds: string[] }) => requireLocalApi().createWorkspace(input));
+  ipcMain.handle(CHANNELS.consoleDeleteWorkspace, async (_event, workspaceId: string) => { await requireLocalApi().deleteWorkspace(workspaceId); });
   ipcMain.handle(CHANNELS.consoleSetFavorite, async (_event, hostId: string, favorite: boolean) => {
-    await requireApi().setHostFavorite(hostId, favorite);
+    await requireLocalApi().setHostFavorite(hostId, favorite);
   });
 
   ipcMain.handle(CHANNELS.workspaceLoad, async () => {

@@ -185,3 +185,45 @@ and updates can fail because the new column is missing.
 
 On mobile, use the top-left menu to switch sections. Table controls are the
 icons at the right; action columns stay visible at the right while data scrolls.
+
+## Desktop 0.4.13: local workspace and offline SSH
+
+Deploy the API from this release **before** installing the new desktop build.
+It adds `/desktop/offline-bundle`, offline session reporting, and idempotent
+create requests using `x-onshell-offline-id`. An older API cannot replay the local
+queue; the app keeps pending changes and asks for a server update. These endpoints
+need no additional migration, but apply all outstanding migrations (including the
+organization logo migration above).
+
+From the production checkout, with the production environment loaded:
+
+```bash
+git pull --ff-only
+yarn install --immutable
+yarn db:generate
+yarn db:deploy
+yarn build
+```
+
+Reload the API/web/gateway services using the service-manager commands in the
+update procedure above. Then install desktop 0.4.13 and sign in online once. Wait
+until the bottom sync panel shows hosts ready for offline SSH. Desktop now checks
+for server changes once per minute and after mutations; the web retains its
+five-second revision polling. No Redis or extra sync daemon is required.
+
+Deployment verification:
+
+1. Sync a saved SSH host with its attached credential, task and snippet.
+2. Make the API unreachable, restart desktop, and verify the saved lists remain.
+3. Connect to the reachable SSH host, open SFTP, and edit tasks/snippets offline.
+4. Restore the API and use Sync now. Confirm changes appear on the web and another
+   desktop within its next minute; retrying must not duplicate created items.
+5. Revoke a device or disable direct access, sync that device, and verify its
+   cached SSH access is removed. Remote SSH credential rotation is needed to
+   invalidate material on a machine that stays disconnected.
+
+Offline SSH still needs a network route to the SSH host. Cloud-only account and
+sharing operations need the API. Signing out removes local data and pending work;
+closing and reopening the app preserves them. Linux requires a real OS keyring
+rather than the `basic_text` fallback. See `docs/desktop.md` for conflict and
+credential-storage behavior.

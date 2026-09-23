@@ -24,7 +24,7 @@ import { randomUUID } from "node:crypto";
 import { Client, type SFTPWrapper } from "ssh2";
 import type { FileEntry, FileListing, FileSessionOpened } from "../../shared/ipc.js";
 import { requireApi } from "./session.js";
-import { leaseFor } from "./ssh.js";
+import { leaseFor, reportState } from "./ssh.js";
 
 /** Largest file the built-in editor will open. Bigger ones must be transferred. */
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -288,15 +288,19 @@ export async function openFileSession(target: FileSessionTarget): Promise<FileSe
       client.sftp((error, sftp) => {
         if (error) {
           client.end();
+          reportState(lease.sessionId, "failed", "sftp_refused");
           return reject(new Error("Connected, but the host refused an SFTP session."));
         }
+        reportState(lease.sessionId, "opened");
         resolve(sftpBackend(client, sftp, label));
       });
     });
     client.on("error", () => {
       material.fill(0);
+      reportState(lease.sessionId, "failed", "ssh_connection_failed");
       reject(new Error(`Could not reach ${lease.host.address} from this machine.`));
     });
+    client.on("close", () => reportState(lease.sessionId, "closed"));
     client.connect({
       host: lease.host.address,
       port: lease.host.port,

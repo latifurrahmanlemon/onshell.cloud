@@ -1,3 +1,4 @@
+import { offlineEntityId } from "../../lib/offline-id.js";
 import type { FastifyInstance } from "fastify";
 import { canManageUsers, type User } from "@onshell/shared";
 import { z } from "zod";
@@ -62,12 +63,18 @@ export async function registerSnippetRoutes(app: FastifyInstance) {
       if (!actor) return reply.code(401).send({ error: "unauthorized" });
 
       const body = snippetSchema.parse(request.body);
+      const offlineId = offlineEntityId(request, actor);
+      if (offlineId) {
+        const existing = await prisma.snippet.findFirst({ where: { id: offlineId, organizationId: actor.organizationId } });
+        if (existing) return reply.code(200).send(toSnippet(existing));
+      }
       if (body.hostId && !(await hostIsAccessible(actor, body.hostId))) {
         return reply.code(404).send({ error: "host_not_found" });
       }
 
       const snippet = await prisma.snippet.create({
         data: {
+          id: offlineId,
           organizationId: actor.organizationId,
           ownerId: actor.id,
           name: body.name,

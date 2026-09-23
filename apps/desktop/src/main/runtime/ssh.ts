@@ -1,20 +1,7 @@
-/**
- * Direct SSH: this machine dials the host, and nothing of ours is on the wire.
- *
- * The credential arrives as a lease — decrypted by the API, valid for about a
- * minute, for one host and one session. It is used here and then dropped. Three
- * rules keep that honest, and all three are visible in this file:
- *
- *   1. The material never leaves the main process. It is not sent to the
- *      renderer, not written to a file, not put in a log line, and not attached
- *      to an error.
- *   2. It is overwritten in the buffer once ssh2 has consumed it, so it is not
- *      sitting in memory for the life of a session that may last all day, and
- *      is less likely to survive into a crash dump.
- *   3. Failures are reported as sentences, not as the underlying error object,
- *      which for ssh2 can contain the key it tried.
- */
+/** Direct SSH uses OS-encrypted offline grants; credential material stays in the main process. */
 import { Client, type ClientChannel, type ConnectConfig } from "ssh2";
+import { localGrant, recordLocalSession } from "./local-data.js";
+import { randomUUID } from "node:crypto";
 import { requireApi } from "./session.js";
 import { deviceSecret } from "./device.js";
 import { connectionFailure } from "./connection-errors.js";
@@ -55,6 +42,12 @@ export async function leaseFor(
   credentialId: string | undefined,
   protocol: "ssh" | "sftp"
 ): Promise<DirectLease> {
+  const saved = localGrant(hostId, credentialId);
+  if (saved) {
+    const sessionId = `local-${randomUUID()}`;
+    await recordLocalSession(sessionId, { hostId, protocol, status: "pending", startedAt: new Date().toISOString() });
+    return { ...saved, sessionId, expiresAt: "" };
+  }
   const secret = await deviceSecret();
   if (!secret) {
     throw new DirectUnavailableError(
@@ -89,7 +82,11 @@ export async function leaseFor(
 }
 
 /** Best-effort report of what happened; the server cannot see this connection. */
-function reportState(sessionId: string, state: "opened" | "failed" | "closed", reason?: string) {
+export function reportState(sessionId: string, state: "opened" | "failed" | "closed", reason?: string) {
+  if (sessionId.startsWith("local-")) {
+    void recordLocalSession(sessionId, { status: state === "opened" ? "active" : state, ...(state !== "opened" && { endedAt: new Date().toISOString() }) }).catch(() => {});
+    return;
+  }
   void requireApi()
     .transport.request(`/desktop/sessions/${sessionId}/state`, {
       method: "POST",

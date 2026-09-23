@@ -1,3 +1,4 @@
+import { offlineEntityId } from "../../lib/offline-id.js";
 import type { FastifyInstance } from "fastify";
 import type { Role } from "@onshell/shared";
 import { canOpenSession } from "@onshell/shared";
@@ -175,6 +176,11 @@ export async function registerHostWorkspaceRoutes(app: FastifyInstance) {
       }
 
       const body = createSchema.parse(request.body);
+      const offlineId = offlineEntityId(request, actor);
+      if (offlineId) {
+        const existing = await loadWorkspace(offlineId, actor);
+        if (existing) return reply.code(200).send(toWorkspace(existing));
+      }
       const hostIds = await retainAccessibleHostIds(actor, body.hostIds);
       if (hostIds.length === 0) {
         // Every requested id was dropped, so there is nothing to save. Reported
@@ -188,6 +194,7 @@ export async function registerHostWorkspaceRoutes(app: FastifyInstance) {
 
       const workspace = await prisma.hostWorkspace.create({
         data: {
+          id: offlineId,
           organizationId: actor.organizationId,
           name: body.name,
           description: body.description,

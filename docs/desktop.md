@@ -4,8 +4,8 @@
 their own machine's terminal in the same window as their servers, and who would
 rather their SSH traffic went straight to the host instead of through anyone's cloud.
 
-It is one installer with three ways of reaching a shell, and the person using it
-picks. That choice is the whole product.
+The app opens local shells and connects directly to saved SSH hosts. Its workspace
+and authorized SSH credentials are saved locally so an API outage does not block work.
 
 ## Why a desktop app exists
 
@@ -29,7 +29,7 @@ native app, which can simply dial the host itself.
 So the desktop app is not a wrapper around the website. It removes the relay from the
 paths that never needed it.
 
-## The three paths
+## Connection paths
 
 ```mermaid
 flowchart TB
@@ -41,15 +41,13 @@ flowchart TB
   end
 
   API["Onshell API"]
-  GW["Onshell Gateway"]
   Host["Customer's server"]
   Local["This machine's shell<br/>PowerShell / zsh / bash / WSL"]
 
   UI <-->|"IPC (contextBridge)"| Main
-  Main -->|"hosts, credential leases, audit<br/>HTTPS + bearer token"| API
+  Main -->|"periodic workspace sync and credentials<br/>HTTPS + bearer token"| API
   Main --> PTY --> Local
   Main --> SSH -->|"port 22, direct"| Host
-  Main -.->|"relay fallback / RDP<br/>wss"| GW -.-> Host
 ```
 
 ### 1. This computer — local
@@ -68,29 +66,49 @@ same machine, with nothing in between.
 goes from the user's machine to their server. Onshell's gateway is not on the wire and
 cannot be: it has no socket in this path.
 
-What the server still does is decide *whether* the connection may happen, and record
-that it did. Access control and audit stay central — that is what makes this a team
-product rather than a bag of `.ssh/config` files — while the bytes stay private. The
-credential arrives by lease (below).
+The API checks role, host access, organization policy and device enrollment when
+preparing offline credentials. Subsequent direct connections use the local encrypted
+copy; they do not wait for the API. Session history is saved locally and uploaded
+when synchronization succeeds.
 
-This is also what makes hosts on a private network work. A box reachable from the
-user's laptop but not from the public internet is unreachable to a browser console
-and ordinary to this one.
+The host must be reachable from this computer, over its LAN, VPN or the internet.
+A server outage does not stop an SSH connection to a reachable host. Losing every
+network route to a remote host does. Agent-only and gateway-local machines still
+require their server/tunnel; they cannot become direct SSH hosts without a reachable
+SSH address. Desktop SSH does not silently fall back to the gateway.
 
-### 3. Relay — through the gateway, exactly like the browser
+## Local data and synchronization (0.4.13)
 
-The existing path: `POST /sessions`, then a WebSocket to the gateway, which holds the
-SSH connection. The desktop uses it when
+Sign in online once and let the initial sync complete. The bottom status bar shows
+how many hosts are ready for offline SSH, the last sync, pending changes, and errors.
+Hosts, vault metadata, snippets, tasks, workspaces, notifications and history load
+from the local copy. Settings and terminal layout remain local as before.
 
-* the host is only reachable from the gateway's network, not the user's,
-* direct connection fails (firewall, missing route) and the user accepts the fallback,
-* the protocol is RDP, which needs guacd,
-* the host is an **agent host** — someone else's machine, reached down its tunnel,
-* or the workspace's policy says direct connections are not allowed.
+The main process checks the server every **60 seconds**, once at startup, and after
+local changes. Opening panels only reads local data. Create, edit, delete, favorite,
+credential rotation and notification-read operations are saved to an encrypted,
+durable queue before the UI acknowledges them. New rows have stable, account-scoped
+IDs, so restarting after a lost server response does not create a second copy.
+Changes replay in order; simultaneous edits use the last server-accepted write for
+the edited fields. Pending local changes remain overlaid on incoming snapshots.
 
-Fallback is offered, never silent. A session that quietly stopped being end-to-end
-would make the promise above worthless, so the terminal says which path it is on, and
-switching paths is a thing the user does, not a thing that happens to them.
+An unreachable server preserves the last snapshot and queue. A rejected write stays
+pending with its reason in the sync panel; fix the cause and choose **Sync now**, or
+explicitly **Discard pending changes** to return to server data. Other desktop clients
+receive changes on their next one-minute check; the web continues its revision polling.
+Cloud account administration, enrollment, app downloads and sharing still need a server.
+
+Snapshots, queued secrets and offline credentials use Electron safeStorage in the
+main process (Windows DPAPI, macOS Keychain, Linux secret service). There is no plaintext
+fallback, including Linux `basic_text`. Keep the OS keychain unlocked. The renderer
+never receives private keys/passwords. Explicit sign-out removes this computer's
+cached workspace, credentials and unsynced queue; it asks before dropping pending work.
+Switching servers also signs out and clears the previous server's active local data.
+
+Server-confirmed device or direct-access revocation clears cached connection grants
+at the next sync. A disconnected machine cannot learn a new revocation until it
+reconnects; rotate SSH credentials on the host when previously issued material must
+stop working immediately. A transient network failure is not treated as revocation.
 
 ## Signing in
 
@@ -170,59 +188,18 @@ no password" without becoming an account-enumeration oracle for anyone with a wo
 list — so the app says both possibilities in the one message it already shows, to
 everybody, which reveals nothing about any particular address.
 
-## Credential leases
+## Credential authorization
 
-Direct mode needs the credential on the user's machine. That is a real widening of
-where secrets go, and it is bounded deliberately.
+`GET /desktop/offline-bundle` checks authentication, device enrollment/revocation,
+role and organization direct-connect policy before decrypting anything. It only
+exports credentials attached to accessible, directly reachable SSH hosts. This is
+a persistent offline grant, separate from the older per-connection
+`POST /desktop/leases` response. An unsynced host can still use an online lease.
+Offline material is encrypted on disk and never returned over renderer IPC.
 
-```mermaid
-sequenceDiagram
-  participant D as Desktop (enrolled device)
-  participant A as API
-  participant H as Host
-
-  Note over D,A: once per machine
-  D->>A: POST /desktop/devices {name, fingerprint, platform}
-  A-->>D: {device, secret}  — secret shown once, kept in the OS keychain
-
-  Note over D,A: per connection
-  D->>A: POST /desktop/leases {hostId}<br/>x-onshell-device-secret
-  A->>A: role check, host grant, workspace policy,<br/>device enrolled and not revoked, plan limits
-  A->>A: decrypt credential (AES-256-GCM, master key)
-  A->>A: create session row + audit ssh.session.open (mode=direct)
-  A-->>D: {sessionId, host, credential, expiresAt (60s)}
-  D->>H: ssh2 connect on port 22
-  D->>A: POST /desktop/sessions/:id/state {opened / failed / closed}
-  Note over D: material held in main-process memory only,<br/>zeroed once the handshake completes.<br/>Never in the renderer. Never on disk.
-```
-
-Note the order of the checks, because it is the argument: nothing is read out of
-the vault until every reason to refuse has been exhausted. See
-[routes/modules/desktop.ts](../apps/api/src/routes/modules/desktop.ts).
-
-Rules the implementation has to keep:
-
-| Rule | Why |
-| --- | --- |
-| A lease is for **one host, one session**, and expires in ~60 seconds | It is a launch token, not a copy of the vault |
-| It is only issued to a **device enrolled by that user**, not revoked | Makes the handout visible per machine, and revocable one machine at a time |
-| It requires the same **host grant** as opening a relayed session | Direct mode must not be a way around RBAC |
-| The material lives in the **main process only** | The renderer runs UI code; it never gets to hold a private key |
-| It is **never written to disk**, and is zeroed on close | Survives neither a crash dump nor a stolen laptop at rest |
-| Every issue is **audited** with the device id | An operator can see which machine asked for what |
-| An org can **turn direct mode off** | Some teams need every byte through an auditable relay |
-
-Being enrolled is not what *authorises* a lease — the signed-in user's own host access
-is — so it is worth being plain that enrolment does not stop someone who has already
-stolen a session: they could enrol a machine of their own. What it buys is that every
-handout is attributable to a named machine and can be cut off one machine at a time,
-which is the difference between noticing a compromise and being able to do anything
-about it.
-
-The honest summary: direct mode gives the user's own machine material for a host that
-user could already open a shell on. It does not grant new access. It changes who is on
-the wire, and it moves a copy of the secret from Onshell's server to the user's
-computer — which is exactly what people asking for this feature are asking for.
+`PUT /desktop/offline-sessions/:id` synchronizes locally recorded session events.
+The API scopes updates to their user and organization and checks host access before
+accepting new session history. Session audit entries identify them as offline reports.
 
 ## Security boundaries inside the app
 

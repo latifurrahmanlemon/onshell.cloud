@@ -14,6 +14,7 @@ vi.mock("ssh2", () => ({ Client: class extends EventEmitter {
 } }));
 vi.mock("./session.js", () => ({ requireApi: () => ({ transport: { request: mocks.request } }) }));
 vi.mock("./device.js", () => ({ deviceSecret: async () => "device-secret" }));
+vi.mock("./local-data.js", () => ({ localGrant: () => undefined, recordLocalSession: vi.fn(async () => {}) }));
 import { openDirectSession } from "./ssh.js";
 
 beforeEach(() => {

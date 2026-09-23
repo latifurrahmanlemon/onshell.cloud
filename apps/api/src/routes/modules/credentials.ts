@@ -1,3 +1,4 @@
+import { offlineEntityId } from "../../lib/offline-id.js";
 import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "@onshell/config";
@@ -83,6 +84,11 @@ export async function registerCredentialRoutes(app: FastifyInstance) {
       }
 
       const body = createCredentialSchema.parse(request.body);
+      const offlineId = offlineEntityId(request, actor);
+      if (offlineId) {
+        const existing = await prisma.credential.findFirst({ where: { id: offlineId, organizationId: actor.organizationId }, include: credentialInclude });
+        if (existing) return reply.code(200).send(toCredentialSummary(existing));
+      }
       if (!(await hostsAreAccessible(actor, body.attachedHostIds))) {
         return reply.code(400).send({ error: "invalid_host_ids" });
       }
@@ -90,6 +96,7 @@ export async function registerCredentialRoutes(app: FastifyInstance) {
       const encrypted = encryptSecret(body.secret, config.masterEncryptionKey);
       const credential = await prisma.credential.create({
         data: {
+          id: offlineId,
           organizationId: actor.organizationId,
           name: body.name,
           kind: credentialKindToPrisma[body.kind],

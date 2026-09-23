@@ -1,3 +1,4 @@
+import { offlineEntityId } from "../../lib/offline-id.js";
 import type { FastifyInstance } from "fastify";
 import type { Host } from "@onshell/shared";
 import { canManageHosts } from "@onshell/shared";
@@ -161,9 +162,22 @@ export async function registerHostRoutes(app: FastifyInstance) {
       }
 
       const body = hostSchema.parse(request.body);
+      const offlineId = offlineEntityId(request, actor);
+      if (offlineId) {
+        const existing = await prisma.host.findFirst({ where: { id: offlineId, organizationId: actor.organizationId }, include: hostInclude });
+        if (existing) {
+          const access = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
+          if (!(await prisma.host.count({ where: { ...access, id: existing.id } }))) return reply.code(403).send({ error: "forbidden" });
+          return reply.code(200).send(toHost(existing));
+        }
+      }
       const groupId = body.group ? await resolveGroupId(actor.organizationId, body.group) : undefined;
       const host = await prisma.host.create({
         data: {
+          id: offlineId,
+          ...(offlineId && !hasImplicitHostAccess(actor.role) && { accessGrants: { create: {
+            organizationId: actor.organizationId, userId: actor.id, scopeKey: offlineId, grantedById: actor.id
+          } } }),
           organizationId: actor.organizationId,
           name: body.name,
           type: hostTypeToPrisma[body.type],
@@ -181,7 +195,7 @@ export async function registerHostRoutes(app: FastifyInstance) {
       // A devops member may add hosts but is still governed by grants, so give
       // them one for what they just created — otherwise the new host vanishes
       // from their own list the moment it is saved.
-      if (!hasImplicitHostAccess(actor.role)) {
+      if (!offlineId && !hasImplicitHostAccess(actor.role)) {
         await prisma.hostAccessGrant.create({
           data: {
             organizationId: actor.organizationId,

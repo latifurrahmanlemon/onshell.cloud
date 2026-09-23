@@ -20,6 +20,7 @@ import { ApiError, bearerAuth, createApiClient, type ApiClient, type TokenPair }
 import type { User } from "@onshell/shared";
 import type { BrowserSignInOutcome, BrowserSignInStart } from "../../shared/ipc.js";
 import { clearTokens, loadTokens, saveTokens } from "./vault.js";
+import { configureLocal, localUser, setLocalUser, clearLocal } from "./local-data.js";
 import type { ServerConfig } from "./settings.js";
 
 export interface SignInRequest {
@@ -84,19 +85,25 @@ export function useServer(config: ServerConfig) {
   identity = undefined;
   client = createApiClient({
     baseUrl: config.apiBaseUrl,
+    fetch: timedFetch,
     gatewayBaseUrl: config.gatewayBaseUrl,
     auth: bearerAuth({
       baseUrl: config.apiBaseUrl,
+      fetch: timedFetch,
       load: loadTokens,
       save: saveTokens,
       clear: async () => {
         await clearTokens();
+        await clearLocal();
         identity = undefined;
       }
     })
   });
+  configureLocal(config.apiBaseUrl, client);
   return client;
 }
+
+const timedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(10000) });
 
 export function currentServer() {
   return server;
@@ -318,12 +325,15 @@ export async function restoreSession(): Promise<User | undefined> {
   if (!client) return undefined;
   const tokens = await loadTokens();
   if (!tokens?.refreshToken) return undefined;
+  const cached = await localUser();
+  if (cached) { identity = cached; return cached; }
   try {
     // Goes out with a possibly-empty access token on purpose: the 401 that
     // follows is what drives the refresh, which is the only way to find out
     // whether the stored session is still good.
     const { user } = await client.me();
     identity = user;
+    await setLocalUser(user);
     return user;
   } catch {
     return undefined;
@@ -333,6 +343,7 @@ export async function restoreSession(): Promise<User | undefined> {
 async function persist(response: LoginResponse) {
   const tokens: TokenPair = { accessToken: response.accessToken, refreshToken: response.refreshToken };
   await saveTokens(tokens);
+  await setLocalUser(response.user);
   identity = response.user;
   return response.user;
 }
@@ -391,11 +402,10 @@ export async function signOut() {
   // token it would have revoked expires on its own.
   try {
     await client?.logout();
-  } catch (error) {
-    if (!(error instanceof ApiError)) throw error;
-  }
+  } catch { /* Signing out locally must work without a server. */ }
   cancelBrowserSignIn();
   await clearTokens();
+  await clearLocal();
   identity = undefined;
 }
 

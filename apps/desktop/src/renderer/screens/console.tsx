@@ -46,6 +46,8 @@ type Overlay =
   | { kind: "files"; target: FileSessionTargetRequest; label: string };
 
 export function Console({ state }: Props) {
+  const [sync, setSync] = useState<Awaited<ReturnType<typeof bridge.console.sync>>>();
+  const [syncOpen, setSyncOpen] = useState(false);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
@@ -141,7 +143,10 @@ export function Console({ state }: Props) {
     setHosts(data.hosts); setSnippets(data.snippets); setCredentials(data.credentials);
     setSessions(data.sessions); setAudit(data.audit); setTasks(data.tasks); setNotifications(data.notifications);
   });
-  useEffect(() => startLiveSync(() => bridge.console.sync(), () => window.dispatchEvent(new Event("onshell:sync"))), []);
+  useEffect(() => {
+    void bridge.console.sync("retry");
+    return startLiveSync(async () => { const status = await bridge.console.sync(); setSync(status); return status; }, () => window.dispatchEvent(new Event("onshell:sync")));
+  }, []);
   const [deletingSnippet, setDeletingSnippet] = useState<Snippet>();
   const [deleteSnippetBusy, setDeleteSnippetBusy] = useState(false);
   async function deleteSnippet() {
@@ -614,6 +619,20 @@ export function Console({ state }: Props) {
 
   return (
     <div className={`console${sidebarOpen ? "" : " console--sidebar-hidden"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}>
+      <div className="local-sync">
+        <button className="local-sync__status" aria-expanded={syncOpen} onClick={() => setSyncOpen(!syncOpen)} title="Local storage and sync">
+          {sync?.syncing ? "Syncing…" : sync?.error ? "Saved locally · Sync paused" : sync?.pending ? `${sync.pending} changes to sync` : "Saved locally"}
+        </button>
+        {syncOpen && <section className="local-sync__panel" aria-label="Local storage and sync">
+          <header><strong>Local storage & sync</strong><button className="icon" aria-label="Close sync details" onClick={() => setSyncOpen(false)}><Icon name="close" size={14} /></button></header>
+          <p>Your workspace is saved on this computer. Changes sync when the server is available, with a check every minute.</p>
+          <p>{sync?.offlineHosts ?? 0} {sync?.offlineHosts === 1 ? "host" : "hosts"} ready for offline SSH · {sync?.pending ?? 0} pending changes</p>
+          <p>Last sync: {sync?.lastSync ? new Date(sync.lastSync).toLocaleString() : "Waiting for the first sync"}</p>
+          {sync?.error && <p role="status">{sync.error}</p>}
+          <button className="button" disabled={sync?.syncing} onClick={() => void bridge.console.sync("retry").then(setSync)}>Sync now</button>
+          {!!sync?.pending && <button className="button button--ghost" disabled={sync?.syncing} onClick={() => { if (window.confirm("Discard all changes that have not synced? This cannot be undone. Saved server data will be kept.")) void bridge.console.sync("discard").then(setSync); }}>Discard pending changes</button>}
+        </section>}
+      </div>
       {paletteOpen && <CommandPalette actions={commandActions} onClose={() => setPaletteOpen(false)} />}
       <header className={`console-titlebar${state.platform === "darwin" ? " console-titlebar--mac" : ""}`}>
         <div className="console-titlebar__drag" />
@@ -766,7 +785,7 @@ export function Console({ state }: Props) {
             <div className="account-popover">
               <strong>{state.user?.name ?? "Onshell user"}</strong>
               <span>{state.user?.email}</span>
-              <button onClick={() => void bridge.auth.signOut()}><Icon name="logout" size={14} /> Sign out</button>
+              <button onClick={async () => { const latest = await bridge.console.sync(); if (!latest.pending || window.confirm("Signing out removes this computer’s unsynced changes and offline data. Sign out?")) void bridge.auth.signOut(); }}><Icon name="logout" size={14} /> Sign out</button>
             </div>
           )}
         </div>
@@ -1007,7 +1026,7 @@ export function Console({ state }: Props) {
         {hostEditor && (
           <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setHostEditor(undefined); }}>
             <form className="snippet-modal" inert={hostCredentialOpen} onSubmit={(event) => void saveHost(event)}>
-              <header><div><span className="snippet-emoji" aria-hidden="true"><Icon name="host" size={17} /></span><div><strong>{hostEditor === "new" ? "Add host" : "Edit host"}</strong><p>Changes sync with the web workspace immediately.</p></div></div><button className="icon" type="button" onClick={() => setHostEditor(undefined)} aria-label="Close"><Icon name="close" size={14} /></button></header>
+              <header><div><span className="snippet-emoji" aria-hidden="true"><Icon name="host" size={17} /></span><div><strong>{hostEditor === "new" ? "Add host" : "Edit host"}</strong><p>Saved locally and synced when the server is available.</p></div></div><button className="icon" type="button" onClick={() => setHostEditor(undefined)} aria-label="Close"><Icon name="close" size={14} /></button></header>
               <label>Name<input name="name" required minLength={2} defaultValue={hostEditor === "new" ? "" : hostEditor.name} /></label>
               <div className="modal-fields"><label>Address<input name="address" required defaultValue={hostEditor === "new" ? "" : hostEditor.address} /></label><label>Port<input name="port" required type="number" min={1} max={65535} defaultValue={hostEditor === "new" ? 22 : hostEditor.port} /></label></div>
               <label>Username<input name="username" defaultValue={hostEditor === "new" ? "" : hostEditor.username} /></label>

@@ -7,7 +7,7 @@ export async function registerSyncRoutes(app: FastifyInstance) {
   const organizations = new WeakMap<object, string>();
   app.addHook("preHandler", async (request) => {
     if (!["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) return;
-    if (!/^\/(hosts|credentials|snippets|tasks|host-workspaces|workspaces|organizations?|members|invitations|agents|notifications|profile|sessions|desktop\/devices|desktop\/sessions|desktop\/leases)(\/|\?|$)/.test(request.url)) return;
+    if (!/^\/(hosts|credentials|snippets|tasks|host-workspaces|workspaces|organizations?|members|invitations|agents|notifications|profile|sessions|desktop\/devices|desktop\/sessions|desktop\/offline-sessions|desktop\/leases)(\/|\?|$)/.test(request.url)) return;
     const actor = await getAuthenticatedUser(request);
     if (actor) organizations.set(request, actor.organizationId);
   });

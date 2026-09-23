@@ -2137,3 +2137,12 @@ kbd {
 .task-compose.desktop-task-compose { grid-template-columns: minmax(0, 1fr) auto; }
 .task-compose input { width: 100%; min-width: 0; }
 .task-summary { padding: 12px 16px; }
+
+/* The status bar occupies its own row and never covers terminal output. */
+.console { grid-template-rows: 42px minmax(0, 1fr) 25px; }
+.local-sync { grid-column: 1 / -1; grid-row: 3; position: relative; z-index: 40; display: flex; justify-content: flex-end; align-items: center; border-top: 1px solid var(--border); background: var(--bg-raised); }
+.local-sync__status { font-size: 11px; color: var(--text-muted); padding: 3px 12px; border: 0; background: transparent; }
+.local-sync__panel { position: absolute; bottom: 30px; right: 8px; width: min(380px, calc(100vw - 24px)); padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-raised); box-shadow: 0 8px 30px #0004; font-size: 12px; overflow-wrap: anywhere; }
+.local-sync__panel header { display: flex; align-items: center; justify-content: space-between; }
+.local-sync__panel p { margin: 10px 0; color: var(--text-muted); line-height: 1.5; }
+.local-sync__panel .button { font-size: 12px; padding: 7px 10px; }

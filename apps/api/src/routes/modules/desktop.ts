@@ -14,11 +14,11 @@
  * is where the plaintext lives — the user's own machine instead of the gateway
  * — and who is on the wire between them and their server, which is nobody.
  *
- * What bounds it: sixty seconds, one host, one session, an enrolled and
- * unrevoked device, a workspace that has not turned direct connections off, and
- * an audit row naming the machine. Enrolment is not what authorises the lease —
- * the user's own access is — but it is what makes the handout visible
- * afterwards and revocable one machine at a time.
+ * Online launch leases are issued per session. Offline bundles are a separate,
+ * persistent export for an enrolled device and accessible SSH hosts. The app
+ * encrypts these with OS storage and reconciles permission changes on sync.
+ * Revocation cannot reach a disconnected computer; rotate a host credential to
+ * invalidate material already issued to any client.
  *
  * Signing in is the other half. A native window can offer a password and
  * nothing else — no Google SSO, no Turnstile widget, no session the browser
@@ -489,6 +489,67 @@ export async function registerDesktopRoutes(app: FastifyInstance, config: Runtim
    * policy, then the device — and only then is anything decrypted. Nothing is
    * read out of the vault until every reason to refuse has been exhausted.
    */
+  // Offline session events are replayed in order. Updates are scoped to their owner.
+  app.put("/desktop/offline-sessions/:id", async (request, reply) => {
+    try {
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+      const { id } = z.object({ id: z.string().regex(/^local-[0-9a-f-]{36}$/) }).parse(request.params);
+      const body = z.object({
+        hostId: z.string().optional(), protocol: z.enum(["ssh", "sftp"]).optional(),
+        status: z.enum(["pending", "active", "failed", "closed"]),
+        startedAt: z.string().datetime().optional(), endedAt: z.string().datetime().optional()
+      }).parse(request.body);
+      const existing = await prisma.session.findUnique({ where: { id } });
+      if (existing && (existing.userId !== actor.id || existing.organizationId !== actor.organizationId)) return reply.code(403).send({ error: "forbidden" });
+      const status = ({ pending: "PENDING", active: "ACTIVE", failed: "FAILED", closed: "CLOSED" } as const)[body.status];
+      if (existing) {
+        // A retry of an earlier event cannot reopen an already ended session.
+        if (!existing.endedAt) await prisma.session.update({ where: { id }, data: { status, endedAt: body.endedAt ? new Date(body.endedAt) : undefined } });
+      } else {
+        if (!body.hostId || !body.protocol || !body.startedAt) return reply.code(400).send({ error: "session_start_required" });
+        if (!canOpenSession(actor.role)) return reply.code(403).send({ error: "forbidden" });
+        const access = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
+        const host = await prisma.host.findFirst({ where: { ...access, id: body.hostId } });
+        if (!host) return reply.code(404).send({ error: "host_not_found" });
+        await prisma.session.create({ data: { id, organizationId: actor.organizationId, userId: actor.id, hostId: host.id,
+          protocol: body.protocol === "ssh" ? "SSH" : "SFTP", status, startedAt: new Date(body.startedAt), endedAt: body.endedAt ? new Date(body.endedAt) : undefined } });
+        await recordAudit({ organizationId: actor.organizationId, actorId: actor.id, action: `${body.protocol}.session.offline`, targetType: "host", targetId: host.id, ipAddress: request.ip, metadata: { sessionId: id, mode: "direct", reportedFromOffline: true } });
+      }
+      return { ok: true };
+    } catch (error) { return handleRouteError(reply, error); }
+  });
+
+  // Offline copies are explicitly authorized separately from short-lived launch leases.
+  app.get("/desktop/offline-bundle", rateLimit(30), async (request, reply) => {
+    try {
+      reply.header("Cache-Control", "no-store");
+      const actor = await getAuthenticatedUser(request, config);
+      if (!actor) return reply.code(401).send({ error: "unauthorized" });
+      const presented = request.headers["x-onshell-device-secret"];
+      if (typeof presented !== "string" || !presented) return reply.code(401).send({ error: "device_secret_required" });
+      const device = await prisma.desktopDevice.findFirst({ where: { secretHash: hashToken(presented), userId: actor.id } });
+      if (!device || device.revokedAt) return reply.code(403).send({ error: "device_revoked" });
+      const organization = await prisma.organization.findUnique({ where: { id: actor.organizationId }, select: { allowDirectConnect: true } });
+      if (!canOpenSession(actor.role) || !organization?.allowDirectConnect) return { version: 1, allowed: false, grants: [] };
+      const access = await accessibleHostFilter(actor.id, actor.role, actor.organizationId);
+      const hosts = await prisma.host.findMany({
+        where: { ...access, isLocal: false, isAgent: false, type: "SSH" },
+        include: { credentials: { where: { organizationId: actor.organizationId }, orderBy: { createdAt: "asc" }, include: { sshKey: true } } }
+      });
+      const grants = hosts.flatMap(host => host.credentials.map(credential => ({
+        hostId: host.id, credentialId: credential.id,
+        credential: {
+          kind: credential.kind === "SSH_KEY" ? "privateKey" : "password",
+          material: decryptSecret({ encryptedPayload: credential.encryptedPayload, nonce: credential.nonce, authTag: credential.authTag }, config.masterEncryptionKey),
+          passphraseHint: credential.sshKey?.passphraseHint ?? undefined
+        }
+      })));
+      await prisma.desktopDevice.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } });
+      return { version: 1, allowed: true, grants };
+    } catch (error) { return handleRouteError(reply, error); }
+  });
+
   app.post("/desktop/leases", rateLimit(30), async (request, reply) => {
     try {
       const actor = await getAuthenticatedUser(request, config);
