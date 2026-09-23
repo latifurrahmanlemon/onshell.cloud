@@ -2146,3 +2146,5 @@ kbd {
 .local-sync__panel header { display: flex; align-items: center; justify-content: space-between; }
 .local-sync__panel p { margin: 10px 0; color: var(--text-muted); line-height: 1.5; }
 .local-sync__panel .button { font-size: 12px; padding: 7px 10px; }
+
+.activity-rail__brand img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }

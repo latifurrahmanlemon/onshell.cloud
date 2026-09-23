@@ -48,6 +48,8 @@ type Overlay =
 export function Console({ state }: Props) {
   const [sync, setSync] = useState<Awaited<ReturnType<typeof bridge.console.sync>>>();
   const [syncOpen, setSyncOpen] = useState(false);
+  const [organization, setOrganization] = useState<import("@onshell/api-client").Organization>();
+  const [failedLogo, setFailedLogo] = useState<string>();
   const [hosts, setHosts] = useState<Host[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
@@ -140,6 +142,7 @@ export function Console({ state }: Props) {
 
   useLiveRefresh(async () => {
     const data = await bridge.console.load();
+    setOrganization(data.identity?.organization);
     setHosts(data.hosts); setSnippets(data.snippets); setCredentials(data.credentials);
     setSessions(data.sessions); setAudit(data.audit); setTasks(data.tasks); setNotifications(data.notifications);
   });
@@ -183,6 +186,7 @@ export function Console({ state }: Props) {
       .load()
       .then((data) => {
         if (cancelled) return;
+        setOrganization(data.identity?.organization);
         setHosts(data.hosts);
         setSnippets(data.snippets);
         setCredentials(data.credentials);
@@ -725,7 +729,9 @@ export function Console({ state }: Props) {
           onClick={() => setSidebarOpen((open) => !open)}
           type="button"
         >
-          O
+          {organization?.logoUrl && failedLogo !== organization.logoUrl
+            ? <img src={organization.logoUrl} alt={`${organization.name} logo`} onError={() => setFailedLogo(organization.logoUrl!)} />
+            : (organization?.name ?? "Onshell").slice(0, 1).toUpperCase()}
         </button>
         <button
           className={`activity-button${overlay.kind === "hosts" ? " activity-button--active" : ""}`}
@@ -757,6 +763,9 @@ export function Console({ state }: Props) {
         >
           <Icon name="key" />
         </button>
+        <button className={`activity-button${overlay.kind === "tasks" ? " activity-button--active" : ""}`} aria-label="Tasks" data-tooltip="Tasks" onClick={() => setOverlay({ kind: "tasks" })}><Icon name="tasks" /></button>
+        <button className={`activity-button${overlay.kind === "workspaces" ? " activity-button--active" : ""}`} aria-label="Workspaces" data-tooltip="Workspaces" onClick={() => setOverlay({ kind: "workspaces" })}><Icon name="split" /></button>
+        <span className="activity-rail__spacer" />
         <button
           className={`activity-button${overlay.kind === "history" ? " activity-button--active" : ""}`}
           aria-label="History and audit"
@@ -765,9 +774,6 @@ export function Console({ state }: Props) {
         >
           <Icon name="history" />
         </button>
-        <button className={`activity-button${overlay.kind === "tasks" ? " activity-button--active" : ""}`} aria-label="Tasks" data-tooltip="Tasks" onClick={() => setOverlay({ kind: "tasks" })}><Icon name="tasks" /></button>
-        <button className={`activity-button${overlay.kind === "workspaces" ? " activity-button--active" : ""}`} aria-label="Workspaces" data-tooltip="Workspaces" onClick={() => setOverlay({ kind: "workspaces" })}><Icon name="split" /></button>
-        <span className="activity-rail__spacer" />
         <button className={`activity-button${overlay.kind === "help" ? " activity-button--active" : ""}`} aria-label="Help and support" data-tooltip="Help" onClick={() => setOverlay({ kind: "help" })}><Icon name="help" /></button>
         <button
           className={`activity-button${overlay.kind === "settings" ? " activity-button--active" : ""}`}
@@ -794,7 +800,7 @@ export function Console({ state }: Props) {
         <div className="sidebar__head">
           <div>
             <div className="sidebar__eyebrow">Workspace</div>
-            <div className="sidebar__account">{state.user?.name ?? state.user?.email ?? "Personal"}</div>
+            <div className="sidebar__account">{organization?.name ?? state.user?.name ?? state.user?.email ?? "Personal"}</div>
           </div>
           <div className="sidebar__head-actions">
             <button className="icon icon--framed" title="Open local terminal" aria-label="Open local terminal" onClick={() => void openLocal()}>

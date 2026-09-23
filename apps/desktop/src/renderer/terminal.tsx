@@ -38,7 +38,7 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
   const paneRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal>(null);
   const fitRef = useRef<FitAddon>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number }>();
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selection: string }>();
 
   useEffect(() => {
     if (!visible || !focusRequest) return;
@@ -47,11 +47,21 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
   }, [focusRequest, visible]);
 
   async function copySelection() {
-    const selection = termRef.current?.getSelection();
+    const selection = contextMenu?.selection || termRef.current?.getSelection();
     if (!selection) return;
     await bridge.clipboard.writeText(selection);
     setContextMenu(undefined);
     termRef.current?.focus();
+  }
+
+  async function copyAll() {
+    const term = termRef.current;
+    if (!term) return;
+    term.selectAll();
+    const text = term.getSelection();
+    if (text) await bridge.clipboard.writeText(text);
+    setContextMenu(undefined);
+    term.focus();
   }
 
   async function pasteClipboard() {
@@ -181,13 +191,22 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
       className={`terminal-pane terminal-pane--${position}`}
       hidden={!visible}
       ref={paneRef}
-      onContextMenu={(event) => {
+      onMouseDownCapture={(event) => {
+        // Preserve xterm's canvas selection before right-click moves focus.
+        if ((event.button === 2 || (event.ctrlKey && /Mac/.test(navigator.platform))) && termRef.current?.hasSelection()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      onContextMenuCapture={(event) => {
         event.preventDefault();
+        event.stopPropagation();
         const bounds = paneRef.current?.getBoundingClientRect();
         if (!bounds) return;
         setContextMenu({
           x: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - 154)),
-          y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - 86))
+          y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - 150)),
+          selection: termRef.current?.getSelection() ?? ""
         });
       }}
     >
@@ -198,10 +217,15 @@ export function TerminalPane({ terminalId, appearance, visible, position = "prim
           role="menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.preventDefault()}
         >
-          <button disabled={!termRef.current?.hasSelection()} onClick={() => void copySelection()} role="menuitem" type="button">
+          <button disabled={!contextMenu.selection} title={contextMenu.selection ? "Copy selected text" : "Select terminal text first, or choose Copy all"} onClick={() => void copySelection()} role="menuitem" type="button">
             <span>Copy</span><kbd>{/Mac/.test(navigator.platform) ? "⌘C" : "Ctrl+C"}</kbd>
           </button>
+          <button onClick={() => { termRef.current?.selectAll(); setContextMenu(undefined); termRef.current?.focus(); }} role="menuitem" type="button">
+            <span>Select all</span>
+          </button>
+          <button onClick={() => void copyAll()} role="menuitem" type="button"><span>Copy all</span></button>
           <button onClick={() => void pasteClipboard()} role="menuitem" type="button">
             <span>Paste</span><kbd>{/Mac/.test(navigator.platform) ? "⌘V" : "Ctrl+V"}</kbd>
           </button>
