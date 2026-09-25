@@ -1,0 +1,862 @@
+[
+  {
+    "slug": "getting-started-with-onshell",
+    "title": "Getting started with Onshell: your first saved SSH host",
+    "category": "Getting started",
+    "description": "Set up your first Onshell SSH host, attach a credential, and choose a connection path for the browser or desktop app.",
+    "answer": "Onshell brings saved hosts, credentials and everyday server work into one workspace. Start with one non-production SSH host, attach its credential, and verify the connection before inviting your team.",
+    "sections": [
+      {
+        "heading": "Start with a host you can identify",
+        "paragraphs": [
+          "Open Hosts and add the server name, address, SSH port and username. Use a name that explains its purpose, such as staging-api-01. An IP address tells you where a machine is; a meaningful name tells you why you are connecting.",
+          "Choose the correct environment and a small set of useful tags. For your first connection, use a staging machine where you can check the workflow safely. A saved entry does not install or enable SSH on the destination."
+        ]
+      },
+      {
+        "heading": "Attach the right credential",
+        "paragraphs": [
+          "Create a password or SSH-key credential in the vault and attach it to the host. Keep the operating-system username consistent with the account that accepts that credential. A valid key paired with the wrong username still fails.",
+          "Give the credential a recognizable name without putting the secret in its label, tags or notes. Those fields help people navigate; they are not substitutes for encrypted storage."
+        ]
+      },
+      {
+        "heading": "Choose where the connection starts",
+        "paragraphs": [
+          "The web terminal connects through the Onshell gateway. Desktop connects directly from your computer. For private addresses, the machine opening the connection needs a network route to the destination.",
+          "For desktop offline use, sign in and complete the initial sync while the API is available. Check the sync panel for hosts ready for offline SSH before relying on the saved copy."
+        ]
+      },
+      {
+        "heading": "Verify before expanding",
+        "paragraphs": [
+          "Confirm that the terminal reached the intended machine with the intended account. A read-only identity check such as whoami helps distinguish account problems from naming mistakes.",
+          "Once that path works, repeat the setup for other hosts and grant teammates the access their work requires. Keeping the first setup small makes errors easier to isolate."
+        ]
+      }
+    ],
+    "checklist": [
+      "Confirm address, port and username.",
+      "Attach the intended server credential.",
+      "Verify the destination before production work."
+    ],
+    "productLink": "/browser-ssh-client"
+  },
+  {
+    "slug": "browser-ssh-vs-desktop-ssh",
+    "title": "Browser SSH or desktop SSH: which connection should you use?",
+    "category": "Getting started",
+    "description": "Compare Onshell web terminals and direct desktop SSH by network path, local tools and offline availability.",
+    "answer": "Use the browser when you want a web workspace and the gateway can reach the host. Use desktop for local shells, direct connections from your computer, or saved workspace data during an API outage.",
+    "sections": [
+      {
+        "heading": "Follow the network path",
+        "paragraphs": [
+          "A browser cannot open an ordinary TCP SSH connection to port 22. Onshell web terminals use the gateway to bridge that connection. Troubleshoot browser reachability from the gateway, not only from your laptop.",
+          "Desktop SSH starts on your computer. A host available through your laptop’s VPN may work in desktop even when the gateway cannot reach it. Gateway reachability does not guarantee a route from your computer either."
+        ]
+      },
+      {
+        "heading": "Consider the surrounding tools",
+        "paragraphs": [
+          "Desktop also opens local shells and local files. This helps when comparing a local configuration with a remote one or keeping your own shell beside a server terminal. A browser session is useful when you do not want to install a native client.",
+          "Saved hosts and workspace changes can synchronize between the experiences. Shared information does not make their live terminal connections interchangeable."
+        ]
+      },
+      {
+        "heading": "Understand offline availability",
+        "paragraphs": [
+          "After an initial sync, desktop reads cached data and uses authorized encrypted credentials without waiting for the API. It still needs a route to the SSH host. A disconnected laptop cannot reach an internet server simply because its entry is cached.",
+          "Agent-only machines and server-local entries have different requirements. Not every entry in a list is a directly accessible SSH endpoint."
+        ]
+      },
+      {
+        "heading": "Choose a deliberate default",
+        "paragraphs": [
+          "Pick the path that matches the network and task. Keep VPN requirements in your team’s operating procedures.",
+          "Read a failure reason before changing credentials. A missing route and an authentication rejection need different fixes; switching clients without understanding the path can obscure the problem."
+        ]
+      }
+    ],
+    "checklist": [
+      "Check reachability from the connection’s origin.",
+      "Use desktop for local tools and prepared offline access.",
+      "Document VPN and gateway requirements."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "prepare-desktop-for-offline-ssh",
+    "title": "Prepare Onshell Desktop for offline SSH before an outage",
+    "category": "Desktop",
+    "description": "Prepare encrypted local hosts and credentials, rehearse an API outage, and understand desktop offline access.",
+    "answer": "Offline readiness requires a successful online sign-in and sync. Desktop can then use saved workspace data and authorized credentials locally, provided the destination SSH host remains reachable.",
+    "sections": [
+      {
+        "heading": "Prepare while the API is available",
+        "paragraphs": [
+          "Install desktop, sign in and let the workspace synchronize. Confirm that saved hosts and attached credentials are present. The sync panel shows hosts ready for offline SSH and the last successful sync.",
+          "Do this before an outage. A fresh installation cannot recreate credentials or workspace data that have never been downloaded to that computer."
+        ]
+      },
+      {
+        "heading": "Test the right failure",
+        "paragraphs": [
+          "Make the Onshell API unreachable while keeping a test SSH host reachable. Close and reopen the app, inspect the saved list and connect. This distinguishes API independence from general network availability.",
+          "If the host requires a VPN, keep that connection active. Turning off all networking tests a different condition and should not preserve remote connectivity."
+        ]
+      },
+      {
+        "heading": "Protect the local copy",
+        "paragraphs": [
+          "Desktop stores offline data and credential material through operating-system encryption. Linux needs a usable keyring rather than a plaintext fallback. Password and private-key material are not sent to the renderer.",
+          "Closing the app preserves the local copy. Signing out removes local data and pending work, so do not use sign-out as a routine restart during an outage."
+        ]
+      },
+      {
+        "heading": "Reconcile after recovery",
+        "paragraphs": [
+          "When the API returns, synchronization resumes. You can use Sync now and confirm the pending count clears. Check a test edit from the web or another desktop.",
+          "A disconnected client cannot learn about new permission revocations until it reconnects. Include host-side credential rotation in your response procedure when previously issued authentication material must stop working immediately."
+        ]
+      }
+    ],
+    "checklist": [
+      "Inspect the initial sync.",
+      "Rehearse an API outage with the host reachable.",
+      "Verify pending changes after recovery."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "understand-local-sync",
+    "title": "How local-first sync works in Onshell Desktop",
+    "category": "Desktop",
+    "description": "Understand local reads, the change queue, one-minute sync checks and recovery from rejected Onshell edits.",
+    "answer": "Desktop reads its saved workspace locally. Changes are queued on the computer and synchronized after edits and on a one-minute check. A failed server connection preserves the previous snapshot and pending work.",
+    "sections": [
+      {
+        "heading": "Local reads keep navigation usable",
+        "paragraphs": [
+          "Opening Hosts, Tasks or Snippets does not require a fresh server response every time. Desktop retains a workspace snapshot for slow connections and API outages.",
+          "That snapshot is not a live mirror at every moment. Another client’s edits arrive after a later successful sync. The last-sync timestamp is a better freshness signal than assuming an open app is always current."
+        ]
+      },
+      {
+        "heading": "Edits enter a queue",
+        "paragraphs": [
+          "An edit is saved locally before the interface acknowledges it. The queue survives an ordinary app restart and replays changes in order. Stable IDs help avoid duplicate records after a lost server response.",
+          "Local and server saves are separate events. If a teammate cannot see a new entry yet, check the pending count before creating another copy."
+        ]
+      },
+      {
+        "heading": "Rejections need attention",
+        "paragraphs": [
+          "The server still enforces permissions and validation. A rejected change remains pending with its reason; being saved locally does not make it an authorized remote change. Resolve the cause and retry.",
+          "Discard pending changes is an explicit recovery option. It removes unsynced work, so read the confirmation and understand what you are giving up."
+        ]
+      },
+      {
+        "heading": "Coordinate overlapping edits",
+        "paragraphs": [
+          "For edited fields, the last server-accepted write wins. A personal draft does not lock a shared record against another operator’s changes.",
+          "Agree on who changes shared host details and credentials during maintenance. Use your coordination channel to record that ownership, then inspect the final values after the clients synchronize."
+        ]
+      }
+    ],
+    "checklist": [
+      "Read the timestamp and pending count.",
+      "Do not duplicate an entry just because another client is stale.",
+      "Review rejected edits before discarding them."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "organize-hosts-with-names-tags-favorites",
+    "title": "Organize hosts with names, tags and favorites",
+    "category": "Workflows",
+    "description": "Create useful host names and use Onshell environment filters, tags and personal favorites to find servers.",
+    "answer": "A useful host list quickly tells you what a machine does, which environment it belongs to and whether you use it often. Names, environments and favorites serve different parts of that job.",
+    "sections": [
+      {
+        "heading": "Make names describe purpose",
+        "paragraphs": [
+          "Choose a pattern your team can explain in a sentence. staging-api-01 identifies environment and workload. Consistency is more valuable than packing every infrastructure attribute into a name.",
+          "Keep the real address in its own field. A display name should not become another manually maintained copy of an IP address that drifts when a machine moves."
+        ]
+      },
+      {
+        "heading": "Filter before adding complexity",
+        "paragraphs": [
+          "Environment and search filters reduce a list without changing its organization. Tags can describe attributes such as application or region; groups can represent stable collections.",
+          "Avoid different spellings for the same tag. A short shared vocabulary produces useful filters. Many near-duplicates look organized but force people to search several variants."
+        ]
+      },
+      {
+        "heading": "Use favorites as personal shortcuts",
+        "paragraphs": [
+          "Favorite machines you return to frequently. Personal favorites let an operator pin daily working hosts without imposing that order on everyone else.",
+          "A favorite does not grant access or prove reachability. Before a production action, confirm the name, address and environment even when the entry came from a familiar pinned list."
+        ]
+      },
+      {
+        "heading": "Review after infrastructure changes",
+        "paragraphs": [
+          "Renaming applications, moving servers and retiring hosts should trigger list maintenance. Update entries rather than expecting everyone to remember exceptions.",
+          "On desktop, allow the edit to sync and check another client. Seeing a new name locally proves a local save, not that every device received it."
+        ]
+      }
+    ],
+    "checklist": [
+      "Agree on one naming pattern.",
+      "Keep a small tag vocabulary.",
+      "Review stale entries after infrastructure changes."
+    ],
+    "productLink": "/console"
+  },
+  {
+    "slug": "credential-vault-and-host-attachments",
+    "title": "Use the credential vault without mixing up host access",
+    "category": "Team access",
+    "description": "Understand how Onshell host entries, credential attachments and permissions work together.",
+    "answer": "Host details say where to connect; credentials provide authentication material; permissions decide who can use a host. Keep these responsibilities separate when configuring a shared workspace.",
+    "sections": [
+      {
+        "heading": "Separate metadata from secrets",
+        "paragraphs": [
+          "A host entry contains address, port and username. A credential holds a password or private key and can be attached to appropriate hosts. Putting passwords in notes defeats that separation.",
+          "Name credentials by purpose or ownership, not their secret value. This helps people choose the correct attachment without turning navigation metadata into sensitive authentication data."
+        ]
+      },
+      {
+        "heading": "Check both sides of an attachment",
+        "paragraphs": [
+          "When SSH rejects authentication, verify the host username and selected credential together. A server may accept different keys for different operating-system accounts. An attachment does not change what the server accepts.",
+          "Understand shared attachments before rotation. A change intended for one host may affect every machine using the same vault entry."
+        ]
+      },
+      {
+        "heading": "Keep permissions independent",
+        "paragraphs": [
+          "A credential attachment is not a replacement for host access controls. Onshell checks membership and host permissions for server-mediated operations and when preparing desktop offline grants.",
+          "Offline grants contain material previously authorized for that computer. A disconnected device cannot receive a new revocation until it communicates with the server; immediate invalidation may require host-side rotation."
+        ]
+      },
+      {
+        "heading": "Verify with a new connection",
+        "paragraphs": [
+          "After changing an attachment, open a fresh connection to a non-production host. Confirm the intended username and destination before applying the procedure to production.",
+          "Record the change in your operating procedure and inspect desktop sync status. Form submission is useful feedback, but an end-to-end connection test confirms that the configuration works."
+        ]
+      }
+    ],
+    "checklist": [
+      "Keep secrets out of notes and snippets.",
+      "Check username and credential together.",
+      "Test a new connection after an attachment change."
+    ],
+    "productLink": "/security"
+  },
+  {
+    "slug": "ssh-connection-failure-checklist",
+    "title": "An SSH connection failed: work through the reason",
+    "category": "Getting started",
+    "description": "Separate name resolution, network routes, refused ports and rejected credentials when Onshell SSH fails.",
+    "answer": "Start with the displayed failure reason. Name resolution, reachability, a refused port and rejected credentials are different failures; changing a password cannot repair a missing network route.",
+    "sections": [
+      {
+        "heading": "Identify the origin",
+        "paragraphs": [
+          "For direct desktop SSH, investigate the path from your computer. For web terminals, investigate the gateway’s path. Success from an unrelated machine does not describe the failing route.",
+          "Write down address, port, username and connection method before changing settings. This helps you notice when a troubleshooting step changes several variables at once."
+        ]
+      },
+      {
+        "heading": "Separate name and network failures",
+        "paragraphs": [
+          "A resolution error means the name could not be resolved. Check spelling and the network or VPN that provides it. Timeouts and unreachable-network messages suggest routing, filtering or an unresponsive destination.",
+          "A refused connection often means an active rejection at the address and port. Check whether SSH is listening where the entry says it is rather than assuming every host uses port 22."
+        ]
+      },
+      {
+        "heading": "Check authentication after reaching SSH",
+        "paragraphs": [
+          "If SSH answers but rejects authentication, examine the operating-system username and attached credential. Confirm that you reached the intended destination and that it still accepts the credential.",
+          "Do not put passwords, private keys or sensitive complete logs into public support messages. Start with the failure category, origin and a sanitized description."
+        ]
+      },
+      {
+        "heading": "Retry after a relevant correction",
+        "paragraphs": [
+          "Desktop offers bounded retries and a reason when connection attempts fail. After correcting that cause, retry the affected tab. Opening many duplicate tabs provides little evidence.",
+          "During an API outage, a host prepared for offline desktop access may still work. Check offline readiness separately from SSH reachability so these services are not confused."
+        ]
+      }
+    ],
+    "checklist": [
+      "Record origin, address, port and username.",
+      "Match the correction to the failure category.",
+      "Retry after changing one relevant condition."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "terminal-copy-paste-shortcuts",
+    "title": "Copy terminal output without interrupting commands",
+    "category": "Desktop",
+    "description": "Use Onshell Desktop selection, right-click Copy, Copy all and keyboard shortcuts while preserving Ctrl+C interrupt behavior.",
+    "answer": "Select terminal text and choose right-click Copy or the platform copy shortcut. Copy all handles retained terminal output. With no selection, Ctrl+C remains a terminal interrupt.",
+    "sections": [
+      {
+        "heading": "Select the useful output",
+        "paragraphs": [
+          "Drag across the output you need, open the context menu and choose Copy. Desktop preserves the selected text while that menu opens.",
+          "Copy operates on a selection. If nothing is selected, use Select all or Copy all instead of expecting an arbitrary line under the pointer to be copied."
+        ]
+      },
+      {
+        "heading": "Know the keyboard distinction",
+        "paragraphs": [
+          "On Windows and Linux, Ctrl+C copies selected text; without a selection it retains its interrupt meaning. Ctrl+Shift+C is the explicit copy shortcut. On macOS, use Command+C.",
+          "If you intend to stop a command, clear the selection and use the terminal control key. A macOS copy shortcut and a shell interrupt have different purposes."
+        ]
+      },
+      {
+        "heading": "Choose a selection or the buffer",
+        "paragraphs": [
+          "A small selection usually works best for an error report. Copy all includes retained output and can be much longer than the visible screen. It is limited to the terminal buffer, not an unlimited recording of earlier sessions.",
+          "Review the result before sharing it. Terminal output can include tokens, addresses or application data unrelated to the error you want someone to diagnose."
+        ]
+      },
+      {
+        "heading": "Paste into the intended tab",
+        "paragraphs": [
+          "Use Paste or the supported platform shortcut, then check the active host. Clipboard content with line breaks deserves an extra review, particularly when several terminals have similar prompts.",
+          "A named snippet can make repeatable commands easier to inspect than a clipboard assembled from a long chat. Copying evidence and preparing executable input benefit from different checks."
+        ]
+      }
+    ],
+    "checklist": [
+      "Select text before using Copy.",
+      "Use Copy all only for appropriate retained output.",
+      "Check the destination tab before pasting."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "build-a-useful-snippet-library",
+    "title": "Build a snippet library your team can actually use",
+    "category": "Workflows",
+    "description": "Create named, ordered Onshell snippets for repeatable terminal work without storing secrets in commands.",
+    "answer": "A useful snippet has a clear name, reviewable command and intentional place in the list. Begin with frequent read-only checks, then add consequential commands only when their assumptions are clear.",
+    "sections": [
+      {
+        "heading": "Name the result",
+        "paragraphs": [
+          "Check filesystem usage is more informative than a bare tool name. People should understand why they would insert the snippet before opening its command text.",
+          "Separate commands with different purposes. A large entry mixing diagnostics, changes and cleanup makes review harder even if it saves a few clicks."
+        ]
+      },
+      {
+        "heading": "Order around daily work",
+        "paragraphs": [
+          "Use order numbers to put common checks near the top. Leave gaps so a new command can be inserted without renumbering everything.",
+          "Order numbers synchronize with the snippet. This is more predictable than relying on the order in which several clients happened to create entries."
+        ]
+      },
+      {
+        "heading": "Treat snippets as executable input",
+        "paragraphs": [
+          "Inspect the command and active terminal before use. A familiar command may be wrong for another operating system, directory or privilege level. Keep secrets out of its text.",
+          "Desktop returns keyboard focus to the terminal after inserting a snippet. Review the inserted command in its destination before continuing; proximity to the cursor should encourage a check, not replace it."
+        ]
+      },
+      {
+        "heading": "Maintain shared entries",
+        "paragraphs": [
+          "Use personal snippets for experiments and shared scopes for commands others should rely on. Assign ownership for reviewing them when infrastructure changes.",
+          "Delete obsolete versions instead of leaving ambiguous near-duplicates. An offline desktop deletion stays pending until synchronization succeeds, so check its status before assuming it disappeared on every device."
+        ]
+      }
+    ],
+    "checklist": [
+      "Begin with a few read-only checks.",
+      "Leave gaps in order numbers.",
+      "Review command and destination before use."
+    ],
+    "productLink": "/console"
+  },
+  {
+    "slug": "sftp-local-and-remote-files",
+    "title": "Use SFTP alongside your local files in Onshell",
+    "category": "Workflows",
+    "description": "Distinguish local and remote file contexts and verify permissions and destinations during Onshell Desktop SFTP work.",
+    "answer": "Desktop can browse local files and connect directly to a reachable SSH host using SFTP. Treat each view as a separate filesystem and verify the destination before transferring or editing anything.",
+    "sections": [
+      {
+        "heading": "Identify the filesystem",
+        "paragraphs": [
+          "A local path belongs to your computer. A remote path belongs to the SFTP host. Matching folder names do not make these the same location.",
+          "Check the remote host and directory before a transfer, especially when staging and production deliberately use identical folder structures."
+        ]
+      },
+      {
+        "heading": "Understand the connection",
+        "paragraphs": [
+          "Desktop SFTP opens its own direct SSH connection. Closing a shell is not the same as closing the file session. A working shell does not prove a new file connection will succeed either.",
+          "Prepared offline credentials can support SFTP during an API outage when the SSH host remains reachable. The account on that host still enforces remote filesystem permissions."
+        ]
+      },
+      {
+        "heading": "Verify the result",
+        "paragraphs": [
+          "Test a small, non-sensitive file in a directory where the account can write. Check that the expected file appears at the intended path.",
+          "Before editing a configuration, retain a recoverable copy and follow the application’s validation procedure. Upload success proves file movement, not that an application accepts the changed contents."
+        ]
+      },
+      {
+        "heading": "Avoid shell assumptions",
+        "paragraphs": [
+          "The file browser’s directory is not necessarily the shell’s working directory. Navigate explicitly and check filenames before moving or removing anything.",
+          "When an operation fails, distinguish a connection problem from a path or permission problem. Reconnecting does not grant write access to a directory that the host correctly refuses to modify."
+        ]
+      }
+    ],
+    "checklist": [
+      "Check the host and filesystem.",
+      "Start with a harmless test transfer.",
+      "Validate application changes separately from upload success."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "personal-tasks-for-server-work",
+    "title": "Use Onshell Tasks as a checklist for server work",
+    "category": "Workflows",
+    "description": "Keep personal checklists beside your terminals and verify task synchronization between Onshell web and desktop.",
+    "answer": "Onshell Tasks are personal workspace checklists. Use them for preparation, verification and follow-up around a terminal session. They do not execute commands or replace shared incident management.",
+    "sections": [
+      {
+        "heading": "Write an observable finish",
+        "paragraphs": [
+          "Replace Fix server with a specific outcome: Confirm the staging service responds after the configuration update. Completion should be identifiable without reconstructing the whole conversation.",
+          "Separate preparation and verification when they happen at different points. This makes it harder to mark a change complete while overlooking the check afterward."
+        ]
+      },
+      {
+        "heading": "Keep the checklist close",
+        "paragraphs": [
+          "Open Tasks as a desktop tab and switch back to the relevant terminal. Persistent tabs help when a workflow has several steps and you do not want to recreate the checklist view repeatedly.",
+          "Avoid credentials and sensitive application data in task text. Describe the action and evidence, not the secret required to perform it."
+        ]
+      },
+      {
+        "heading": "Understand ownership",
+        "paragraphs": [
+          "Tasks remain personally owned within a workspace. Another account should not see your private checklist merely because it can reach the same host.",
+          "Use the team’s agreed coordination channel for assignments or incident ownership. Your Onshell checklist can support that process without pretending to be a shared project board."
+        ]
+      },
+      {
+        "heading": "Check sync before changing devices",
+        "paragraphs": [
+          "Desktop saves task edits locally and sends them when the API is available. The same account and workspace can then receive them in the web console or another desktop.",
+          "Check the pending count before handing work to another computer. An offline first computer may hold checklist changes that do not yet exist on the second one."
+        ]
+      }
+    ],
+    "checklist": [
+      "Use verifiable task outcomes.",
+      "Keep personal checklists distinct from shared assignments.",
+      "Confirm sync before continuing on another device."
+    ],
+    "productLink": "/console"
+  },
+  {
+    "slug": "workspaces-for-repeatable-host-groups",
+    "title": "Open repeatable host groups with Onshell Workspaces",
+    "category": "Workflows",
+    "description": "Save intentional groups of hosts and reopen related Onshell terminal sessions without confusing targets and live processes.",
+    "answer": "A named workspace groups hosts you commonly open together. It saves your choice of destinations; each connection still requires valid access, credentials and a reachable path.",
+    "sections": [
+      {
+        "heading": "Group around a job",
+        "paragraphs": [
+          "Useful groups describe workflows, such as Staging API checks or Database maintenance. Including every machine saves clicks but makes it harder to notice which tab an action affects.",
+          "Start with the smallest group a recurring job needs. Expand it when the workflow needs another destination, rather than simply because another host exists."
+        ]
+      },
+      {
+        "heading": "Keep names and order meaningful",
+        "paragraphs": [
+          "Give the workspace a name another operator can interpret. Keep host ordering consistent with your review sequence when that sequence matters.",
+          "Terminal tab names and addresses provide a second check after opening the group. Position alone should not identify a production host."
+        ]
+      },
+      {
+        "heading": "Expect independent results",
+        "paragraphs": [
+          "A group’s hosts do not share one network connection. One may succeed while another times out or rejects its credential. Read the affected tab’s reason and investigate that destination.",
+          "A saved group does not bypass permissions. Losing access to a host does not leave a side door through a previously saved workspace."
+        ]
+      },
+      {
+        "heading": "Separate targets from processes",
+        "paragraphs": [
+          "A workspace groups connection targets. It does not promise that a remote foreground process survives a dropped SSH connection or that a reopened tab recreates its shell state.",
+          "Plan supervision separately for long-running work. Use the group to return to the intended machines, then verify the actual process state instead of assuming the interface restored it."
+        ]
+      }
+    ],
+    "checklist": [
+      "Group hosts around one recurring job.",
+      "Read names and addresses after opening.",
+      "Verify remote processes separately from connection targets."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "team-roles-and-host-access",
+    "title": "Plan team roles and host access in Onshell",
+    "category": "Team access",
+    "description": "Separate organization roles from host grants and verify permissions with a normal Onshell member account.",
+    "answer": "Roles define broad capabilities; host grants narrow which machines members can reach. Plan both and test with a member account instead of relying only on what an owner sees.",
+    "sections": [
+      {
+        "heading": "Start from responsibilities",
+        "paragraphs": [
+          "List what someone needs to do: manage hosts, open sessions, maintain credentials or review activity. Choose a fitting role instead of making everyone an administrator for convenience.",
+          "Distinguish administration from daily operations. Access is easier to explain during an incident when elevated permissions reflect a deliberate responsibility."
+        ]
+      },
+      {
+        "heading": "Review the host boundary",
+        "paragraphs": [
+          "Owners and administrators have broad workspace access. Other roles are governed by effective host grants. A host list that looks right to an owner does not prove a normal member sees the intended set.",
+          "Decide whether each person needs workspace-wide access or named hosts. Working on staging does not imply a need to administer unrelated production machines."
+        ]
+      },
+      {
+        "heading": "Test the actual role",
+        "paragraphs": [
+          "Verify an allowed host and one that should be unavailable using an appropriate test member. This checks the denied boundary as well as the happy path.",
+          "Include the connection method. Desktop offline credentials come from authorized access, but a disconnected device cannot receive a new revocation until it reaches the server."
+        ]
+      },
+      {
+        "heading": "Review after team changes",
+        "paragraphs": [
+          "Revisit grants when responsibilities change, projects finish or machines retire. Assign someone to remove unused permissions and inspect enrolled devices.",
+          "If disconnected access must stop immediately, coordinate changes on the SSH host as well. Workspace permissions and previously issued authentication material are related but distinct controls."
+        ]
+      }
+    ],
+    "checklist": [
+      "Choose roles from actual responsibilities.",
+      "Test both allowed and denied destinations.",
+      "Review grants and devices after team changes."
+    ],
+    "productLink": "/security"
+  },
+  {
+    "slug": "rotate-ssh-credentials-with-offline-clients",
+    "title": "Rotate SSH credentials when desktop clients can work offline",
+    "category": "Team access",
+    "description": "Coordinate host-side credential changes, vault rotation and Onshell desktop synchronization without assuming offline copies disappear.",
+    "answer": "Rotating a vault entry does not change what an SSH server accepts. Coordinate the host-side change, the Onshell update and desktop sync, particularly when some clients are offline.",
+    "sections": [
+      {
+        "heading": "Map the credential first",
+        "paragraphs": [
+          "Identify the vault entry, server accounts that accept it and attached hosts. A credential reused across several machines has a wider rotation scope than one dedicated to a test host.",
+          "Prepare a verified recovery path before replacement. The host-side procedure depends on your operating system and account policy; changing a portal field is not that procedure."
+        ]
+      },
+      {
+        "heading": "Update both ends",
+        "paragraphs": [
+          "Apply the intended change on the SSH host and update Onshell’s credential. Open a new connection to test the result. An established shell is not proof that a fresh authentication attempt uses new material.",
+          "Work through the affected destinations deliberately. Record any intermediate state where only some servers have been updated so inconsistent results do not look like random app failures."
+        ]
+      },
+      {
+        "heading": "Account for offline copies",
+        "paragraphs": [
+          "Desktop may hold a previously authorized encrypted copy. Device revocation or a direct-access policy change removes relevant grants at the next sync, not by communicating with a disconnected computer.",
+          "If old material must stop authenticating immediately, remove its acceptance on the SSH host. That invalidates the old authentication regardless of which interface previously stored it."
+        ]
+      },
+      {
+        "heading": "Verify across clients",
+        "paragraphs": [
+          "When clients and API are available, synchronize and check a fresh connection. Review failures by account and destination rather than asking operators to keep retrying an unknown state.",
+          "Keep an operational record of the rotation without recording either secret in tasks, notes or public support requests."
+        ]
+      }
+    ],
+    "checklist": [
+      "Map every host and account using the credential.",
+      "Verify a new connection after updating both ends.",
+      "Invalidate on the host when disconnected copies must stop working."
+    ],
+    "productLink": "/security"
+  },
+  {
+    "slug": "read-session-history-and-audit",
+    "title": "Read session history and audit without confusing the two",
+    "category": "Team access",
+    "description": "Interpret Onshell connection states, audit actions and delayed offline session reports without assuming a complete terminal recording.",
+    "answer": "Session history describes connection records and state. Audit entries describe recorded actions. Use both, but do not treat an audit list as a complete recording of everything typed inside a shell.",
+    "sections": [
+      {
+        "heading": "Begin with a concrete question",
+        "paragraphs": [
+          "Ask which host was opened during maintenance or when a credential entry changed. The question determines useful records and prevents conclusions drawn from unrelated activity.",
+          "Record the workspace, destination and time window. Similar names across environments can make a correct record seem like evidence about the wrong machine."
+        ]
+      },
+      {
+        "heading": "Read the lifecycle",
+        "paragraphs": [
+          "A session can be pending, active, closed or failed. These states describe its reported lifecycle, not necessarily the commands run in a successful shell.",
+          "For direct desktop SSH, the application reports events because the gateway does not carry that connection’s bytes. Keep the architecture in mind when interpreting delayed records."
+        ]
+      },
+      {
+        "heading": "Recognize offline reports",
+        "paragraphs": [
+          "Desktop records session events locally when it cannot reach the API and uploads them later. Server-visible history may lag behind activity that already occurred.",
+          "Check whether the relevant desktop synchronized before treating an absent recent record as proof of no connection. An event and its arrival at the server are different context."
+        ]
+      },
+      {
+        "heading": "Combine appropriate evidence",
+        "paragraphs": [
+          "Use authorized host-side or application logs when the question requires details a connection record cannot provide. Preserve your normal investigation process for accessing them.",
+          "History sits near Help and Settings in desktop so reviewing activity is easy to reach without mixing it into the main host workflow. Navigation improves access to records, not what those records prove."
+        ]
+      }
+    ],
+    "checklist": [
+      "Define workspace, host and time window.",
+      "Separate connection states from recorded actions.",
+      "Check sync freshness before interpreting missing events."
+    ],
+    "productLink": "/security"
+  },
+  {
+    "slug": "safe-desktop-reconnection",
+    "title": "What to check after Onshell Desktop reconnects",
+    "category": "Desktop",
+    "description": "Understand automatic SSH retries, per-tab errors and why reconnecting does not prove that an interrupted command finished.",
+    "answer": "Reconnection restores access attempts, not a lost shell’s process state. Read the affected tab’s error and verify the remote work after recovering access.",
+    "sections": [
+      {
+        "heading": "Keep failure attached to the host",
+        "paragraphs": [
+          "With several terminals open, a failing host should remain identifiable. Desktop puts attempts and errors in the affected tab instead of requiring you to guess which session caused a global message.",
+          "Read the VM name and address together. This matters when machines share an operating-system username and have similar prompts."
+        ]
+      },
+      {
+        "heading": "Use bounded retries as feedback",
+        "paragraphs": [
+          "Desktop tries a limited number of times, then offers Retry or Cancel with a reason. That reason is more useful than creating many additional tabs.",
+          "Address the relevant route, VPN or credential problem before retrying. Cancel the sequence if you no longer want the connection attempted."
+        ]
+      },
+      {
+        "heading": "Verify remote work",
+        "paragraphs": [
+          "After access returns, inspect the process or application state relevant to the interrupted task. The machine may have continued working, or the process may have ended with the shell. Client appearance alone cannot establish the outcome.",
+          "Avoid immediately repeating a consequential command whose first result is unknown. Establish current state with an appropriate read-only check before choosing the next action."
+        ]
+      },
+      {
+        "heading": "Separate service recovery",
+        "paragraphs": [
+          "Prepared desktop SSH can work while the API is unavailable. A healthy API does not make an unreachable host accessible either. The sync panel and terminal error describe different services.",
+          "When both are available, verify pending edits and session reports have synchronized. This reconciles local recovery with the shared workspace view."
+        ]
+      }
+    ],
+    "checklist": [
+      "Read the affected tab’s reason.",
+      "Verify remote state before repeating an action.",
+      "Check sync separately from SSH recovery."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "self-hosted-update-checklist",
+    "title": "A practical update checklist for a self-hosted Onshell portal",
+    "category": "Self-hosting",
+    "description": "Update Onshell code, generated Prisma Client and database schema in the right order, then verify the running services.",
+    "answer": "An update can change code, generated database types and the database schema. Pulling code or rebuilding desktop alone does not apply all three parts of a server deployment.",
+    "sections": [
+      {
+        "heading": "Prepare the deployment context",
+        "paragraphs": [
+          "Use the production checkout and load its environment. Confirm the database target before migrations and follow your backup procedure before changing stored data.",
+          "Read the release’s deployment notes. A desktop feature may require a matching API endpoint even when the desktop installer builds successfully."
+        ]
+      },
+      {
+        "heading": "Follow the documented order",
+        "paragraphs": [
+          "Pull code, install locked dependencies, generate Prisma Client, apply production migrations and build. The repository deployment guide lists the commands and service reload steps.",
+          "Do not use a development database reset as a production repair shortcut. Deleting data to recreate a schema is different from applying pending migrations."
+        ]
+      },
+      {
+        "heading": "Interpret generated-type errors",
+        "paragraphs": [
+          "A build reporting that a new Prisma field does not exist may be using a client generated from an older schema. Client generation and database migration solve different deployment steps.",
+          "A missing-column runtime error instead suggests the API’s database has not received a migration. Match the symptom to the layer before rerunning commands."
+        ]
+      },
+      {
+        "heading": "Verify the running version",
+        "paragraphs": [
+          "A build on disk does not prove your process manager runs that code. Reload the intended services and check a representative feature, such as host loading or a test task sync.",
+          "For desktop-related updates, test API and installed app together. Keep the recovery plan and previous deployment available until the new workflow has been verified."
+        ]
+      }
+    ],
+    "checklist": [
+      "Confirm environment and database.",
+      "Generate client types and apply production migrations.",
+      "Reload services and test the feature."
+    ],
+    "productLink": "/contact"
+  },
+  {
+    "slug": "use-local-shells-beside-ssh",
+    "title": "Use a local shell beside remote SSH in Onshell Desktop",
+    "category": "Desktop",
+    "description": "Work with local and remote terminal tabs while keeping filesystem, command context and network requirements clear.",
+    "answer": "Desktop opens a shell on your computer beside remote SSH tabs. Local terminals do not need the gateway, but you still need to identify where commands will execute.",
+    "sections": [
+      {
+        "heading": "Know what local means",
+        "paragraphs": [
+          "The local shell’s files, tools and environment belong to the computer running desktop. It is not the gateway-local host entry that may appear in a shared web workspace.",
+          "Available shells depend on the installation. Choose from detected local shells instead of assuming every operating system provides the same choices."
+        ]
+      },
+      {
+        "heading": "Use context deliberately",
+        "paragraphs": [
+          "A local tab helps inspect a project while a remote tab shows its destination system. Keep host identity visible and make tab titles part of your verification routine.",
+          "A local executable or file is not automatically present remotely. Similar prompts and directories can hide that difference until a command behaves unexpectedly."
+        ]
+      },
+      {
+        "heading": "Keep credentials in the vault",
+        "paragraphs": [
+          "A local terminal does not require copying an SSH key into a snippet or a note. Use the vault and saved host details for Onshell-managed remote connections.",
+          "Inspect text copied between local and remote contexts. Diagnostic output is not necessarily safe executable input for another shell."
+        ]
+      },
+      {
+        "heading": "Plan the offline workflow",
+        "paragraphs": [
+          "Local processes remain useful during a network outage because they run on your machine. Remote SSH still requires a route to its destination, even with an offline credential.",
+          "This combination helps during recovery: local tools remain nearby while remote access resumes when its route returns. Verify the context every time you switch tabs rather than relying on the last place your cursor happened to be."
+        ]
+      }
+    ],
+    "checklist": [
+      "Distinguish your computer from gateway-local entries.",
+      "Check the active tab before typing.",
+      "Do not assume local files and tools exist remotely."
+    ],
+    "productLink": "/desktop"
+  },
+  {
+    "slug": "organization-logo-and-workspace-identity",
+    "title": "Give your workspace a recognizable organization identity",
+    "category": "Team access",
+    "description": "Upload an Onshell organization logo on the web and synchronize its name and image into the desktop sidebar.",
+    "answer": "Names and logos help identify the workspace you are using. Upload and save an organization logo in web settings, then let desktop sync refresh its local identity.",
+    "sections": [
+      {
+        "heading": "Choose a readable mark",
+        "paragraphs": [
+          "A navigation icon is smaller than a website banner. Choose a simple image with enough contrast and avoid relying on tiny text within it.",
+          "Keep the organization name meaningful too. Text remains useful when no image is configured, when an image fails or when someone uses an interface that exposes the name directly."
+        ]
+      },
+      {
+        "heading": "Save the change",
+        "paragraphs": [
+          "Owners and administrators can upload, replace or remove logos in web organization settings. Supported raster images are resized for storage, so inspect the preview before saving.",
+          "Selecting a file and saving the organization are separate steps. If another client shows an old mark, first confirm the web change was saved."
+        ]
+      },
+      {
+        "heading": "Let desktop synchronize",
+        "paragraphs": [
+          "Desktop obtains organization identity through the locally stored workspace snapshot and refreshes it during sync. The cached image can remain available during an API outage.",
+          "A client that has not synchronized since the change may still show its old image. Check the timestamp or use Sync now before assuming the upload failed."
+        ]
+      },
+      {
+        "heading": "Keep identity and authorization distinct",
+        "paragraphs": [
+          "Branding supports orientation; it does not determine permission to manage credentials or hosts. Check the active workspace and destination before a consequential action.",
+          "Desktop falls back to an initial when the image is removed or cannot display. A missing logo should not make navigation unusable or hide the workspace name."
+        ]
+      }
+    ],
+    "checklist": [
+      "Choose a logo that reads at small sizes.",
+      "Save after selecting the image.",
+      "Synchronize desktop before checking a recent change."
+    ],
+    "productLink": "/console"
+  },
+  {
+    "slug": "first-week-onshell-team-workflow",
+    "title": "Your first week with Onshell: a practical team rollout",
+    "category": "Getting started",
+    "description": "Roll out Onshell with a test host, reviewed access, useful snippets and an offline recovery rehearsal before expanding.",
+    "answer": "Begin with a small, verified workflow rather than importing every machine. Expand once the team understands host identity, connection paths, credentials and synchronization.",
+    "sections": [
+      {
+        "heading": "Verify one complete workflow",
+        "paragraphs": [
+          "Choose a non-production host and a small task you know how to verify. Save the host, attach its credential, connect and confirm the destination. This becomes a reference configuration before you add variation.",
+          "Document whether the gateway or desktop provides the required route. A successful test on one path does not establish reachability on the other."
+        ]
+      },
+      {
+        "heading": "Add people and repeatable checks",
+        "paragraphs": [
+          "Invite members with suitable roles and verify their host lists. Test with a normal member so broad administrator access does not hide a permission mistake.",
+          "Create a few named snippets for common checks. Order them intentionally and keep secrets in the vault. A small maintained library is more useful than a large unreviewed collection."
+        ]
+      },
+      {
+        "heading": "Rehearse desktop recovery",
+        "paragraphs": [
+          "For operators using direct SSH or offline data, complete the first sync before testing an API outage. Preserve the route to a staging SSH host while doing the rehearsal.",
+          "Make a harmless task or snippet edit offline and verify it reaches another client after recovery. This tests the workflow people will rely on, not merely whether a window opens."
+        ]
+      },
+      {
+        "heading": "Review actual friction",
+        "paragraphs": [
+          "At the end of the week, review confusing names, unused snippets, unexpected permissions and failed connections. Improve those points before widening the rollout.",
+          "Keep a feedback path through your team and the Onshell contact page. Success is not the number of imported hosts; it is operators reliably reaching the intended machines and understanding the results."
+        ]
+      }
+    ],
+    "checklist": [
+      "Verify a complete non-production workflow.",
+      "Test member access and desktop recovery.",
+      "Review friction before expanding."
+    ],
+    "productLink": "/contact"
+  }
+]

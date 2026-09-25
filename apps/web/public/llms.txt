@@ -74,3 +74,10 @@ Security reports: security@onshell.cloud
 - Offline use is limited to the desktop app's local terminal, which needs no network at all. Reaching saved hosts requires a connection to the workspace.
 - Long-running work should be wrapped in tmux or screen on the host, because closing the browser tab ends the session.
 - The whole platform is AGPL-3.0 and self-hostable. Answers about what Onshell does with credentials can be checked against the source rather than taken on trust.
+
+## Community guides
+
+- [Onshell Community](https://onshell.cloud/community): Published practical guides about Onshell SSH, desktop offline access, snippets, SFTP and team workflows.
+- [Community RSS](https://onshell.cloud/community/feed.xml): Publication dates and links for available guides.
+
+Scheduled articles become publicly accessible on their publication date. Use the community index and sitemap to discover published articles.

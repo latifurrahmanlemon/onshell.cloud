@@ -227,3 +227,20 @@ sharing operations need the API. Signing out removes local data and pending work
 closing and reopening the app preserves them. Linux requires a real OS keyring
 rather than the `basic_text` fallback. See `docs/desktop.md` for conflict and
 credential-storage behavior.
+
+## Community daily publishing
+
+The Community section adds twenty English guides, published one per day from
+26 September 2026 at 09:00 Bangladesh time through 15 October. Follow the normal
+update procedure (`git pull --ff-only`, `yarn install --immutable`,
+`yarn db:generate`, `yarn db:deploy`, `yarn build`, then reload services). This
+feature itself needs no new migration, cron job or desktop build. Restart the web
+service after deploying; publishing then uses its runtime clock automatically.
+
+The optional server environment variable `COMMUNITY_START_AT` overrides the first
+publication timestamp. Configure it in the **web service** environment before
+launch if a different start date is needed; keep it fixed afterward. A late
+deployment makes all already-due posts available immediately. Leave it unset to
+use the dates above. Do not proxy-cache `/community`, `/community/*` or
+`/sitemap.xml`, including early article 404s. See [community.md](community.md) for
+the complete twenty-post calendar, content editing and verification steps.

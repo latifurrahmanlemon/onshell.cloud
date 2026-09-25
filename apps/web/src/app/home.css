@@ -1746,3 +1746,23 @@ a.lp-plan-cta {
 .lp-support h2 { margin: 5px 0 5px; font: 700 clamp(1.2rem, 2.4vw, 1.6rem)/1.2 var(--font-display); letter-spacing: -.025em; }
 .lp-support p { margin: 0; color: var(--muted); font-size: .93rem; }
 @media (max-width: 700px) { .lp-support-inner { grid-template-columns: auto 1fr; } .lp-support-inner > a { grid-column: 1 / -1; justify-content: center; } }
+
+/* Keep public navigation readable and reachable on narrow screens. */
+.lp-nav-links a { white-space: nowrap; padding-inline: 9px; font-size: .85rem; }
+.lp-nav .lp-login { white-space: nowrap; }
+.lp-mobile-menu { display: none; position: relative; }
+.lp-mobile-menu summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; cursor: pointer; border: 1px solid var(--border); border-radius: 8px; list-style: none; }
+.lp-mobile-menu summary::-webkit-details-marker { display: none; }
+.lp-mobile-menu summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
+.lp-mobile-menu > div { position: absolute; top: 52px; right: 0; min-width: 200px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px #0002; }
+.lp-mobile-menu > div a { display: block; padding: 11px 14px; border-radius: 6px; min-height: 44px; }
+.lp-mobile-menu > div a:hover { background: var(--surface-2); }
+@media (max-width: 1100px) {
+  .lp-nav-links { display: none; }
+  .lp-mobile-menu { display: block; }
+}
+@media (max-width: 640px) {
+  .lp-nav-inner { gap: 10px; }
+  .lp-nav-actions { gap: 8px; }
+  .lp-mobile-menu > div { left: 0; right: auto; }
+}

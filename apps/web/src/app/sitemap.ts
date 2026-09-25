@@ -1,4 +1,7 @@
 import type { MetadataRoute } from "next";
+import { publishedPosts } from "../lib/community";
+
+export const dynamic = "force-dynamic";
 import { absoluteUrl, siteUrl } from "../lib/site";
 
 /**
@@ -19,16 +22,28 @@ const routes: Array<{
   { path: "/contact", priority: 0.6, changeFrequency: "yearly" },
   { path: "/privacy", priority: 0.4, changeFrequency: "yearly" },
   { path: "/terms", priority: 0.4, changeFrequency: "yearly" },
-  { path: "/refund-policy", priority: 0.4, changeFrequency: "yearly" }
+  { path: "/refund-policy", priority: 0.4, changeFrequency: "yearly" },
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date();
-
-  return routes.map((route) => ({
-    url: route.path === "/" ? siteUrl : absoluteUrl(route.path),
-    lastModified,
-    changeFrequency: route.changeFrequency,
-    priority: route.priority
-  }));
+  const posts = publishedPosts();
+  return [
+    ...routes.map((route) => ({
+      url: route.path === "/" ? siteUrl : absoluteUrl(route.path),
+      changeFrequency: route.changeFrequency,
+      priority: route.priority,
+    })),
+    {
+      url: absoluteUrl("/community"),
+      ...(posts[0] ? { lastModified: posts[0].publishedAt } : {}),
+      changeFrequency: "daily",
+      priority: 0.8,
+    },
+    ...posts.map((post) => ({
+      url: absoluteUrl(`/community/${post.slug}`),
+      lastModified: post.publishedAt,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
+  ];
 }

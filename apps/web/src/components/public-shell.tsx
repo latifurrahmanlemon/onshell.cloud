@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useState, type ReactNode } from "react";
-import { ArrowRight, Send } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowRight, Menu, Send } from "lucide-react";
 import { OnshellMark } from "../app/brand";
 import { ThemeToggle } from "../app/theme";
 import { apiBaseUrl, site } from "../lib/site";
@@ -13,7 +13,7 @@ const navLinks = [
   { href: "/desktop", label: "Desktop app" },
   { href: "/browser-ssh-client", label: "Browser SSH" },
   { href: "/#pricing", label: "Pricing" },
-  { href: "/donate", label: "Donate" },
+  { href: "/community", label: "Community" },
   { href: "/security", label: "Security" },
   // Last, and marked external, because it leaves the site — but present in the
   // primary nav rather than buried in the footer: "you can read the code" is a
@@ -101,6 +101,33 @@ function NewsletterForm() {
   );
 }
 
+function MobilePublicMenu() {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) ref.current.open = false;
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && ref.current?.open) {
+        ref.current.open = false;
+        ref.current.querySelector("summary")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+  return <details className="lp-mobile-menu" ref={ref}>
+    <summary aria-label="Navigation menu"><Menu size={20} /></summary>
+    <div>{navLinks.map(link => <a key={link.href} href={link.href}
+      onClick={() => { if (ref.current) ref.current.open = false; }}
+      {...(link.external ? { target: "_blank", rel: "noreferrer" } : {})}>{link.label}</a>)}</div>
+  </details>;
+}
+
 export function PublicNav() {
   return (
     <nav className="lp-nav" aria-label="Primary">
@@ -124,6 +151,7 @@ export function PublicNav() {
           ))}
         </div>
         <div className="lp-nav-actions">
+          <MobilePublicMenu />
           <ThemeToggle />
           <PublicSessionBadge />
         </div>
@@ -156,6 +184,8 @@ export function PublicFooter() {
           <a href="/desktop">Desktop app</a>
           <a href="/browser-ssh-client">Browser SSH client</a>
           <a href="/download">Downloads</a>
+          <a href="/community">Community guides</a>
+          <a href="/community/feed.xml">Community RSS</a>
           <a href="/#how-it-works">How it works</a>
           <a href="/#pricing">Pricing</a>
           <a href="/#faq">FAQ</a>
