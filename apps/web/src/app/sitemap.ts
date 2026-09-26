@@ -25,8 +25,8 @@ const routes: Array<{
   { path: "/refund-policy", priority: 0.4, changeFrequency: "yearly" },
 ];
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const posts = publishedPosts();
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const posts = await publishedPosts();
   return [
     ...routes.map((route) => ({
       url: route.path === "/" ? siteUrl : absoluteUrl(route.path),
@@ -35,13 +35,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })),
     {
       url: absoluteUrl("/community"),
-      ...(posts[0] ? { lastModified: posts[0].publishedAt } : {}),
+      ...(posts[0]
+        ? {
+            lastModified: posts.reduce(
+              (latest, post) =>
+                post.modifiedAt > latest ? post.modifiedAt : latest,
+              posts[0].modifiedAt,
+            ),
+          }
+        : {}),
       changeFrequency: "daily",
       priority: 0.8,
     },
     ...posts.map((post) => ({
       url: absoluteUrl(`/community/${post.slug}`),
-      lastModified: post.publishedAt,
+      lastModified: post.modifiedAt,
       changeFrequency: "monthly" as const,
       priority: 0.7,
     })),

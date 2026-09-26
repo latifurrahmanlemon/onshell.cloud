@@ -1076,3 +1076,29 @@ model EmailLog {
   @@index([recipient, createdAt])
   @@index([kind, createdAt])
 }
+
+/// Platform editorial content. PUBLISHED with a future publishedAt is scheduled.
+model CommunityPost {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  title          String
+  category       String
+  description    String   @db.Text
+  answer         String   @db.Text
+  sections       Json
+  checklist      Json
+  productLink    String   @default("/desktop")
+  authorName     String   @default("Onshell")
+  seoTitle       String   @default("")
+  seoDescription String   @db.Text
+  coverImage     String?  @db.LongText
+  coverAlt       String   @default("")
+  status         String   @default("DRAFT")
+  publishedAt    DateTime?
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, publishedAt])
+  @@index([category])
+}

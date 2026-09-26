@@ -16,15 +16,15 @@ import "../community.css";
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const post = publishedPost((await params).slug);
+  const post = await publishedPost((await params).slug);
   if (!post) notFound();
   const url = absoluteUrl(`/community/${post.slug}`);
   const images = [
     { url: `${url}/image`, width: 1200, height: 630, alt: post.title },
   ];
   return {
-    title: { absolute: `${post.title} | Onshell Community` },
-    description: post.description,
+    title: { absolute: `${post.seoTitle || post.title} | Onshell Community` },
+    description: post.seoDescription || post.description,
     alternates: {
       canonical: url,
       types: { "application/rss+xml": "/community/feed.xml" },
@@ -32,26 +32,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: {
       type: "article",
       title: post.title,
-      description: post.description,
+      description: post.seoDescription || post.description,
       url,
       publishedTime: post.publishedAt,
-      authors: ["Onshell"],
+      authors: [post.authorName],
       section: post.category,
       images,
     },
     twitter: {
       card: "summary_large_image",
       title: post.title,
-      description: post.description,
+      description: post.seoDescription || post.description,
       images: [`${url}/image`],
     },
   };
 }
 export default async function CommunityArticle({ params }: Props) {
-  const now = Date.now();
-  const post = publishedPost((await params).slug, now);
+  const post = await publishedPost((await params).slug);
   if (!post) notFound();
-  const others = publishedPosts(now).filter((p) => p.slug !== post.slug);
+  const others = (await publishedPosts()).filter((p) => p.slug !== post.slug);
   const related = [
     ...others.filter((p) => p.category === post.category),
     ...others.filter((p) => p.category !== post.category),
@@ -62,9 +61,9 @@ export default async function CommunityArticle({ params }: Props) {
       "@context": "https://schema.org",
       "@type": "BlogPosting",
       headline: post.title,
-      description: post.description,
+      description: post.seoDescription || post.description,
       datePublished: post.publishedAt,
-      dateModified: post.publishedAt,
+      dateModified: post.modifiedAt,
       mainEntityOfPage: url,
       url,
       image: `${url}/image`,
@@ -72,7 +71,7 @@ export default async function CommunityArticle({ params }: Props) {
       articleSection: post.category,
       author: {
         "@type": "Organization",
-        name: "Onshell",
+        name: post.authorName,
         url: absoluteUrl("/community"),
       },
       publisher: {
@@ -117,13 +116,20 @@ export default async function CommunityArticle({ params }: Props) {
           <h1>{post.title}</h1>
           <p>{post.description}</p>
           <div className="community-meta">
-            <span>By Onshell</span>
+            <span>By {post.authorName}</span>
             <time dateTime={post.publishedAt}>
               {articleDate(post.publishedAt)}
             </time>
             <span>{post.readingMinutes} min read</span>
           </div>
         </header>
+        {post.coverImage && (
+          <img
+            className="community-cover"
+            src={post.coverImage}
+            alt={post.coverAlt}
+          />
+        )}
         <div className="community-reading-layout">
           <article className="community-prose">
             <aside className="community-answer">

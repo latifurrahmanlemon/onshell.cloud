@@ -1,13 +1,6 @@
-import drafts from "../content/community/posts.json";
+import { cache } from "react";
+import { apiBaseUrl } from "./site";
 
-export const COMMUNITY_START = "2026-09-26T03:00:00.000Z";
-export const communityCategories = [
-  "Getting started",
-  "Desktop",
-  "Workflows",
-  "Team access",
-  "Self-hosting",
-] as const;
 export interface CommunityPost {
   slug: string;
   title: string;
@@ -18,50 +11,36 @@ export interface CommunityPost {
   checklist: string[];
   productLink: string;
   publishedAt: string;
+  modifiedAt: string;
   readingMinutes: number;
+  authorName: string;
+  seoTitle: string;
+  seoDescription: string;
+  coverImage: string | null;
+  coverAlt: string;
 }
-/** Runtime clock gating is shared by HTML, metadata, sitemap, image and feed routes. */
-export function communitySchedule(
-  start = process.env.COMMUNITY_START_AT ?? COMMUNITY_START,
-): CommunityPost[] {
-  if (
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/.test(
-      start,
-    ) ||
-    !Number.isFinite(Date.parse(start))
-  ) {
-    throw new Error(
-      "COMMUNITY_START_AT must be an ISO timestamp with a timezone, for example 2026-09-26T09:00:00+06:00.",
-    );
-  }
-  return drafts.map((post, index) => ({
-    ...post,
-    publishedAt: new Date(Date.parse(start) + index * 86_400_000).toISOString(),
-    readingMinutes: Math.max(
-      1,
-      Math.ceil(
-        [
-          post.answer,
-          ...post.sections.flatMap((s) => s.paragraphs),
-          ...post.checklist,
-        ]
-          .join(" ")
-          .split(/\s+/).length / 200,
-      ),
-    ),
-  }));
+// Server calls may use an internal API origin; public browser requests still use apiBaseUrl.
+async function readCommunity<T>(path: string): Promise<T | undefined> {
+  const origin = (process.env.COMMUNITY_API_URL || apiBaseUrl).replace(
+    /\/+$/,
+    "",
+  );
+  const response = await fetch(`${origin}/public/community${path}`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(10000),
+  });
+  if (response.status === 404 && path) return undefined;
+  if (!response.ok)
+    throw new Error("Community content is temporarily unavailable.");
+  return response.json() as Promise<T>;
 }
-export function publishedPosts(
-  now = Date.now(),
-  start?: string,
-): CommunityPost[] {
-  return communitySchedule(start)
-    .filter((post) => Date.parse(post.publishedAt) <= now)
-    .reverse();
+export async function publishedPosts(): Promise<CommunityPost[]> {
+  return (await readCommunity<CommunityPost[]>(""))!;
 }
-export function publishedPost(slug: string, now = Date.now(), start?: string) {
-  return publishedPosts(now, start).find((post) => post.slug === slug);
-}
+// Deduplicate metadata and page reads only within the current server render.
+export const publishedPost = cache(async (slug: string) =>
+  readCommunity<CommunityPost>(`/${encodeURIComponent(slug)}`),
+);
 export function articleDate(value: string) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "long",

@@ -5,7 +5,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
-  const post = publishedPost((await params).slug);
+  const post = await publishedPost((await params).slug);
   if (!post)
     return new Response("Not found", {
       status: 404,

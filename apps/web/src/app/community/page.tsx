@@ -2,13 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowUpRight, BookOpen, Rss, Terminal } from "lucide-react";
 import { PublicShell } from "../../components/public-shell";
-import {
-  articleDate,
-  communityCategories,
-  communitySchedule,
-  publishedPosts,
-  safeJsonLd,
-} from "../../lib/community";
+import { articleDate, publishedPosts, safeJsonLd } from "../../lib/community";
 import { absoluteUrl } from "../../lib/site";
 import "../home.css";
 import "./community.css";
@@ -50,7 +44,10 @@ export default async function Community({
   const params = await searchParams;
   const q = typeof params.q === "string" ? params.q.slice(0, 120).trim() : "";
   const category = typeof params.category === "string" ? params.category : "";
-  const posts = publishedPosts();
+  const posts = await publishedPosts();
+  const communityCategories = [
+    ...new Set(posts.map((post) => post.category)),
+  ].sort();
   const filtered = posts.filter(
     (p) =>
       (!category || p.category === category) &&
@@ -131,7 +128,11 @@ export default async function Community({
             </label>
             <label>
               Topic
-              <select aria-label="Topic" name="category" defaultValue={category}>
+              <select
+                aria-label="Topic"
+                name="category"
+                defaultValue={category}
+              >
                 <option value="">All topics</option>
                 {communityCategories.map((c) => (
                   <option key={c}>{c}</option>
@@ -203,7 +204,7 @@ export default async function Community({
               <p>
                 {posts.length
                   ? "Try a different topic or search term."
-                  : `Our first guide arrives ${articleDate(communitySchedule()[0].publishedAt)}. Follow the RSS feed to keep up.`}
+                  : "New guides will appear here when they are published. Follow the RSS feed to keep up."}
               </p>
               <Link href={posts.length ? "/community" : "/community/feed.xml"}>
                 {posts.length ? "Show all guides" : "Follow the feed"}{" "}

@@ -228,19 +228,23 @@ closing and reopening the app preserves them. Linux requires a real OS keyring
 rather than the `basic_text` fallback. See `docs/desktop.md` for conflict and
 credential-storage behavior.
 
-## Community daily publishing
+## Community CMS and scheduled publishing
 
-The Community section adds twenty English guides, published one per day from
-26 September 2026 at 09:00 Bangladesh time through 15 October. Follow the normal
-update procedure (`git pull --ff-only`, `yarn install --immutable`,
-`yarn db:generate`, `yarn db:deploy`, `yarn build`, then reload services). This
-feature itself needs no new migration, cron job or desktop build. Restart the web
-service after deploying; publishing then uses its runtime clock automatically.
+Deploy API and web together for **Admin > Community**. Migration
+`20260926090000_community_cms` creates the post table and imports the twenty
+existing English guides once. Back up MySQL, then use the standard update
+sequence above: pull, install, `yarn db:generate`, `yarn db:deploy`, `yarn build`,
+and reload services. No additional seed, cron or desktop build is required.
 
-The optional server environment variable `COMMUNITY_START_AT` overrides the first
-publication timestamp. Configure it in the **web service** environment before
-launch if a different start date is needed; keep it fixed afterward. A late
-deployment makes all already-due posts available immediately. Leave it unset to
-use the dates above. Do not proxy-cache `/community`, `/community/*` or
-`/sitemap.xml`, including early article 404s. See [community.md](community.md) for
-the complete twenty-post calendar, content editing and verification steps.
+The imported schedule is 26 September–15 October 2026 at 09:00 Bangladesh time,
+one post per day. Already-due posts become public immediately. Manage draft,
+published and scheduled posts, content, cover images and SEO in Admin > Community.
+Each post now has its own database timestamp; `COMMUNITY_START_AT` is obsolete.
+For a previously customized campaign, review the imported dates before exposing
+the upgraded web service. Subsequent deployments preserve all admin edits and deletions.
+
+The web server must reach the API. Optionally set server-only `COMMUNITY_API_URL`
+to its internal URL (for example `http://127.0.0.1:5017`) when the public API URL
+is not reachable from Next.js. Purge/bypass proxy caches for `/community`,
+`/community/*`, `/sitemap.xml` and `/api/public/community*`. See
+[community.md](community.md) for editing, publication and verification steps.

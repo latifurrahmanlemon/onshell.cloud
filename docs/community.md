@@ -1,118 +1,91 @@
-# Community publishing
+# Community administration
 
-The public editorial community lives at `/community`. It includes searchable,
-topic-filtered guides, individual articles, reading times, an RSS feed, social
-images, related guides and a contact link for topic suggestions. Posts are
-versioned content, not user-submitted forum threads or an admin CMS.
+Manage content in **Admin > Community** using a platform administrator account.
+Organization administrators and regular members cannot read drafts or change
+community content. All create, update and delete actions are audit-logged.
 
-## The first campaign
+## Editor
 
-Twenty original English guides are stored in
-`apps/web/src/content/community/posts.json`. By default the first publishes on
-**26 September 2026 at 09:00 Bangladesh time (03:00 UTC)**. One further guide
-publishes every 24 hours, ending **15 October 2026 at 09:00 Bangladesh time**.
+- Create, edit, preview and permanently delete posts.
+- Search by title, slug or summary; filter by status and category; page through results.
+- Set title, stable URL slug, summary, short answer, author and category. Type a
+  new category or choose an existing one. Categories are labels on posts; rename
+  or remove a label by editing the affected posts.
+- Add, remove and reorder sections; separate paragraphs with a blank line.
+- Edit the next-steps checklist and internal product link.
+- Upload a PNG/JPEG/WebP cover (up to 5 MB before resizing) and its accessible
+  description. Images are resized to 1200 pixels, stored in the database and
+  included in normal database backups. The encoded image must remain under 300 KB.
+- Set an optional SEO title and description. Otherwise the article title and
+  summary are used. Canonicals, BlogPosting/breadcrumb data and social images
+  are generated automatically.
 
-| Day | Publication date (09:00 Bangladesh) | Guide |
-| --- | --- | --- |
-| 1 | 2026-09-26 | Getting started with Onshell: your first saved SSH host |
-| 2 | 2026-09-27 | Browser SSH or desktop SSH: which connection should you use? |
-| 3 | 2026-09-28 | Prepare Onshell Desktop for offline SSH before an outage |
-| 4 | 2026-09-29 | How local-first sync works in Onshell Desktop |
-| 5 | 2026-09-30 | Organize hosts with names, tags and favorites |
-| 6 | 2026-10-01 | Use the credential vault without mixing up host access |
-| 7 | 2026-10-02 | An SSH connection failed: work through the reason |
-| 8 | 2026-10-03 | Copy terminal output without interrupting commands |
-| 9 | 2026-10-04 | Build a snippet library your team can actually use |
-| 10 | 2026-10-05 | Use SFTP alongside your local files in Onshell |
-| 11 | 2026-10-06 | Use Onshell Tasks as a checklist for server work |
-| 12 | 2026-10-07 | Open repeatable host groups with Onshell Workspaces |
-| 13 | 2026-10-08 | Plan team roles and host access in Onshell |
-| 14 | 2026-10-09 | Rotate SSH credentials when desktop clients can work offline |
-| 15 | 2026-10-10 | Read session history and audit without confusing the two |
-| 16 | 2026-10-11 | What to check after Onshell Desktop reconnects |
-| 17 | 2026-10-12 | A practical update checklist for a self-hosted Onshell portal |
-| 18 | 2026-10-13 | Use a local shell beside remote SSH in Onshell Desktop |
-| 19 | 2026-10-14 | Give your workspace a recognizable organization identity |
-| 20 | 2026-10-15 | Your first week with Onshell: a practical team rollout |
+Save as **Draft** to keep a post private. Select **Published** to publish now, or
+**Scheduled** to choose a future date. The editor's schedule is explicitly in
+Bangladesh time (UTC+06:00); the list displays dates in your browser timezone.
+Past dates publish immediately after saving. Editing an already published post
+keeps its publication date unless you change it. Select Draft and save to unpublish.
 
-## How scheduling works
+The preview is private inside the admin editor and includes unsaved changes.
+Save explicitly; leaving an edited post asks before discarding changes. If
+another administrator saves first, your save is rejected as a conflict and your
+text is retained. Copy your changes, reload the post and merge them.
 
-The Next.js server checks its clock on each request. The article, metadata,
-image, RSS and sitemap routes use the same publication gate. A future article
-returns 404; its title/body is absent from public index, related links, feed and
-sitemap. Publication needs no cron, database migration or daily rebuild. The web
-server must be running, with an accurate system clock. An already open page
-shows new publications on refresh; RSS readers fetch on their own schedule.
+Changing a published slug changes its URL; automatic redirects are not created.
+Prefer keeping published slugs stable. Deletion is permanent after confirmation.
 
-This is an availability schedule, not an email or social-media posting service.
-Repository contributors can read the prepared files; publication gating is not
-intended to make content in the public source repository confidential.
+## Existing twenty guides and deployment
 
-If deploying after the initial date, guides whose dates have passed become
-available immediately. To start a fresh campaign, set a fixed server-side
-`COMMUNITY_START_AT` **before the first production launch**, for example:
+Migration `20260926090000_community_cms` creates the content table and imports all
+20 English guides once. Their initial schedule remains **26 September–15 October
+2026, one per day at 09:00 Bangladesh time**. Already-due posts are immediately
+public after deployment. They can all be edited, unpublished, rescheduled or
+deleted in Admin > Community. Later deploys never overwrite edits or restore deletions.
 
-```dotenv
-COMMUNITY_START_AT=2026-09-26T09:00:00+06:00
+The old `COMMUNITY_START_AT` environment variable is no longer used: each post
+has its own database publication time. If a custom campaign start was previously
+configured, adjust the imported dates in Admin before making the upgraded web
+service public. The original readable content is archived in
+`docs/community-starter-posts.json` for reference, not used at runtime.
+
+Deploy **API and web together**. From the production checkout, using the same
+user that runs PM2, back up the database, then:
+
+```bash
+cd /home/onshell/htdocs/onshell.cloud
+set -a && source .env && set +a
+git pull --ff-only origin master &&
+yarn install --immutable &&
+yarn db:generate &&
+yarn db:deploy &&
+yarn build &&
+pm2 reload ecosystem.config.cjs --update-env
 ```
 
-Keep that timestamp stable across restarts, deployments and web instances.
-Changing it shifts every publication date. Do not set it to the current date
-on every deploy. Pass the value to the Next.js service environment, not only the
-API; reload the web process after changing it. It is not a NEXT_PUBLIC variable.
-The default works without adding any environment variable.
+No seed command, cron job or desktop release is needed. Follow
+[deployment.md](deployment.md) for backup, process checks and rollback practices.
 
-Do not cache `/community`, `/community/*` or `/sitemap.xml` at a reverse proxy/CDN.
-Respect Next.js dynamic/no-store response headers, including 404s. Otherwise a
-cached empty index or early 404 can hide a newly published post. Purge existing
-cache rules for these paths when enabling the feature. Never use static export
-for these routes.
+The Next.js server reads the API on each request with no-store. It uses
+`NEXT_PUBLIC_API_BASE_URL` by default. If the server needs an internal address,
+set **`COMMUNITY_API_URL=http://127.0.0.1:5017`** in the web service environment
+(use your actual API port/base path). This is server-only and optional.
 
-## Editing and adding guides
+Do not proxy-cache `/community`, `/community/*`, `/sitemap.xml` or
+`/api/public/community*`, including 404 responses. Purge any existing cached
+community pages when deploying this upgrade. Open pages show changes on refresh.
+If the API is unavailable, the page shows an error; it never resurrects deleted
+or unpublished posts from bundled files.
 
-Edit the JSON file, validate with `yarn test apps/web/src/lib/community.test.ts`,
-then build and deploy web. Each entry has a unique lowercase slug, title,
-description, topic, short answer, sections, a three-item checklist and a relevant
-product link. React escapes all prose; no arbitrary HTML or script is accepted.
+## Verification
 
-Keep the initial 20 entries in their current order: array position determines
-the daily publication date. Append additional guides to continue the daily
-schedule. If appending after their calculated dates have passed, those entries
-publish immediately. Update the campaign-size assertion in the content test when
-intentionally expanding the campaign. Keep published slugs stable so links remain
-valid. For meaningful revisions to published articles, extend the content model
-with an explicit modification timestamp instead of inventing a new date on
-request. Currently dateModified equals the initial publication date.
+1. Open Admin > Community and confirm the twenty migrated posts and dates.
+2. Save a draft and preview it; its public URL must return 404.
+3. Schedule a test post, confirm it stays hidden, then verify it appears after
+   the timestamp without restarting or rebuilding any service.
+4. Edit the title/SEO fields and verify the page, RSS and sitemap on refresh.
+5. Unpublish and delete a test post; verify it disappears from all public surfaces.
+6. Verify another admin's stale edit is rejected instead of overwriting changes.
 
-## Search and AI discovery
-
-The full text is server-rendered and publicly readable without signing in.
-Each article has its own canonical URL, description, Open Graph/Twitter image,
-BlogPosting and breadcrumb structured data. The sitemap and RSS contain only
-published guides and use their publication dates. Search/filter result pages are
-noindex/follow with a canonical link to the main community page. Public nav,
-footer and llms.txt link to the community.
-
-The content uses clear headings, direct answers and factual product descriptions.
-There is no special AI-ranking schema or promise of search ranking/citations.
-Google's guidance applies ordinary SEO and helpful content to AI search:
-https://developers.google.com/search/docs/appearance/ai-features
-Article markup guidance:
-https://developers.google.com/search/docs/appearance/structured-data/article
-
-After production deployment, submit `/sitemap.xml` in the site's Search Console,
-inspect the first published URL, and check its markup with Google's Rich Results
-Test. Indexing and external feed refreshes are controlled by those services.
-
-## Deployment and verification
-
-Follow the normal update sequence in [deployment.md](deployment.md). This feature
-changes web only and adds no Prisma migration or desktop release requirement.
-After rebuilding, restart/reload the web process with its production environment.
-Check `/community`, `/community/feed.xml`, `/sitemap.xml` and a published article
-(including its `/image` URL). Before the campaign begins the empty index and
-empty feed are expected, and all article URLs should return 404.
-
-For local preview of all twenty guides, run the production web server with an
-isolated `COMMUNITY_START_AT` at least 20 days in the past. Do not copy that
-preview override into production.
+Public article bodies remain server-rendered. Submit `/sitemap.xml` to Search
+Console and inspect a published URL after deployment. This supports ordinary
+search and AI discovery; rankings and citations are not guaranteed.

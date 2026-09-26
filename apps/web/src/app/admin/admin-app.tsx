@@ -12,6 +12,7 @@ import {
   AlertCircle,
   ArrowLeftRight,
   Bot,
+  BookOpen,
   Bell,
   Camera,
   CheckCircle2,
@@ -58,6 +59,7 @@ import AdminGate from "./gate";
 import { AiSettingsPanel, AiThreadsSection } from "./ai-admin";
 import { AnalyticsSection } from "./analytics";
 import { BotProtectionPanel } from "./bot-protection";
+import { CommunitySection } from "./community-admin";
 import { GrowthSection } from "./growth-admin";
 import { DonationsSection } from "./donations";
 import { InboxSection } from "./inbox";
@@ -267,7 +269,7 @@ interface NewSettingForm {
   isSecret: boolean;
 }
 
-type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "donations" | "logs" | "settings";
+type SectionId = "overview" | "analytics" | "users" | "inbox" | "ai" | "growth" | "community" | "donations" | "logs" | "settings";
 type SettingsTab = "packages" | "smtp" | "billing" | "bots" | "ai" | "notifications" | "general";
 
 type UserSortKey = "name" | "email" | "role" | "created" | "login" | "hosts" | "tasks" | "package";
@@ -311,6 +313,7 @@ const adminNav: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: "users", label: "Users", icon: Users },
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "ai", label: "AI Conversations", icon: Bot },
+  { id: "community", label: "Community", icon: BookOpen },
   { id: "growth", label: "Growth", icon: TrendingUp },
   { id: "donations", label: "Donations", icon: HeartHandshake },
   { id: "logs", label: "Logs", icon: Activity },
@@ -333,6 +336,7 @@ const sectionMeta: Record<SectionId, { title: string; description: string }> = {
   users: { title: "Users", description: "All accounts across organizations, with roles and security posture." },
   inbox: { title: "Inbox", description: "Enquiries submitted through the public contact form." },
   ai: { title: "AI Conversations", description: "Assistant threads across all workspaces, for support and abuse review." },
+  community: { title: "Community", description: "Manage articles, drafts, publication schedules and search appearance." },
   growth: { title: "Growth", description: "Freemium funnel, referral leaderboard, and newsletter subscribers." },
   donations: { title: "Donations", description: "One-time community contributions and their verified payment status." },
   logs: { title: "Logs", description: "Public-site visits, sign-in activity, and outbound email delivery." },
@@ -1233,6 +1237,7 @@ function AdminPanel() {
     inbox: false,
     ai: false,
     growth: false,
+    community: false,
     donations: false,
     logs: false,
     settings: settingsTabLoading[settingsTab]
@@ -1253,7 +1258,7 @@ function AdminPanel() {
       return;
     }
     // Inbox, AI, and Growth each render their own reload button.
-    if (section === "analytics" || section === "inbox" || section === "ai" || section === "growth" || section === "donations") return;
+    if (section === "community" || section === "analytics" || section === "inbox" || section === "ai" || section === "growth" || section === "donations") return;
     if (section === "users") {
       void usersRes.reload();
       void subscriptionsRes.reload();
@@ -2894,6 +2899,7 @@ function AdminPanel() {
     inbox: () => <InboxSection onUnreadChange={setInboxUnread} />,
     ai: () => <AiThreadsSection />,
     growth: () => <GrowthSection />,
+    community: () => <CommunitySection />,
     donations: () => <DonationsSection />,
     logs: () => <LogsSection />,
     settings: renderSettings
