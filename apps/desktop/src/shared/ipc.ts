@@ -15,6 +15,9 @@ import type {
   RemoteSession,
   Snippet,
   TaskItem,
+  NoteItem,
+  NoteInput,
+  NoteRevision,
   AppNotification,
   HostWorkspace,
   User
@@ -284,6 +287,11 @@ export interface OnshellBridge {
     createTask(text: string): Promise<TaskItem>;
     updateTask(taskId: string, patch: { text?: string; completed?: boolean }): Promise<TaskItem>;
     deleteTask(taskId: string): Promise<void>;
+    notes(): Promise<NoteItem[]>;
+    createNote(input: NoteInput): Promise<NoteItem>;
+    updateNote(noteId: string, input: NoteInput): Promise<NoteItem>;
+    deleteNote(noteId: string): Promise<void>;
+    noteHistory(noteId: string): Promise<NoteRevision[]>;
     notifications(): Promise<AppNotification[]>;
     markNotificationRead(notificationId: string): Promise<void>;
     createCredential(input: { name: string; kind: "password" | "ssh_key" | "rdp_password"; secret: string; attachedHostIds: string[] }): Promise<CredentialSummary>;
@@ -396,6 +404,11 @@ export const CHANNELS = {
   consoleCreateTask: "console:create-task",
   consoleUpdateTask: "console:update-task",
   consoleDeleteTask: "console:delete-task",
+  consoleNotes: "console:notes",
+  consoleCreateNote: "console:create-note",
+  consoleUpdateNote: "console:update-note",
+  consoleDeleteNote: "console:delete-note",
+  consoleNoteHistory: "console:note-history",
   consoleNotifications: "console:notifications",
   consoleReadNotification: "console:read-notification",
   consoleCreateCredential: "console:create-credential",

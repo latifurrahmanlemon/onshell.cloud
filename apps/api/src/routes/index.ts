@@ -3,6 +3,7 @@ import { registerSyncRoutes } from "./modules/sync.js";
 import type { FastifyInstance } from "fastify";
 import type { RuntimeConfig } from "@onshell/config";
 import { registerAdminRoutes } from "./modules/admin.js";
+import { registerAdminProductivityRoutes } from "./modules/admin-productivity.js";
 import { registerAgentRoutes } from "./modules/agents.js";
 import { registerAiRoutes } from "./modules/ai.js";
 import { registerAuditRoutes } from "./modules/audit.js";
@@ -24,6 +25,7 @@ import { registerPublicRoutes } from "./modules/public.js";
 import { registerSessionRoutes } from "./modules/sessions.js";
 import { registerSnippetRoutes } from "./modules/snippets.js";
 import { registerTaskRoutes } from "./modules/tasks.js";
+import { registerNoteRoutes } from "./modules/notes.js";
 import { registerNotificationRoutes } from "./modules/notifications.js";
 
 export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig) {
@@ -46,10 +48,12 @@ export async function registerRoutes(app: FastifyInstance, config: RuntimeConfig
   await registerSessionRoutes(app, config);
   await registerSnippetRoutes(app);
   await registerTaskRoutes(app);
+  await registerNoteRoutes(app);
   await registerNotificationRoutes(app, config);
   await registerAiRoutes(app, config);
   await registerGrowthRoutes(app, config);
   await registerAuditRoutes(app);
   await registerLogRoutes(app, config);
   await registerAdminRoutes(app, config);
+  await registerAdminProductivityRoutes(app, config);
 }

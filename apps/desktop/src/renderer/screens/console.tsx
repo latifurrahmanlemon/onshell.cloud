@@ -20,6 +20,7 @@ import { Icon } from "../icons.js";
 import { CommandPalette, type CommandAction } from "../command-palette.js";
 import { HistoryView, HostsView, VaultView } from "./resource-view.js";
 import { Tasks } from "./tasks.js";
+import { Notebook } from "./notebook.js";
 import { beginWorkspaceHostDrag, Workspaces } from "./workspaces.js";
 import { retryConnection } from "../connection-retry.js";
 import { CredentialDialog } from "./credential-dialog.js";
@@ -42,6 +43,7 @@ type Overlay =
   | { kind: "history" }
   | { kind: "help" }
   | { kind: "tasks" }
+  | { kind: "notebook" }
   | { kind: "workspaces" }
   | { kind: "files"; target: FileSessionTargetRequest; label: string };
 
@@ -764,6 +766,7 @@ export function Console({ state }: Props) {
           <Icon name="key" />
         </button>
         <button className={`activity-button${overlay.kind === "tasks" ? " activity-button--active" : ""}`} aria-label="Tasks" data-tooltip="Tasks" onClick={() => setOverlay({ kind: "tasks" })}><Icon name="tasks" /></button>
+        <button className={`activity-button${overlay.kind === "notebook" ? " activity-button--active" : ""}`} aria-label="Notebook" data-tooltip="Notebook" onClick={() => setOverlay({ kind: "notebook" })}><Icon name="notebook" /></button>
         <button className={`activity-button${overlay.kind === "workspaces" ? " activity-button--active" : ""}`} aria-label="Workspaces" data-tooltip="Workspaces" onClick={() => setOverlay({ kind: "workspaces" })}><Icon name="split" /></button>
         <span className="activity-rail__spacer" />
         <button
@@ -1140,6 +1143,7 @@ export function Console({ state }: Props) {
             <HistoryView sessions={sessions} audit={audit} hosts={hosts} onClose={() => setOverlay({ kind: "none" })} />
           )}
           {page.kind === "tasks" && <Tasks initial={tasks} />}
+          {page.kind === "notebook" && <Notebook api={bridge.console} />}
           {page.kind === "workspaces" && <Workspaces hosts={hosts} currentHostIds={tabs.map((tab) => tab.target.kind === "local" ? undefined : tab.target.hostId).filter((id): id is string => Boolean(id))} onOpen={(ids) => void openNamedWorkspace(ids)} />}
           {page.kind === "help" && <Help version={state.version} onClose={() => setOverlay({ kind: "none" })} />}
 

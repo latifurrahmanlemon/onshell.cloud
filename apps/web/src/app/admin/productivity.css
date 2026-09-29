@@ -1,0 +1,39 @@
+.prod-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.prod-kpi { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
+.prod-kpi > span { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: var(--accent-weak); color: var(--accent-text); }
+.prod-kpi div { display: grid; gap: 3px; min-width: 0; }
+.prod-kpi small { color: var(--soft); font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prod-kpi strong { font: 700 1.3rem/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
+.prod-tools select { min-height: 38px; padding: 0 32px 0 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--text); }
+.prod-state { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: var(--soft); text-align: center; }
+.prod-state svg { color: var(--accent-text); }
+.prod-state strong { color: var(--text); }
+.prod-table-wrap { overflow-x: auto; }
+.prod-table { width: 100%; border-collapse: collapse; font-size: .87rem; }
+.prod-table th, .prod-table td { padding: 12px 15px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+.prod-table th { color: var(--soft); font-size: .72rem; letter-spacing: .055em; text-transform: uppercase; white-space: nowrap; }
+.prod-table th button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.prod-table th button:hover { color: var(--text); }
+.prod-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.prod-table tbody tr:last-child td { border-bottom: 0; }
+.prod-table tbody tr:hover td { background: var(--surface-2); }
+.prod-table td { color: var(--muted); }
+.prod-table td strong, .prod-table td small { display: block; }
+.prod-table td strong { color: var(--text); }
+.prod-table td small { margin-top: 4px; color: var(--soft); font-size: .76rem; }
+.prod-table td.num { color: var(--text); font-weight: 600; }
+.prod-ratio { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.prod-ratio i { flex: 1; height: 6px; overflow: hidden; border-radius: 99px; background: var(--surface-3, var(--border)); }
+.prod-ratio b { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.prod-ratio span { min-width: 34px; color: var(--text); font-size: .78rem; font-variant-numeric: tabular-nums; text-align: right; }
+@media (max-width: 720px) {
+  .prod-tools { width: 100%; }
+  .prod-tools .search-field { flex: 1 1 100%; }
+  .prod-table thead { display: none; }
+  .prod-table, .prod-table tbody, .prod-table tr, .prod-table td { display: block; width: 100%; }
+  .prod-table tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .prod-table td { display: flex; justify-content: space-between; gap: 12px; padding: 6px 14px; border: 0; text-align: right; }
+  .prod-table td::before { content: attr(data-label); color: var(--soft); font-size: .74rem; text-align: left; }
+  .prod-table td[data-label="User"] { display: block; text-align: left; }
+  .prod-table td[data-label="User"]::before { content: none; }
+}

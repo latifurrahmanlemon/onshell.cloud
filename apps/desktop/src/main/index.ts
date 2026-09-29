@@ -47,6 +47,8 @@ import {
 } from "./runtime/sharing.js";
 import { checkForUpdate } from "./runtime/updates.js";
 import type { ApprovalMode, DesktopDeviceSummary } from "../shared/ipc.js";
+import type { NoteInput } from "@onshell/api-client";
+import { NOTE_COLORS } from "@onshell/shared";
 import {
   closeAllTerminals,
   closeTerminal,
@@ -395,6 +397,11 @@ function registerHandlers() {
   ipcMain.handle(CHANNELS.consoleCreateTask, (_event, text: string) => requireLocalApi().createTask(text));
   ipcMain.handle(CHANNELS.consoleUpdateTask, (_event, taskId: string, patch: { text?: string; completed?: boolean }) => requireLocalApi().updateTask(taskId, patch));
   ipcMain.handle(CHANNELS.consoleDeleteTask, async (_event, taskId: string) => { await requireLocalApi().deleteTask(taskId); });
+  ipcMain.handle(CHANNELS.consoleNotes, () => requireLocalApi().notes());
+  ipcMain.handle(CHANNELS.consoleCreateNote, (_event, input: NoteInput) => requireLocalApi().createNote(noteInput(input)));
+  ipcMain.handle(CHANNELS.consoleUpdateNote, (_event, noteId: string, input: NoteInput) => requireLocalApi().updateNote(noteId, noteInput(input)));
+  ipcMain.handle(CHANNELS.consoleDeleteNote, async (_event, noteId: string) => { await requireLocalApi().deleteNote(noteId); });
+  ipcMain.handle(CHANNELS.consoleNoteHistory, (_event, noteId: string) => requireLocalApi().noteHistory(noteId));
   ipcMain.handle(CHANNELS.consoleNotifications, () => requireLocalApi().notifications());
   ipcMain.handle(CHANNELS.consoleReadNotification, async (_event, notificationId: string) => { await requireLocalApi().markNotificationRead(notificationId); });
   ipcMain.handle(CHANNELS.consoleCreateCredential, (_event, input: { name: string; kind: "password" | "ssh_key" | "rdp_password"; secret: string; attachedHostIds: string[] }) => requireLocalApi().createCredential(input));
@@ -564,6 +571,17 @@ if (!app.requestSingleInstanceLock()) {
     cancelBrowserSignIn();
     shutdownSharing();
   });
+}
+
+/** The renderer is untrusted: only known note fields, with the right types, reach the outbox. */
+function noteInput(value: unknown): NoteInput {
+  const input = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const result: NoteInput = {};
+  if (typeof input.title === "string") result.title = input.title.slice(0, 200);
+  if (typeof input.body === "string") result.body = input.body.slice(0, 20000);
+  if (typeof input.color === "string" && (NOTE_COLORS as readonly string[]).includes(input.color)) result.color = input.color as NoteInput["color"];
+  for (const key of ["pinned", "archived", "trashed"] as const) if (typeof input[key] === "boolean") result[key] = input[key];
+  return result;
 }
 
 function snippetOrderNumber(value: unknown): number {

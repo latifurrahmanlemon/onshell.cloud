@@ -145,6 +145,8 @@ model User {
   sessions                 Session[]
   snippets                 Snippet[]
   tasks                    TaskItem[]
+  notes                    Note[]
+  noteRevisions            NoteRevision[]
   refreshTokens            RefreshToken[]
   twoFactorSecret          TwoFactorSecret?
   passwordResetToken       PasswordResetToken[]
@@ -193,6 +195,7 @@ model Organization {
   auditLogs          AuditLog[]
   snippets           Snippet[]
   tasks              TaskItem[]
+  notes              Note[]
   subscriptions      Subscription[]
   usageRecords       UsageRecord[]
   aiThreads          AiThread[]
@@ -576,6 +579,45 @@ model TaskItem {
   owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, ownerId, completed, createdAt])
+}
+
+model Note {
+  id             String         @id @default(cuid())
+  organizationId String
+  ownerId        String
+  title          String         @db.VarChar(200)
+  body           String         @db.Text
+  color          String         @default("default") @db.VarChar(20)
+  pinned         Boolean        @default(false)
+  archived       Boolean        @default(false)
+  trashedAt      DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner          User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  revisions      NoteRevision[]
+
+  @@index([organizationId, ownerId, updatedAt])
+}
+
+/// An immutable snapshot written on every note change, so a user can review and restore earlier versions.
+model NoteRevision {
+  id        String   @id @default(cuid())
+  noteId    String
+  actorId   String
+  action    String   @db.VarChar(32)
+  title     String   @db.VarChar(200)
+  body      String   @db.Text
+  color     String   @db.VarChar(20)
+  pinned    Boolean
+  archived  Boolean
+  trashed   Boolean
+  createdAt DateTime @default(now())
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  actor     User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([noteId, createdAt])
+  @@index([actorId, createdAt])
 }
 
 model AppNotification {

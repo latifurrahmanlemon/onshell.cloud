@@ -34,6 +34,7 @@ const untracked = new Set([
   "console.load",
   "console.sync",
   "console.tasks",
+  "console.notes",
   "console.workspaces",
   "console.hosts",
   "console.snippets",

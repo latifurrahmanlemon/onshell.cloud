@@ -26,7 +26,8 @@ export type IconName =
   | "split"
   | "star"
   | "terminal"
-  | "tasks";
+  | "tasks"
+  | "notebook";
 
 interface Props extends SVGProps<SVGSVGElement> {
   name: IconName;
@@ -149,6 +150,12 @@ export function Icon({ name, size = 18, ...props }: Props) {
       <>
         <path d="M9 6h11M9 12h11M9 18h11" />
         <path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
+      </>
+    ),
+    notebook: (
+      <>
+        <path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z" />
+        <path d="M4 7h3M4 12h3M4 17h3M11 8h5M11 12h5" />
       </>
     )
   };

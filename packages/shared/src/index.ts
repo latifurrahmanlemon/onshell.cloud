@@ -225,6 +225,48 @@ export interface TaskItem {
   updatedAt: string;
 }
 
+export const NOTE_COLORS = ["default", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray"] as const;
+export type NoteColor = (typeof NOTE_COLORS)[number];
+
+export interface NoteItem {
+  id: string;
+  organizationId: string;
+  ownerId: string;
+  title: string;
+  body: string;
+  color: NoteColor;
+  pinned: boolean;
+  archived: boolean;
+  trashed: boolean;
+  trashedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteRevision {
+  id: string;
+  noteId: string;
+  actorId: string;
+  actorName: string;
+  action: "created" | "edited" | "pinned" | "unpinned" | "archived" | "unarchived" | "trashed" | "restored" | "recolored";
+  title: string;
+  body: string;
+  color: NoteColor;
+  pinned: boolean;
+  archived: boolean;
+  trashed: boolean;
+  createdAt: string;
+}
+
+export interface NoteInput {
+  title?: string;
+  body?: string;
+  color?: NoteColor;
+  pinned?: boolean;
+  archived?: boolean;
+  trashed?: boolean;
+}
+
 export interface AppNotification {
   id: string;
   title: string;

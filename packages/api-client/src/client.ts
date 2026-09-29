@@ -47,6 +47,9 @@ import type {
   Role,
   Snippet,
   TaskItem,
+  NoteItem,
+  NoteRevision,
+  NoteInput,
   AppNotification,
   ThemePreference,
   User
@@ -207,6 +210,12 @@ export function createApiClient(options: ApiClientOptions) {
     updateTask: (id: string, body: { text?: string; completed?: boolean }) =>
       request<TaskItem>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deleteTask: (id: string) => request<unknown>(`/tasks/${id}`, { method: "DELETE" }),
+    notes: async () => unwrapList<NoteItem>(await request("/notes"), "notes"),
+    createNote: (body: NoteInput) => request<NoteItem>("/notes", { method: "POST", body: JSON.stringify(body) }),
+    updateNote: (id: string, body: NoteInput) =>
+      request<NoteItem>(`/notes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    deleteNote: (id: string) => request<unknown>(`/notes/${id}`, { method: "DELETE" }),
+    noteHistory: async (id: string) => unwrapList<NoteRevision>(await request(`/notes/${id}/history`), "revisions"),
     notifications: async () => unwrapList<AppNotification>(await request("/notifications"), "notifications"),
     markNotificationRead: (id: string) => request<{ ok: true }>(`/notifications/${id}/read`, { method: "POST" }),
     publishNotification: (body: { title: string; message: string; actionUrl?: string; expiresAt?: string }) =>

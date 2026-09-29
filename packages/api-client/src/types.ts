@@ -17,6 +17,10 @@ import type {
   Role,
   Snippet,
   TaskItem,
+  NoteItem,
+  NoteRevision,
+  NoteInput,
+  NoteColor,
   AppNotification,
   ThemePreference,
   User
@@ -33,6 +37,10 @@ export type {
   Role,
   Snippet,
   TaskItem,
+  NoteItem,
+  NoteRevision,
+  NoteInput,
+  NoteColor,
   AppNotification,
   ThemePreference,
   User

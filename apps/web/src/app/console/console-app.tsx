@@ -27,6 +27,7 @@ import {
   Laptop,
   Layers,
   ListTodo,
+  NotebookPen,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -85,6 +86,7 @@ import {
 import { OnshellMark } from "../brand";
 import { useTheme } from "../theme";
 import "./console.css";
+import { Notebook } from "./notebook";
 
 const SIDEBAR_COLLAPSE_KEY = "onshell-sidebar-collapsed";
 
@@ -106,6 +108,7 @@ type ViewKey =
   | "vault"
   | "snippets"
   | "tasks"
+  | "notebook"
   | "team"
   | "billing"
   | "audit"
@@ -138,6 +141,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: typeof Server }> = [
   { key: "vault", label: "Vault", icon: KeyRound },
   { key: "snippets", label: "Snippets", icon: Braces },
   { key: "tasks", label: "Tasks", icon: ListTodo },
+  { key: "notebook", label: "Notebook", icon: NotebookPen },
   { key: "team", label: "Team", icon: Users },
   { key: "billing", label: "Plan & billing", icon: CreditCard },
   { key: "audit", label: "Audit", icon: ScrollText },
@@ -1349,6 +1353,7 @@ export function ConsoleApp() {
               />
             )}
             {view === "tasks" && <TasksView />}
+            {view === "notebook" && <Notebook api={consoleApi} />}
 
             {view === "team" && (
               <TeamView

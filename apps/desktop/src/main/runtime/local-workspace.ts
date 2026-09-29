@@ -12,6 +12,7 @@ export const collections = [
   "credentials",
   "snippets",
   "tasks",
+  "notes",
   "notifications",
   "sessions",
   "audit",
@@ -69,6 +70,9 @@ const mutations: Record<string, Collection> = {
   createTask: "tasks",
   updateTask: "tasks",
   deleteTask: "tasks",
+  createNote: "notes",
+  updateNote: "notes",
+  deleteNote: "notes",
   recordSession: "sessions",
   createWorkspace: "workspaces",
   deleteWorkspace: "workspaces",
@@ -79,6 +83,7 @@ const paths: Partial<Record<Collection, string>> = {
   credentials: "/credentials",
   snippets: "/snippets",
   tasks: "/tasks",
+  notes: "/notes",
   workspaces: "/host-workspaces",
 };
 export function localEntityId(user: User, nonce: string) {
@@ -158,6 +163,7 @@ export class LocalWorkspace {
         hostIds: [],
         completed: false,
         sortOrder: 0,
+        ...(collection === "notes" && { title: "", body: "", color: "default", pinned: false, archived: false, trashed: false }),
         ...body,
         id,
         organizationId: data.user.organizationId,
@@ -180,6 +186,8 @@ export class LocalWorkspace {
       item.updatedAt = at;
       if (collection === "tasks" && args[1]?.completed !== undefined)
         item.completedAt = args[1].completed ? at : undefined;
+      if (collection === "notes" && args[1]?.trashed !== undefined)
+        item.trashedAt = args[1].trashed ? at : undefined;
     }
     if (collection === "credentials") {
       const localSecrets = (data.localSecrets ??= {});
@@ -446,7 +454,13 @@ export class LocalWorkspace {
         collections.map((key) =>
           key === "audit"
             ? this.client.audit(50)
-            : (this.client[key] as () => Promise<any[]>)(),
+            : key === "notes"
+              ? // A server from before the notebook shipped has no /notes; keep local notes rather than fail the whole sync.
+                this.client.notes().catch((error) => {
+                  if ((error as { status?: number }).status === 404) return this.data.rows.notes ?? [];
+                  throw error;
+                })
+              : (this.client[key] as () => Promise<any[]>)(),
         ),
       );
       let bundle: { grants: OfflineGrant[]; allowed: boolean } | undefined;
